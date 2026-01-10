@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI数据问答平台</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; }
+    .container { max-width: 1300px; margin: 0 auto; padding: 20px; }
+    header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 22px; }
+    header a { color: white; text-decoration: none; opacity: 0.9; }
+    .main-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+    .panel { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
+    .panel-header { padding: 12px 16px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+    .panel-body { padding: 15px; max-height: 280px; overflow-y: auto; }
+    .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background: #667eea; color: white; }
+    .btn-primary:hover { background: #5a6fd6; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    input:focus { outline: none; border-color: #667eea; }
+    .ds-item { padding: 10px 12px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+    .ds-item:hover { border-color: #667eea; }
+    .ds-item.active { border-color: #667eea; background: #f8f9ff; }
+    .ds-item .name { font-weight: 500; font-size: 14px; }
+    .ds-item .type { font-size: 11px; color: #888; margin-top: 2px; }
+    .chat-container { display: flex; flex-direction: column; height: 700px; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 20px; background: #fafbfc; }
+    .message { margin-bottom: 16px; }
+    .message.user { text-align: right; }
+    .message .bubble { display: inline-block; max-width: 85%; padding: 12px 16px; border-radius: 12px; text-align: left; }
+    .message.user .bubble { background: #667eea; color: white; }
+    .message.ai .bubble { background: white; border: 1px solid #eee; }
+    .message.ai .bubble h1, .message.ai .bubble h2, .message.ai .bubble h3 { font-size: 15px; margin: 10px 0 5px; color: #333; }
+    .message.ai .bubble p { margin: 8px 0; line-height: 1.6; }
+    .message.ai .bubble ul, .message.ai .bubble ol { margin: 8px 0; padding-left: 20px; }
+    .message.ai .bubble li { margin: 4px 0; }
+    .message.ai .bubble strong { color: #667eea; }
+    .message.ai .bubble code { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .message.ai .bubble table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+    .message.ai .bubble table th, .message.ai .bubble table td { padding: 6px 10px; border: 1px solid #eee; text-align: left; }
+    .message.ai .bubble table th { background: #f8f9fa; }
+    .message .sql { background: #2d3748; color: #a0aec0; padding: 10px; border-radius: 6px; margin-top: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+    .message .data-table { margin-top: 10px; overflow-x: auto; }
+    .message table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .message th, .message td { padding: 6px 8px; border: 1px solid #eee; text-align: left; }
+    .message th { background: #f8f9fa; }
+    .chat-input { display: flex; gap: 10px; padding: 15px; border-top: 1px solid #eee; background: white; }
+    .chat-input input { flex: 1; }
+    .history-item { padding: 10px 12px; border-radius: 6px; margin-bottom: 6px; cursor: pointer; font-size: 13px; color: #555; background: #f8f9fa; display: flex; justify-content: space-between; }
+    .history-item:hover { background: #eef0f5; }
+    .history-item.active { background: #e8ebf5; color: #667eea; }
+    .history-item .preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-item .delete { opacity: 0; color: #e74c3c; font-size: 16px; }
+    .history-item:hover .delete { opacity: 1; }
+    .empty { text-align: center; padding: 30px; color: #999; font-size: 14px; }
+    .new-chat-btn { width: 100%; margin-bottom: 10px; background: #f0f2f5; color: #333; border: 1px dashed #ccc; }
+    .new-chat-btn:hover { border-color: #667eea; color: #667eea; }
+    .schema-table { margin-bottom: 10px; border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
+    .schema-header { background: #f8f9fa; padding: 10px 12px; font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; cursor: pointer; }
+    .schema-header:hover { background: #f0f2f5; }
+    .schema-header .cn { color: #667eea; font-weight: normal; margin-left: 8px; }
+    .schema-body { display: none; }
+    .schema-table.open .schema-body { display: block; }
+    .schema-col { display: grid; grid-template-columns: 1fr 1fr 70px; padding: 8px 12px; border-top: 1px solid #eee; font-size: 12px; }
+    .schema-col:hover { background: #fafbfc; }
+    .schema-col .name { font-family: monospace; }
+    .schema-col .cn { color: #667eea; }
+    .schema-col .type { color: #888; text-align: right; }
+    .schema-col .edit-btn { opacity: 0; cursor: pointer; color: #667eea; font-size: 11px; margin-left: 5px; }
+    .schema-col:hover .edit-btn { opacity: 1; }
+    .edit-input { padding: 2px 6px; border: 1px solid #667eea; border-radius: 4px; font-size: 12px; width: 80px; }
+    .questions { padding: 15px; border-top: 1px solid #eee; }
+    .questions h4 { font-size: 13px; color: #666; margin-bottom: 10px; }
+    .q-tag { display: inline-block; padding: 6px 12px; margin: 3px; background: #f0f2f5; border-radius: 16px; font-size: 12px; color: #555; cursor: pointer; }
+    .q-tag:hover { background: #667eea; color: white; }
+    .analyze-btn { font-size: 12px; color: #667eea; background: #f0f2f5; border: none; cursor: pointer; padding: 4px 10px; border-radius: 4px; }
+    .analyze-btn:hover { background: #667eea; color: white; }
+    .chart-inline { width: 100%; height: 250px; margin: 12px 0; border-radius: 8px; background: #fafbfc; }
+    .action-btns { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+    .action-btns button { font-size: 12px; padding: 5px 12px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; }
+    .action-btns button:hover { border-color: #667eea; color: #667eea; }
+    .dashboard-btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border: none !important; }
+    .dashboard-btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🤖 AI数据问答平台</h1>
+      <div>
+        <a href="/chat.html" style="margin-right:15px">💬 访客模式</a>
+        <a href="/datasource.html">⚙️ 数据源管理</a>
+      </div>
+    </header>
+    <div class="main-grid">
+      <div>
+        <div class="panel" style="margin-bottom:15px">
+          <div class="panel-header"><span>数据源</span><a href="/datasource.html" style="font-size:12px;color:#667eea;text-decoration:none">管理</a></div>
+          <div class="panel-body" id="ds-list"><div class="empty">暂无数据源</div></div>
+        </div>
+        <div class="panel" id="history-panel" style="display:none;margin-bottom:15px">
+          <div class="panel-header">历史对话</div>
+          <div class="panel-body">
+            <button class="btn new-chat-btn" onclick="newChat()">+ 新对话</button>
+            <div id="history-list"></div>
+          </div>
+        </div>
+        <div class="panel" id="schema-panel" style="display:none">
+          <div class="panel-header"><span>数据结构</span><button class="analyze-btn" id="analyze-btn" onclick="analyzeSchema()">🔍 AI分析</button></div>
+          <div class="panel-body" id="schema-content"></div>
+          <div class="questions" id="questions" style="display:none">
+            <h4>💡 推荐问题</h4>
+            <div id="q-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel chat-container">
+        <div class="chat-messages" id="messages"><div class="empty">选择数据源后开始提问</div></div>
+        <div class="chat-input">
+          <input type="text" id="input" placeholder="输入问题，支持追问..." onkeypress="if(event.key==='Enter')ask()">
+          <button class="btn btn-primary" onclick="ask()">发送</button>
+          <button class="btn dashboard-btn" onclick="openDashboard()" title="生成BI大屏">📊 大屏</button>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+let ds=null,sid=null,dsList=[],schemaData=null,analysisData=null;
+async function load(){dsList=await(await fetch('/api/datasource')).json();renderDS();}
+function renderDS(){const c=document.getElementById('ds-list');if(!dsList.length){c.innerHTML='<div class="empty">暂无，<a href="/datasource.html">去添加</a></div>';return;}c.innerHTML=dsList.map(d=>`<div class="ds-item ${ds?.id===d.id?'active':''}" onclick="selDS('${d.id}')"><div class="name">${esc(d.name)}</div><div class="type">${d.type.toUpperCase()}</div></div>`).join('');}
+async function selDS(id){ds=dsList.find(d=>d.id===id);sid=null;schemaData=null;renderDS();document.getElementById('history-panel').style.display='block';document.getElementById('schema-panel').style.display='block';document.getElementById('questions').style.display='none';document.getElementById('analyze-btn').textContent='🔍 AI分析';loadHistory();loadSchema();newChat();}
+async function loadSchema(){const c=document.getElementById('schema-content');c.innerHTML='<div class="empty">加载中...</div>';try{schemaData=await(await fetch('/api/datasource/'+ds.id+'/schema')).json();analysisData=null;renderSchema();}catch{c.innerHTML='<div class="empty">加载失败</div>';}}
+function renderSchema(){
+  const analysis = analysisData;
+  document.getElementById('schema-content').innerHTML=schemaData.map((t,i)=>{
+    const ta=analysis?.tables?.find(x=>x.tableName===t.tableName);
+    return`<div class="schema-table ${i===0?'open':''}" onclick="this.classList.toggle('open')">
+      <div class="schema-header">
+        <span>📋 ${t.tableName}${ta?.tableNameCn?`<span class="cn" ondblclick="event.stopPropagation();editTableName('${t.tableName}',this)">${ta.tableNameCn}</span>`:''}</span>
+        <span style="color:#888;font-size:11px">${t.columns.length}字段</span>
+      </div>
+      <div class="schema-body" onclick="event.stopPropagation()">
+        ${t.columns.map(col=>{
+          const ca=ta?.columns?.find(x=>x.name===col.name);
+          return`<div class="schema-col">
+            <span class="name">${col.name}</span>
+            <span class="cn" ondblclick="editColName('${t.tableName}','${col.name}',this)">${ca?.nameCn||'-'}<span class="edit-btn">✏️</span></span>
+            <span class="type">${col.type}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+async function analyzeSchema(){if(!ds)return;const btn=document.getElementById('analyze-btn');btn.textContent='分析中...';btn.disabled=true;try{const r=await(await fetch('/api/datasource/'+ds.id+'/schema/analyze')).json();analysisData=r;renderSchema();if(r.suggestedQuestions?.length){document.getElementById('questions').style.display='block';document.getElementById('q-list').innerHTML=r.suggestedQuestions.map(q=>`<span class="q-tag" onclick="askQ(this.textContent)">${esc(q)}</span>`).join('');}btn.textContent=r.cached?'✓ 已缓存':'✓ 已分析';}catch(e){btn.textContent='分析失败';console.error(e);}btn.disabled=false;}
+function editTableName(tableName,el){
+  const oldVal=el.textContent;
+  el.innerHTML=`<input class="edit-input" value="${esc(oldVal)}" onblur="saveTableName('${tableName}',this)" onkeypress="if(event.key==='Enter')this.blur()">`;
+  el.querySelector('input').focus();
+}
+async function saveTableName(tableName,inp){
+  const newVal=inp.value.trim();
+  if(!newVal){inp.parentElement.textContent=inp.defaultValue;return;}
+  try{
+    await fetch(`/api/datasource/${ds.id}/schema/table/${tableName}`,{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tableNameCn:newVal})
+    });
+    if(analysisData){
+      const t=analysisData.tables?.find(x=>x.tableName===tableName);
+      if(t)t.tableNameCn=newVal;
+    }
+    inp.parentElement.textContent=newVal;
+  }catch{inp.parentElement.textContent=inp.defaultValue;}
+}
+function editColName(tableName,colName,el){
+  const oldVal=el.textContent.replace('✏️','').trim();
+  el.innerHTML=`<input class="edit-input" value="${oldVal==='-'?'':esc(oldVal)}" onblur="saveColName('${tableName}','${colName}',this)" onkeypress="if(event.key==='Enter')this.blur()">`;
+  el.querySelector('input').focus();
+}
+async function saveColName(tableName,colName,inp){
+  const newVal=inp.value.trim()||'-';
+  try{
+    await fetch(`/api/datasource/${ds.id}/schema/table/${tableName}/column/${colName}`,{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nameCn:newVal==='-'?'':newVal})
+    });
+    if(analysisData){
+      const t=analysisData.tables?.find(x=>x.tableName===tableName);
+      const c=t?.columns?.find(x=>x.name===colName);
+      if(c)c.nameCn=newVal==='-'?'':newVal;
+    }
+    inp.parentElement.innerHTML=`${newVal}<span class="edit-btn">✏️</span>`;
+  }catch{inp.parentElement.innerHTML=`${inp.defaultValue||'-'}<span class="edit-btn">✏️</span>`;}
+}
+function askQ(q){document.getElementById('input').value=q;ask();}
+async function loadHistory(){if(!ds)return;const s=await(await fetch('/api/chat/sessions/'+ds.id)).json();document.getElementById('history-list').innerHTML=s.length?s.map(x=>`<div class="history-item ${sid===x.id?'active':''}" onclick="loadSess('${x.id}')"><span class="preview">${esc(x.preview)}...</span><span class="delete" onclick="event.stopPropagation();delSess('${x.id}')">&times;</span></div>`).join(''):'<div style="color:#999;font-size:12px;text-align:center">暂无</div>';}
+function newChat(){sid=null;document.getElementById('messages').innerHTML='<div class="empty">开始新对话吧！</div>';loadHistory();}
+async function loadSess(id){sid=id;const s=await(await fetch('/api/chat/session/'+id)).json();renderMsgs(s.messages);loadHistory();}
+async function delSess(id){if(!confirm('确定删除？'))return;await fetch('/api/chat/session/'+id,{method:'DELETE'});sid===id?newChat():loadHistory();}
+function renderMsgs(msgs){const c=document.getElementById('messages');if(!msgs?.length){c.innerHTML='<div class="empty">开始提问吧！</div>';return;}c.innerHTML=msgs.map(m=>m.role==='user'?`<div class="message user"><div class="bubble">${esc(m.content)}</div></div>`:`<div class="message ai"><div class="bubble"><div class="md-content">${renderMd(m.content)}</div>${m.sql?`<div class="sql">${esc(m.sql)}</div>`:''}</div></div>`).join('');c.scrollTop=c.scrollHeight;}
+function renderMd(text){try{return marked.parse(text||'');}catch{return esc(text);}}
+function renderChart(chart){
+  const containers=document.querySelectorAll('.chart-inline');
+  const container=containers[containers.length-1];
+  if(!container||!chart)return;
+  const ec=echarts.init(container);
+  let option={};
+  const {type,data,config,title}=chart;
+  if(type==='pie'){
+    option={title:{text:title,left:'center',textStyle:{fontSize:14}},tooltip:{trigger:'item'},series:[{type:'pie',radius:['40%','70%'],data:data.map(d=>({name:d[config.labelField||config.xField],value:d[config.valueField||config.yField]}))}]};
+  }else if(type==='line'||type==='area'){
+    option={title:{text:title,left:'center',textStyle:{fontSize:14}},tooltip:{trigger:'axis'},xAxis:{type:'category',data:data.map(d=>d[config.xField])},yAxis:{type:'value'},series:[{type:'line',data:data.map(d=>d[config.yField]),smooth:true,areaStyle:type==='area'?{}:undefined}]};
+  }else{
+    option={title:{text:title,left:'center',textStyle:{fontSize:14}},tooltip:{trigger:'axis'},xAxis:{type:'category',data:data.map(d=>d[config.xField]),axisLabel:{rotate:data.length>8?45:0}},yAxis:{type:'value'},series:[{type:'bar',data:data.map(d=>d[config.yField]),itemStyle:{color:'#667eea'}}]};
+  }
+  ec.setOption(option);
+  window.addEventListener('resize',()=>ec.resize());
+}
+function openDashboard(){
+  if(!ds){alert('请先选择数据源');return;}
+  const topic=prompt('请输入大屏主题（如：人口分析、销售概览）');
+  if(!topic)return;
+  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=${encodeURIComponent(topic)}&theme=dark`,'_blank');
+}
+function genDashboardFromQ(q){
+  if(!ds)return;
+  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=${encodeURIComponent(q)}&theme=dark`,'_blank');
+}
+function copyAnswer(btn){
+  const bubble=btn.closest('.bubble');
+  const text=bubble.querySelector('.md-content')?.innerText||'';
+  navigator.clipboard.writeText(text).then(()=>{btn.textContent='✓ 已复制';setTimeout(()=>btn.textContent='📋 复制',1500);});
+}
+async function ask(){const inp=document.getElementById('input'),q=inp.value.trim();if(!q||!ds)return;inp.value='';const c=document.getElementById('messages');if(c.querySelector('.empty'))c.innerHTML='';c.innerHTML+=`<div class="message user"><div class="bubble">${esc(q)}</div></div><div class="message ai" id="loading"><div class="bubble">思考中...</div></div>`;c.scrollTop=c.scrollHeight;try{const r=await(await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({datasourceId:ds.id,question:q,sessionId:sid})})).json();if(r.sessionId)sid=r.sessionId;document.getElementById('loading').remove();const answer=r.answer||r.error||'无法获取回答';let h=`<div class="message ai"><div class="bubble"><div class="md-content">${renderMd(answer)}</div>`;if(r.sql)h+=`<div class="sql">${esc(r.sql)}</div>`;if(r.chart)h+=`<div class="chart-inline" id="chart_${Date.now()}"></div>`;if(r.data?.length)h+=renderTbl(r.data.slice(0,20));h+=`<div class="action-btns"><button onclick="genDashboardFromQ('${esc(q)}')">📊 生成大屏</button><button onclick="copyAnswer(this)">📋 复制</button></div>`;c.innerHTML+=h+'</div></div>';if(r.chart)renderChart(r.chart);loadHistory();}catch(e){document.getElementById('loading').remove();c.innerHTML+=`<div class="message ai"><div class="bubble">请求失败: ${esc(e.message||'未知错误')}</div></div>`;}c.scrollTop=c.scrollHeight;}
+function renderTbl(d){const k=Object.keys(d[0]);return`<div class="data-table"><table><thead><tr>${k.map(x=>`<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${d.map(r=>`<tr>${k.map(x=>`<td>${esc(String(r[x]??''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+load();
+</script>
+</body>
+</html>

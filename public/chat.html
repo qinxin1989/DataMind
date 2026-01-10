@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI数据问答</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; display: flex; flex-direction: column; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 18px; font-weight: 500; }
+    .header select { padding: 6px 12px; border: none; border-radius: 6px; font-size: 14px; background: rgba(255,255,255,0.2); color: white; cursor: pointer; }
+    .header select option { color: #333; }
+    .chat-wrap { flex: 1; display: flex; flex-direction: column; max-width: 900px; width: 100%; margin: 0 auto; padding: 20px; }
+    .chat-box { flex: 1; background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); display: flex; flex-direction: column; overflow: hidden; }
+    .messages { flex: 1; overflow-y: auto; padding: 20px; }
+    .message { margin-bottom: 16px; }
+    .message.user { text-align: right; }
+    .message .bubble { display: inline-block; max-width: 80%; padding: 12px 16px; border-radius: 12px; text-align: left; }
+    .message.user .bubble { background: #667eea; color: white; }
+    .message.ai .bubble { background: #f8f9fa; }
+    .message.ai .bubble h1, .message.ai .bubble h2, .message.ai .bubble h3 { font-size: 15px; margin: 10px 0 5px; color: #333; }
+    .message.ai .bubble p { margin: 8px 0; line-height: 1.6; }
+    .message.ai .bubble ul, .message.ai .bubble ol { margin: 8px 0; padding-left: 20px; }
+    .message.ai .bubble li { margin: 4px 0; }
+    .message.ai .bubble strong { color: #667eea; }
+    .message.ai .bubble code { background: #e9ecef; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .message .sql { background: #2d3748; color: #a0aec0; padding: 10px; border-radius: 6px; margin-top: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+    .message .data-table { margin-top: 10px; overflow-x: auto; }
+    .message table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .message th, .message td { padding: 6px 8px; border: 1px solid #eee; text-align: left; }
+    .message th { background: #f0f2f5; }
+    .input-area { padding: 15px; border-top: 1px solid #eee; display: flex; gap: 10px; }
+    .input-area input { flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .input-area input:focus { outline: none; border-color: #667eea; }
+    .input-area button { padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+    .input-area button:hover { background: #5a6fd6; }
+    .welcome { text-align: center; padding: 60px 20px; color: #666; }
+    .welcome h2 { font-size: 20px; margin-bottom: 10px; color: #333; }
+    .welcome p { font-size: 14px; margin-bottom: 30px; }
+    .suggestions { margin-top: 20px; }
+    .suggestions h4 { font-size: 13px; color: #888; margin-bottom: 12px; }
+    .q-tag { display: inline-block; padding: 8px 16px; margin: 5px; background: white; border: 1px solid #e0e0e0; border-radius: 20px; font-size: 13px; color: #555; cursor: pointer; transition: all 0.2s; }
+    .q-tag:hover { border-color: #667eea; color: #667eea; background: #f8f9ff; }
+    .empty { text-align: center; padding: 40px; color: #999; }
+    .loading { color: #888; }
+    .chart-inline { width: 100%; height: 250px; margin: 12px 0; border-radius: 8px; background: #f8f9fa; }
+    .action-btns { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+    .action-btns button { font-size: 12px; padding: 5px 12px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; }
+    .action-btns button:hover { border-color: #667eea; color: #667eea; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🤖 AI数据问答</h1>
+    <select id="ds-select" onchange="selectDS()">
+      <option value="">选择数据源</option>
+    </select>
+  </div>
+  
+  <div class="chat-wrap">
+    <div class="chat-box">
+      <div class="messages" id="messages">
+        <div class="welcome" id="welcome">
+          <h2>👋 你好，我是数据助手</h2>
+          <p>选择数据源后，用自然语言向我提问</p>
+        </div>
+      </div>
+      <div class="input-area">
+        <input type="text" id="input" placeholder="输入你的问题..." onkeypress="if(event.key==='Enter')ask()" disabled>
+        <button onclick="ask()" id="send-btn" disabled>发送</button>
+        <button onclick="openDashboard()" id="dashboard-btn" disabled style="background:#667eea">📊 大屏</button>
+        <button onclick="generatePPT()" id="ppt-btn" disabled style="background:#52c41a">生成PPT</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+let ds = null, sid = null, questions = [];
+
+async function load() {
+  const list = await (await fetch('/api/datasource')).json();
+  const sel = document.getElementById('ds-select');
+  sel.innerHTML = '<option value="">选择数据源</option>' + list.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+}
+
+async function selectDS() {
+  const sel = document.getElementById('ds-select');
+  const id = sel.value;
+  if (!id) { ds = null; return; }
+  
+  ds = { id };
+  sid = null;
+  document.getElementById('input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('ppt-btn').disabled = false;
+  document.getElementById('dashboard-btn').disabled = false;
+  
+  // 显示欢迎和推荐问题
+  showWelcome();
+}
+
+async function showWelcome() {
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = `<div class="welcome"><h2>👋 开始提问吧</h2><p>你可以用自然语言询问数据相关的问题</p><div class="suggestions" id="suggestions"><h4>💡 正在生成推荐问题...</h4></div></div>`;
+  
+  // 获取推荐问题
+  try {
+    const r = await fetch('/api/datasource/' + ds.id + '/schema/analyze');
+    const data = await r.json();
+    questions = data.suggestedQuestions || [];
+    
+    if (questions.length) {
+      document.getElementById('suggestions').innerHTML = `<h4>💡 试试这些问题</h4>${questions.map(q => `<span class="q-tag" onclick="askQ('${esc(q)}')">${esc(q)}</span>`).join('')}`;
+    } else {
+      document.getElementById('suggestions').innerHTML = '';
+    }
+  } catch {
+    document.getElementById('suggestions').innerHTML = '';
+  }
+}
+
+function askQ(q) {
+  document.getElementById('input').value = q;
+  ask();
+}
+
+async function ask() {
+  const inp = document.getElementById('input');
+  const q = inp.value.trim();
+  if (!q || !ds) return;
+  
+  inp.value = '';
+  const msgs = document.getElementById('messages');
+  
+  // 清除欢迎页
+  if (msgs.querySelector('.welcome')) msgs.innerHTML = '';
+  
+  // 添加用户消息
+  msgs.innerHTML += `<div class="message user"><div class="bubble">${esc(q)}</div></div>`;
+  msgs.innerHTML += `<div class="message ai" id="loading"><div class="bubble loading">思考中...</div></div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+  
+  try {
+    const r = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ datasourceId: ds.id, question: q, sessionId: sid })
+    });
+    const data = await r.json();
+    if (data.sessionId) sid = data.sessionId;
+    
+    document.getElementById('loading').remove();
+    
+    let html = `<div class="message ai"><div class="bubble"><div class="md-content">${renderMd(data.answer)}</div>`;
+    if (data.sql) html += `<div class="sql">${esc(data.sql)}</div>`;
+    if (data.chart) html += `<div class="chart-inline" id="chart_${Date.now()}"></div>`;
+    if (data.data?.length) html += renderTable(data.data.slice(0, 20));
+    
+    // 操作按钮
+    html += `<div class="action-btns"><button onclick="genDashboard('${esc(q)}')">📊 生成大屏</button></div>`;
+    
+    // 在回答后显示推荐问题
+    if (questions.length) {
+      html += `<div style="margin-top:15px;padding-top:12px;border-top:1px solid #eee"><span style="font-size:12px;color:#888">继续问：</span>`;
+      html += questions.slice(0, 3).map(q => `<span class="q-tag" style="font-size:12px;padding:4px 10px;margin:3px" onclick="askQ('${esc(q)}')">${esc(q.length > 20 ? q.slice(0,20)+'...' : q)}</span>`).join('');
+      html += `</div>`;
+    }
+    
+    html += '</div></div>';
+    msgs.innerHTML += html;
+    
+    // 渲染图表
+    if (data.chart) renderChart(data.chart);
+  } catch(e) {
+    document.getElementById('loading').remove();
+    msgs.innerHTML += `<div class="message ai"><div class="bubble">请求失败: ${esc(e.message || '请重试')}</div></div>`;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function renderMd(text) {
+  try { return marked.parse(text || ''); } catch { return esc(text); }
+}
+
+function renderChart(chart) {
+  const containers = document.querySelectorAll('.chart-inline');
+  const container = containers[containers.length - 1];
+  if (!container || !chart) return;
+  
+  const ec = echarts.init(container);
+  let option = {};
+  const { type, data, config, title } = chart;
+  
+  if (type === 'pie') {
+    option = {
+      title: { text: title, left: 'center', textStyle: { fontSize: 14 } },
+      tooltip: { trigger: 'item' },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '70%'],
+        data: data.map(d => ({ name: d[config.labelField || config.xField], value: d[config.valueField || config.yField] }))
+      }]
+    };
+  } else if (type === 'line' || type === 'area') {
+    option = {
+      title: { text: title, left: 'center', textStyle: { fontSize: 14 } },
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', data: data.map(d => d[config.xField]) },
+      yAxis: { type: 'value' },
+      series: [{ type: 'line', data: data.map(d => d[config.yField]), smooth: true, areaStyle: type === 'area' ? {} : undefined }]
+    };
+  } else {
+    option = {
+      title: { text: title, left: 'center', textStyle: { fontSize: 14 } },
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', data: data.map(d => d[config.xField]), axisLabel: { rotate: data.length > 8 ? 45 : 0 } },
+      yAxis: { type: 'value' },
+      series: [{ type: 'bar', data: data.map(d => d[config.yField]), itemStyle: { color: '#667eea' } }]
+    };
+  }
+  
+  ec.setOption(option);
+  window.addEventListener('resize', () => ec.resize());
+}
+
+function openDashboard() {
+  if (!ds) { alert('请先选择数据源'); return; }
+  const topic = prompt('请输入大屏主题（如：人口分析、销售概览）');
+  if (!topic) return;
+  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=${encodeURIComponent(topic)}&theme=dark`, '_blank');
+}
+
+function genDashboard(q) {
+  if (!ds) return;
+  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=${encodeURIComponent(q)}&theme=dark`, '_blank');
+}
+
+// 生成PPT功能
+async function generatePPT() {
+  const inp = document.getElementById('input');
+  const content = inp.value.trim();
+  
+  if (!content) {
+    alert('请先输入要生成PPT的内容');
+    return;
+  }
+  
+  const msgs = document.getElementById('messages');
+  if (msgs.querySelector('.welcome')) msgs.innerHTML = '';
+  
+  msgs.innerHTML += `<div class="message user"><div class="bubble">📊 生成PPT: ${esc(content.slice(0, 100))}...</div></div>`;
+  msgs.innerHTML += `<div class="message ai" id="loading"><div class="bubble loading">正在生成PPT，请稍候...</div></div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+  
+  inp.value = '';
+  
+  try {
+    const r = await fetch('/api/agent/format-and-ppt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        content: content,
+        title: '数据分析报告',
+        theme: 'corporate'
+      })
+    });
+    
+    const data = await r.json();
+    document.getElementById('loading').remove();
+    
+    if (data.error) {
+      msgs.innerHTML += `<div class="message ai"><div class="bubble">❌ ${esc(data.error)}</div></div>`;
+    } else {
+      let html = `<div class="message ai"><div class="bubble">`;
+      html += `<div>✅ PPT已生成！</div>`;
+      if (data.ppt) {
+        // 提取下载链接
+        const match = data.ppt.match(/http:\/\/[^\s]+\.pptx/);
+        if (match) {
+          html += `<div style="margin-top:10px"><a href="${match[0]}" target="_blank" style="color:#667eea;text-decoration:none">📥 点击下载PPT</a></div>`;
+        } else {
+          html += `<div style="margin-top:10px">${esc(data.ppt)}</div>`;
+        }
+      }
+      if (data.formatted) {
+        html += `<div style="margin-top:15px;padding:10px;background:#f8f9fa;border-radius:6px;font-size:12px;max-height:200px;overflow:auto"><pre style="white-space:pre-wrap;margin:0">${esc(data.formatted)}</pre></div>`;
+      }
+      html += `</div></div>`;
+      msgs.innerHTML += html;
+    }
+  } catch(e) {
+    document.getElementById('loading').remove();
+    msgs.innerHTML += `<div class="message ai"><div class="bubble">❌ 生成失败: ${esc(e.message || '请重试')}</div></div>`;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function renderTable(data) {
+  const keys = Object.keys(data[0]);
+  return `<div class="data-table"><table><thead><tr>${keys.map(k => `<th>${esc(k)}</th>`).join('')}</tr></thead><tbody>${data.map(r => `<tr>${keys.map(k => `<td>${esc(String(r[k] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+load();
+</script>
+</body>
+</html>

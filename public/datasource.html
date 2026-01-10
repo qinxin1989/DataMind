@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据源管理 - AI数据问答平台</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; }
+    .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+    header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 22px; }
+    header a { color: white; text-decoration: none; opacity: 0.9; }
+    header a:hover { opacity: 1; }
+    .panel { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 20px; }
+    .panel-header { padding: 15px 20px; border-bottom: 1px solid #eee; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+    .panel-body { padding: 20px; }
+    .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+    .btn-primary { background: #667eea; color: white; }
+    .btn-primary:hover { background: #5a6fd6; }
+    .btn-success { background: #27ae60; color: white; }
+    .btn-success:hover { background: #219a52; }
+    .btn-danger { background: #e74c3c; color: white; }
+    .btn-danger:hover { background: #c0392b; }
+    .btn-outline { background: white; border: 1px solid #ddd; color: #666; }
+    .btn-outline:hover { border-color: #667eea; color: #667eea; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #667eea; }
+    label { display: block; margin-bottom: 5px; font-size: 13px; color: #666; font-weight: 500; }
+    .form-group { margin-bottom: 15px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    .ds-list { display: flex; flex-direction: column; gap: 10px; }
+    .ds-item { padding: 15px; border: 1px solid #eee; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
+    .ds-item:hover { border-color: #667eea; box-shadow: 0 2px 8px rgba(102,126,234,0.15); }
+    .ds-item.active { border-color: #667eea; background: #f8f9ff; }
+    .ds-info { flex: 1; }
+    .ds-info .name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+    .ds-info .meta { font-size: 12px; color: #888; }
+    .ds-actions { display: flex; gap: 8px; }
+    .ds-actions .btn { padding: 6px 12px; font-size: 12px; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .status-success { background: #d4edda; color: #155724; }
+    .status-error { background: #f8d7da; color: #721c24; }
+    .status-pending { background: #fff3cd; color: #856404; }
+    .empty { text-align: center; padding: 40px; color: #999; }
+    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; z-index: 1000; animation: slideIn 0.3s; }
+    .toast-success { background: #27ae60; }
+    .toast-error { background: #e74c3c; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .form-section { border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-top: 15px; }
+    .form-section-title { font-size: 13px; color: #888; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📊 数据源管理</h1>
+      <a href="/">← 返回问答</a>
+    </header>
+
+    <!-- 数据源列表 -->
+    <div class="panel">
+      <div class="panel-header">
+        已配置的数据源
+        <button class="btn btn-primary" onclick="showForm()">+ 新增数据源</button>
+      </div>
+      <div class="panel-body">
+        <div class="ds-list" id="ds-list">
+          <div class="empty">暂无数据源，点击上方按钮添加</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增/编辑表单 -->
+    <div class="panel" id="form-panel" style="display:none">
+      <div class="panel-header">
+        <span id="form-title">新增数据源</span>
+        <button class="btn btn-outline" onclick="hideForm()">取消</button>
+      </div>
+      <div class="panel-body">
+        <input type="hidden" id="edit-id">
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label>数据源名称 *</label>
+            <input type="text" id="ds-name" placeholder="如：生产数据库">
+          </div>
+          <div class="form-group">
+            <label>类型 *</label>
+            <select id="ds-type" onchange="toggleConfigFields()">
+              <option value="mysql">MySQL</option>
+              <option value="postgres">PostgreSQL</option>
+              <option value="file">文件 (CSV/Excel/JSON)</option>
+              <option value="api">API接口</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 数据库配置 -->
+        <div id="db-config" class="form-section">
+          <div class="form-section-title">数据库连接配置</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>主机地址</label>
+              <input type="text" id="db-host" placeholder="localhost" value="localhost">
+            </div>
+            <div class="form-group">
+              <label>端口</label>
+              <input type="number" id="db-port" placeholder="3306" value="3306">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>用户名</label>
+              <input type="text" id="db-user" placeholder="root">
+            </div>
+            <div class="form-group">
+              <label>密码</label>
+              <input type="password" id="db-password">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>数据库名</label>
+            <input type="text" id="db-database" placeholder="mydb">
+          </div>
+        </div>
+
+        <!-- 文件配置 -->
+        <div id="file-config" class="form-section" style="display:none">
+          <div class="form-section-title">文件配置</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>文件路径</label>
+              <input type="text" id="file-path" placeholder="/path/to/data.csv">
+            </div>
+            <div class="form-group">
+              <label>文件类型</label>
+              <select id="file-type">
+                <option value="csv">CSV</option>
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="json">JSON</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- API配置 -->
+        <div id="api-config" class="form-section" style="display:none">
+          <div class="form-section-title">API配置</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>API地址</label>
+              <input type="text" id="api-url" placeholder="https://api.example.com/data">
+            </div>
+            <div class="form-group">
+              <label>请求方法</label>
+              <select id="api-method">
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Headers (JSON格式，可选)</label>
+            <textarea id="api-headers" rows="2" placeholder='{"Authorization": "Bearer xxx"}'></textarea>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:20px">
+          <button class="btn btn-success" onclick="testConnection()">🔌 测试连接</button>
+          <button class="btn btn-primary" onclick="saveDataSource()">💾 保存</button>
+        </div>
+        <div id="test-result" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '';
+    let datasources = [];
+    let editingId = null;
+
+    async function loadDatasources() {
+      const res = await fetch(`${API_BASE}/api/datasource`);
+      datasources = await res.json();
+      renderList();
+    }
+
+    function renderList() {
+      const container = document.getElementById('ds-list');
+      if (datasources.length === 0) {
+        container.innerHTML = '<div class="empty">暂无数据源，点击上方按钮添加</div>';
+        return;
+      }
+      container.innerHTML = datasources.map(ds => `
+        <div class="ds-item">
+          <div class="ds-info">
+            <div class="name">${escapeHtml(ds.name)}</div>
+            <div class="meta">${ds.type.toUpperCase()} ${ds.host ? `· ${ds.host}` : ''}</div>
+          </div>
+          <div class="ds-actions">
+            <button class="btn btn-outline" onclick="testById('${ds.id}')">测试</button>
+            <button class="btn btn-outline" onclick="editDataSource('${ds.id}')">编辑</button>
+            <button class="btn btn-danger" onclick="deleteDataSource('${ds.id}')">删除</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function showForm(id = null) {
+      editingId = id;
+      document.getElementById('form-panel').style.display = 'block';
+      document.getElementById('form-title').textContent = id ? '编辑数据源' : '新增数据源';
+      document.getElementById('test-result').innerHTML = '';
+      
+      if (!id) {
+        // 清空表单
+        document.getElementById('ds-name').value = '';
+        document.getElementById('ds-type').value = 'mysql';
+        document.getElementById('db-host').value = 'localhost';
+        document.getElementById('db-port').value = '3306';
+        document.getElementById('db-user').value = '';
+        document.getElementById('db-password').value = '';
+        document.getElementById('db-database').value = '';
+        toggleConfigFields();
+      }
+    }
+
+    function hideForm() {
+      document.getElementById('form-panel').style.display = 'none';
+      editingId = null;
+    }
+
+    function toggleConfigFields() {
+      const type = document.getElementById('ds-type').value;
+      document.getElementById('db-config').style.display = ['mysql','postgres'].includes(type) ? 'block' : 'none';
+      document.getElementById('file-config').style.display = type === 'file' ? 'block' : 'none';
+      document.getElementById('api-config').style.display = type === 'api' ? 'block' : 'none';
+      
+      if (type === 'postgres') {
+        document.getElementById('db-port').value = '5432';
+      } else if (type === 'mysql') {
+        document.getElementById('db-port').value = '3306';
+      }
+    }
+
+    function getFormData() {
+      const type = document.getElementById('ds-type').value;
+      const name = document.getElementById('ds-name').value.trim();
+      
+      if (!name) {
+        toast('请输入数据源名称', 'error');
+        return null;
+      }
+
+      let config;
+      if (['mysql', 'postgres'].includes(type)) {
+        config = {
+          host: document.getElementById('db-host').value || 'localhost',
+          port: parseInt(document.getElementById('db-port').value) || 3306,
+          user: document.getElementById('db-user').value,
+          password: document.getElementById('db-password').value,
+          database: document.getElementById('db-database').value
+        };
+        if (!config.user || !config.database) {
+          toast('请填写用户名和数据库名', 'error');
+          return null;
+        }
+      } else if (type === 'file') {
+        config = {
+          path: document.getElementById('file-path').value,
+          fileType: document.getElementById('file-type').value
+        };
+        if (!config.path) {
+          toast('请填写文件路径', 'error');
+          return null;
+        }
+      } else {
+        let headers = {};
+        try { headers = JSON.parse(document.getElementById('api-headers').value || '{}'); } catch {}
+        config = {
+          url: document.getElementById('api-url').value,
+          method: document.getElementById('api-method').value,
+          headers
+        };
+        if (!config.url) {
+          toast('请填写API地址', 'error');
+          return null;
+        }
+      }
+
+      return { name, type, config };
+    }
+
+    async function testConnection() {
+      const data = getFormData();
+      if (!data) return;
+
+      const resultDiv = document.getElementById('test-result');
+      resultDiv.innerHTML = '<span class="status status-pending">测试中...</span>';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/datasource/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        
+        if (result.success) {
+          resultDiv.innerHTML = '<span class="status status-success">✓ 连接成功</span>';
+        } else {
+          resultDiv.innerHTML = `<span class="status status-error">✗ 连接失败: ${escapeHtml(result.error)}</span>`;
+        }
+      } catch (e) {
+        resultDiv.innerHTML = '<span class="status status-error">✗ 请求失败</span>';
+      }
+    }
+
+    async function testById(id) {
+      toast('测试连接中...', 'success');
+      try {
+        const res = await fetch(`${API_BASE}/api/datasource/${id}/test`);
+        const result = await res.json();
+        toast(result.success ? '连接成功！' : `连接失败: ${result.error}`, result.success ? 'success' : 'error');
+      } catch {
+        toast('测试请求失败', 'error');
+      }
+    }
+
+    async function saveDataSource() {
+      const data = getFormData();
+      if (!data) return;
+
+      try {
+        const url = editingId ? `${API_BASE}/api/datasource/${editingId}` : `${API_BASE}/api/datasource`;
+        const method = editingId ? 'PUT' : 'POST';
+        
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        
+        if (result.error) {
+          toast(result.error, 'error');
+        } else {
+          toast(editingId ? '更新成功' : '添加成功', 'success');
+          hideForm();
+          loadDatasources();
+        }
+      } catch (e) {
+        toast('保存失败', 'error');
+      }
+    }
+
+    async function editDataSource(id) {
+      try {
+        const res = await fetch(`${API_BASE}/api/datasource/${id}/detail`);
+        const ds = await res.json();
+        
+        showForm(id);
+        document.getElementById('ds-name').value = ds.name;
+        document.getElementById('ds-type').value = ds.type;
+        toggleConfigFields();
+        
+        if (['mysql', 'postgres'].includes(ds.type)) {
+          document.getElementById('db-host').value = ds.config.host || '';
+          document.getElementById('db-port').value = ds.config.port || '';
+          document.getElementById('db-user').value = ds.config.user || '';
+          document.getElementById('db-password').value = ds.config.password || '';
+          document.getElementById('db-database').value = ds.config.database || '';
+        } else if (ds.type === 'file') {
+          document.getElementById('file-path').value = ds.config.path || '';
+          document.getElementById('file-type').value = ds.config.fileType || 'csv';
+        } else if (ds.type === 'api') {
+          document.getElementById('api-url').value = ds.config.url || '';
+          document.getElementById('api-method').value = ds.config.method || 'GET';
+          document.getElementById('api-headers').value = JSON.stringify(ds.config.headers || {});
+        }
+      } catch (e) {
+        toast('获取详情失败', 'error');
+      }
+    }
+
+    async function deleteDataSource(id) {
+      if (!confirm('确定要删除这个数据源吗？')) return;
+      
+      try {
+        await fetch(`${API_BASE}/api/datasource/${id}`, { method: 'DELETE' });
+        toast('删除成功', 'success');
+        loadDatasources();
+      } catch {
+        toast('删除失败', 'error');
+      }
+    }
+
+    function toast(msg, type = 'success') {
+      const div = document.createElement('div');
+      div.className = `toast toast-${type}`;
+      div.textContent = msg;
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 3000);
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    loadDatasources();
+  </script>
+</body>
+</html>
