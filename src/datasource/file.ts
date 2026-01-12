@@ -39,8 +39,14 @@ export class FileDataSource extends BaseDataSource {
         type: this.inferType(this.data[0][key]),
         nullable: true,
       }));
+      
+      // 使用原始文件名作为表名（如果有的话），否则从路径提取
+      let tableName = (this.config.config as any).originalName || this.config.path.split(/[\/\\]/).pop() || 'file_data';
+      // 移除文件扩展名
+      tableName = tableName.replace(/\.[^.]+$/, '');
+      
       this.schema = {
-        tableName: this.config.path.split('/').pop() || 'file_data',
+        tableName,
         columns,
         sampleData: this.data.slice(0, 3),
       };

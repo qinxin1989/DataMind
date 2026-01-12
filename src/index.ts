@@ -28,9 +28,10 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
+    // 使用 UUID 作为文件名，避免中文编码问题
     const ext = path.extname(file.originalname);
-    const name = path.basename(file.originalname, ext);
-    cb(null, `${name}-${Date.now()}${ext}`);
+    const filename = `${uuidv4()}${ext}`;
+    cb(null, filename);
   }
 });
 
@@ -102,18 +103,21 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: '请提供数据源名称' });
     }
 
-    // 确定文件类型
-    const ext = path.extname(req.file.originalname).toLowerCase();
+    // 处理中文文件名编码
+    const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    const ext = path.extname(originalName).toLowerCase();
     const detectedType = fileType || (ext === '.csv' ? 'csv' : ext === '.json' ? 'json' : 'xlsx');
 
     // 创建文件数据源配置
+    // 注意：path 存储的是实际的文件系统路径（使用 UUID），originalName 存储原始文件名
     const config: DataSourceConfig = {
       id: uuidv4(),
       name,
       type: 'file',
       config: {
         path: req.file.path,
-        fileType: detectedType
+        fileType: detectedType,
+        originalName: originalName  // 保存原始文件名用于显示
       }
     };
 
@@ -130,7 +134,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       name,
       message: '文件上传成功',
       file: {
-        originalName: req.file.originalname,
+        originalName: originalName,
         size: req.file.size,
         path: req.file.path
       }
@@ -138,7 +142,11 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   } catch (error: any) {
     // 删除已上传的文件
     if (req.file) {
-      fs.unlinkSync(req.file.path);
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {
+        // 忽略删除失败
+      }
     }
     console.error('文件上传失败:', error.message);
     res.status(400).json({ error: error.message });
