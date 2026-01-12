@@ -56,7 +56,11 @@
   <div class="container">
     <header>
       <h1>📊 数据源管理</h1>
-      <a href="/">← 返回问答</a>
+      <div style="display:flex;align-items:center;gap:15px">
+        <span id="userDisplay" style="font-size:14px;opacity:0.9"></span>
+        <a href="/">← 返回问答</a>
+        <button onclick="logout()" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px">退出</button>
+      </div>
     </header>
 
     <!-- 数据源列表 -->
@@ -187,6 +191,30 @@
     let editingId = null;
     let selectedFile = null;
 
+    // 认证检查
+    function checkAuth() {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        window.location.href = '/login.html';
+        return false;
+      }
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      document.getElementById('userDisplay').textContent = '👤 ' + (user.fullName || user.username || '用户');
+      return true;
+    }
+
+    function logout() {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      window.location.href = '/login.html';
+    }
+
+    function getAuthHeaders() {
+      return { 'Authorization': 'Bearer ' + localStorage.getItem('authToken'), 'Content-Type': 'application/json' };
+    }
+
+    if (!checkAuth()) throw new Error('未登录');
+
     function handleFileSelect() {
       const fileInput = document.getElementById('file-upload');
       selectedFile = fileInput.files[0];
@@ -229,8 +257,10 @@
       try {
         const res = await fetch(`${API_BASE}/api/upload`, {
           method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + localStorage.getItem('authToken') },
           body: formData
         });
+        if (res.status === 401) { logout(); return false; }
         const result = await res.json();
         
         if (result.error) {
@@ -253,7 +283,8 @@
 
     async function loadDatasources() {
       try {
-        const res = await fetch(`${API_BASE}/api/datasource`);
+        const res = await fetch(`${API_BASE}/api/datasource`, { headers: getAuthHeaders() });
+        if (res.status === 401) { logout(); return; }
         if (!res.ok) {
           console.error('获取数据源失败:', res.status);
           datasources = [];
@@ -386,9 +417,10 @@
       try {
         const res = await fetch(`${API_BASE}/api/datasource/test`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify(data)
         });
+        if (res.status === 401) { logout(); return; }
         const result = await res.json();
         
         if (result.success) {
@@ -404,7 +436,8 @@
     async function testById(id) {
       toast('测试连接中...', 'success');
       try {
-        const res = await fetch(`${API_BASE}/api/datasource/${id}/test`);
+        const res = await fetch(`${API_BASE}/api/datasource/${id}/test`, { headers: getAuthHeaders() });
+        if (res.status === 401) { logout(); return; }
         const result = await res.json();
         toast(result.success ? '连接成功！' : `连接失败: ${result.error}`, result.success ? 'success' : 'error');
       } catch {
@@ -430,9 +463,10 @@
         
         const res = await fetch(url, {
           method,
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify(data)
         });
+        if (res.status === 401) { logout(); return; }
         const result = await res.json();
         
         if (result.error) {
@@ -449,7 +483,8 @@
 
     async function editDataSource(id) {
       try {
-        const res = await fetch(`${API_BASE}/api/datasource/${id}/detail`);
+        const res = await fetch(`${API_BASE}/api/datasource/${id}/detail`, { headers: getAuthHeaders() });
+        if (res.status === 401) { logout(); return; }
         const ds = await res.json();
         
         showForm(id);
@@ -480,7 +515,8 @@
       if (!confirm('确定要删除这个数据源吗？')) return;
       
       try {
-        await fetch(`${API_BASE}/api/datasource/${id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/api/datasource/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+        if (res.status === 401) { logout(); return; }
         toast('删除成功', 'success');
         loadDatasources();
       } catch {

@@ -23,7 +23,7 @@ export interface SchemaAnalysis {
   suggestedQuestions: string[];
   analyzedAt: number;
   updatedAt: number;
-  isUserEdited: boolean;  // 标记是否被用户编辑过
+  isUserEdited: boolean;
 }
 
 export interface TableAnalysis {
@@ -42,7 +42,7 @@ export interface ColumnAnalysis {
 
 // 配置存储 - 使用MySQL持久化
 export class ConfigStore {
-  private pool: mysql.Pool;
+  pool: mysql.Pool;
 
   constructor() {
     this.pool = mysql.createPool({
@@ -50,7 +50,7 @@ export class ConfigStore {
       port: parseInt(process.env.CONFIG_DB_PORT || '3306'),
       user: process.env.CONFIG_DB_USER || 'root',
       password: process.env.CONFIG_DB_PASSWORD || '',
-      database: process.env.CONFIG_DB_NAME || 'taobao_data',
+      database: process.env.CONFIG_DB_NAME || 'ai-data-platform',
       waitForConnections: true,
       connectionLimit: 5,
     });
@@ -76,18 +76,27 @@ export class ConfigStore {
 
   async save(config: DataSourceConfig): Promise<void> {
     await this.pool.execute(
-      `INSERT INTO datasource_config (id, name, type, config) VALUES (?, ?, ?, ?)
+      `INSERT INTO datasource_config (id, user_id, name, type, config) VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE name=?, type=?, config=?`,
-      [config.id, config.name, config.type, JSON.stringify(config.config),
+      [config.id, config.userId, config.name, config.type, JSON.stringify(config.config),
        config.name, config.type, JSON.stringify(config.config)]
     );
   }
 
-  async getAll(): Promise<DataSourceConfig[]> {
+  async getAll(userId?: string): Promise<DataSourceConfig[]> {
     try {
-      const [rows] = await this.pool.execute('SELECT * FROM datasource_config');
+      let query = 'SELECT * FROM datasource_config';
+      const params: any[] = [];
+
+      if (userId) {
+        query += ' WHERE user_id = ?';
+        params.push(userId);
+      }
+
+      const [rows] = await this.pool.execute(query, params);
       return (rows as any[]).map(row => ({
         id: row.id,
+        userId: row.user_id,
         name: row.name,
         type: row.type,
         config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
@@ -95,6 +104,28 @@ export class ConfigStore {
     } catch (error: any) {
       console.warn('获取数据源配置失败，返回空列表:', error.message);
       return [];
+    }
+  }
+
+  async getById(id: string): Promise<DataSourceConfig | null> {
+    try {
+      const [rows] = await this.pool.execute(
+        'SELECT * FROM datasource_config WHERE id = ?',
+        [id]
+      );
+      const row = (rows as any[])[0];
+      if (!row) return null;
+
+      return {
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        type: row.type,
+        config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
+      };
+    } catch (error: any) {
+      console.warn('获取数据源配置失败:', error.message);
+      return null;
     }
   }
 
@@ -145,16 +176,16 @@ export class ConfigStore {
     }));
   }
 
-  async saveChatSession(session: ChatSession): Promise<void> {
+  async saveChatSession(session: ChatSession, userId: string): Promise<void> {
     try {
       // 清理消息中的无效字符
       const sanitizedMessages = this.sanitizeMessages(session.messages);
       const messagesStr = JSON.stringify(sanitizedMessages);
       
       await this.pool.execute(
-        `INSERT INTO chat_history (id, datasource_id, messages, created_at) VALUES (?, ?, ?, FROM_UNIXTIME(?/1000))
+        `INSERT INTO chat_history (id, user_id, datasource_id, messages, created_at) VALUES (?, ?, ?, ?, FROM_UNIXTIME(?/1000))
          ON DUPLICATE KEY UPDATE messages=?, updated_at=NOW()`,
-        [session.id, session.datasourceId, messagesStr, session.createdAt, messagesStr]
+        [session.id, userId, session.datasourceId, messagesStr, session.createdAt, messagesStr]
       );
     } catch (error: any) {
       console.error('保存聊天记录失败:', error.message);
@@ -165,9 +196,9 @@ export class ConfigStore {
         const messagesStr = JSON.stringify(sanitizedMessages);
         
         await this.pool.execute(
-          `INSERT INTO chat_history (id, datasource_id, messages, created_at) VALUES (?, ?, ?, FROM_UNIXTIME(?/1000))
+          `INSERT INTO chat_history (id, user_id, datasource_id, messages, created_at) VALUES (?, ?, ?, ?, FROM_UNIXTIME(?/1000))
            ON DUPLICATE KEY UPDATE messages=?, updated_at=NOW()`,
-          [session.id, session.datasourceId, messagesStr, session.createdAt, messagesStr]
+          [session.id, userId, session.datasourceId, messagesStr, session.createdAt, messagesStr]
         );
       } catch (e) {
         console.error('保存聊天记录彻底失败:', e);
@@ -175,10 +206,10 @@ export class ConfigStore {
     }
   }
 
-  async getChatSessions(datasourceId: string): Promise<ChatSession[]> {
+  async getChatSessions(datasourceId: string, userId: string): Promise<ChatSession[]> {
     const [rows] = await this.pool.execute(
-      `SELECT * FROM chat_history WHERE datasource_id = ? ORDER BY updated_at DESC LIMIT 20`,
-      [datasourceId]
+      `SELECT * FROM chat_history WHERE datasource_id = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 20`,
+      [datasourceId, userId]
     );
     return (rows as any[]).map(row => ({
       id: row.id,
@@ -188,8 +219,11 @@ export class ConfigStore {
     }));
   }
 
-  async getChatSession(id: string): Promise<ChatSession | null> {
-    const [rows] = await this.pool.execute('SELECT * FROM chat_history WHERE id = ?', [id]);
+  async getChatSession(id: string, userId: string): Promise<ChatSession | null> {
+    const [rows] = await this.pool.execute(
+      'SELECT * FROM chat_history WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
     const row = (rows as any[])[0];
     if (!row) return null;
     return {
@@ -200,8 +234,8 @@ export class ConfigStore {
     };
   }
 
-  async deleteChatSession(id: string): Promise<void> {
-    await this.pool.execute('DELETE FROM chat_history WHERE id = ?', [id]);
+  async deleteChatSession(id: string, userId: string): Promise<void> {
+    await this.pool.execute('DELETE FROM chat_history WHERE id = ? AND user_id = ?', [id, userId]);
   }
 
   // ========== Schema 分析结果存储 ==========
@@ -223,13 +257,13 @@ export class ConfigStore {
     }
   }
 
-  // 保存 Schema 分析结果
-  async saveSchemaAnalysis(analysis: SchemaAnalysis): Promise<void> {
+  async saveSchemaAnalysis(analysis: SchemaAnalysis, userId: string): Promise<void> {
     await this.pool.execute(
-      `INSERT INTO schema_analysis (datasource_id, tables, suggested_questions, analyzed_at, is_user_edited) 
-       VALUES (?, ?, ?, FROM_UNIXTIME(?/1000), ?)
+      `INSERT INTO schema_analysis (user_id, datasource_id, tables, suggested_questions, analyzed_at, is_user_edited) 
+       VALUES (?, ?, ?, ?, FROM_UNIXTIME(?/1000), ?)
        ON DUPLICATE KEY UPDATE tables=?, suggested_questions=?, updated_at=NOW(), is_user_edited=?`,
       [
+        userId,
         analysis.datasourceId,
         JSON.stringify(analysis.tables),
         JSON.stringify(analysis.suggestedQuestions),
@@ -242,11 +276,10 @@ export class ConfigStore {
     );
   }
 
-  // 获取 Schema 分析结果
-  async getSchemaAnalysis(datasourceId: string): Promise<SchemaAnalysis | null> {
+  async getSchemaAnalysis(datasourceId: string, userId: string): Promise<SchemaAnalysis | null> {
     const [rows] = await this.pool.execute(
-      'SELECT * FROM schema_analysis WHERE datasource_id = ?',
-      [datasourceId]
+      'SELECT * FROM schema_analysis WHERE datasource_id = ? AND user_id = ?',
+      [datasourceId, userId]
     );
     const row = (rows as any[])[0];
     if (!row) return null;
@@ -263,13 +296,13 @@ export class ConfigStore {
     };
   }
 
-  // 更新单个表的分析（用户编辑）
   async updateTableAnalysis(
     datasourceId: string, 
     tableName: string, 
-    updates: Partial<TableAnalysis>
+    updates: Partial<TableAnalysis>,
+    userId: string
   ): Promise<boolean> {
-    const analysis = await this.getSchemaAnalysis(datasourceId);
+    const analysis = await this.getSchemaAnalysis(datasourceId, userId);
     if (!analysis) return false;
 
     const tableIndex = analysis.tables.findIndex(t => t.tableName === tableName);
@@ -279,18 +312,18 @@ export class ConfigStore {
     analysis.isUserEdited = true;
     analysis.updatedAt = Date.now();
 
-    await this.saveSchemaAnalysis(analysis);
+    await this.saveSchemaAnalysis(analysis, userId);
     return true;
   }
 
-  // 更新单个字段的分析（用户编辑）
   async updateColumnAnalysis(
     datasourceId: string,
     tableName: string,
     columnName: string,
-    updates: Partial<ColumnAnalysis>
+    updates: Partial<ColumnAnalysis>,
+    userId: string
   ): Promise<boolean> {
-    const analysis = await this.getSchemaAnalysis(datasourceId);
+    const analysis = await this.getSchemaAnalysis(datasourceId, userId);
     if (!analysis) return false;
 
     const table = analysis.tables.find(t => t.tableName === tableName);
@@ -303,25 +336,26 @@ export class ConfigStore {
     analysis.isUserEdited = true;
     analysis.updatedAt = Date.now();
 
-    await this.saveSchemaAnalysis(analysis);
+    await this.saveSchemaAnalysis(analysis, userId);
     return true;
   }
 
-  // 更新推荐问题（用户编辑）
-  async updateSuggestedQuestions(datasourceId: string, questions: string[]): Promise<boolean> {
-    const analysis = await this.getSchemaAnalysis(datasourceId);
+  async updateSuggestedQuestions(datasourceId: string, questions: string[], userId: string): Promise<boolean> {
+    const analysis = await this.getSchemaAnalysis(datasourceId, userId);
     if (!analysis) return false;
 
     analysis.suggestedQuestions = questions;
     analysis.isUserEdited = true;
     analysis.updatedAt = Date.now();
 
-    await this.saveSchemaAnalysis(analysis);
+    await this.saveSchemaAnalysis(analysis, userId);
     return true;
   }
 
-  // 删除 Schema 分析（重新分析时使用）
-  async deleteSchemaAnalysis(datasourceId: string): Promise<void> {
-    await this.pool.execute('DELETE FROM schema_analysis WHERE datasource_id = ?', [datasourceId]);
+  async deleteSchemaAnalysis(datasourceId: string, userId: string): Promise<void> {
+    await this.pool.execute(
+      'DELETE FROM schema_analysis WHERE datasource_id = ? AND user_id = ?',
+      [datasourceId, userId]
+    );
   }
 }

@@ -19,15 +19,61 @@ const testConfig = {
   }
 };
 
-// 测试用例
-describe('AI 数据问答平台 API 测试', () => {
-  let datasourceId: string;
-  let sessionId: string;
+// 全局变量
+let authToken: string = '';
+let datasourceId: string = '';
+let sessionId: string = '';
+
+// 认证辅助函数
+async function authenticate() {
+  try {
+    // 尝试注册测试用户
+    const registerResponse = await axios.post(`${BASE_URL}/api/auth/register`, {
+      username: `testuser_${Date.now()}`,
+      password: 'testpass123',
+      email: 'test@example.com',
+      fullName: 'Test User'
+    }).catch(() => null);
+
+    if (registerResponse) {
+      authToken = registerResponse.data.token;
+      console.log('✓ 注册新用户成功');
+      return true;
+    }
+
+    // 如果注册失败，尝试登录
+    const loginResponse = await axios.post(`${BASE_URL}/api/auth/login`, {
+      username: 'testuser',
+      password: 'testpass123'
+    }).catch(() => null);
+
+    if (loginResponse) {
+      authToken = loginResponse.data.token;
+      console.log('✓ 登录成功');
+      return true;
+    }
+
+    console.error('✗ 认证失败');
+    return false;
+  } catch (error: any) {
+    console.error('✗ 认证错误:', error.message);
+    return false;
+  }
+}
+
+// 创建带认证的 axios 实例
+function getAuthHeaders() {
+  return {
+    headers: {
+      'Authorization': `Bearer ${authToken}`
+    }
+  };
+}
 
   // 测试 1: 获取数据源列表
   test('应该能获取数据源列表', async () => {
     try {
-      const response = await axios.get(`${BASE_URL}/api/datasource`);
+      const response = await axios.get(`${BASE_URL}/api/datasource`, getAuthHeaders());
       console.log('✓ 获取数据源列表成功');
       console.log(`  数据源数量: ${response.data.length}`);
       return true;
@@ -40,7 +86,7 @@ describe('AI 数据问答平台 API 测试', () => {
   // 测试 2: 添加 MySQL 数据源
   test('应该能添加 MySQL 数据源', async () => {
     try {
-      const response = await axios.post(`${BASE_URL}/api/datasource`, testConfig.mysqlConfig);
+      const response = await axios.post(`${BASE_URL}/api/datasource`, testConfig.mysqlConfig, getAuthHeaders());
       datasourceId = response.data.id;
       console.log('✓ 添加 MySQL 数据源成功');
       console.log(`  数据源 ID: ${datasourceId}`);
@@ -58,7 +104,7 @@ describe('AI 数据问答平台 API 测试', () => {
       return false;
     }
     try {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/test`);
+      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/test`, getAuthHeaders());
       if (response.data.success) {
         console.log('✓ 数据源连接测试成功');
         return true;
@@ -79,7 +125,7 @@ describe('AI 数据问答平台 API 测试', () => {
       return false;
     }
     try {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema`);
+      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema`, getAuthHeaders());
       console.log('✓ 获取 Schema 成功');
       console.log(`  表数量: ${response.data.length}`);
       if (response.data.length > 0) {
@@ -99,7 +145,7 @@ describe('AI 数据问答平台 API 测试', () => {
       return false;
     }
     try {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema/analyze`);
+      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema/analyze`, getAuthHeaders());
       console.log('✓ 获取 AI 分析 Schema 成功');
       console.log(`  推荐问题数: ${response.data.suggestedQuestions?.length || 0}`);
       return true;
@@ -119,7 +165,7 @@ describe('AI 数据问答平台 API 测试', () => {
       const response = await axios.post(`${BASE_URL}/api/ask`, {
         datasourceId,
         question: '数据库中有多少条记录？'
-      });
+      }, getAuthHeaders());
       sessionId = response.data.sessionId;
       console.log('✓ 自然语言问答成功');
       console.log(`  回答: ${response.data.answer?.substring(0, 50)}...`);
@@ -138,7 +184,7 @@ describe('AI 数据问答平台 API 测试', () => {
       return false;
     }
     try {
-      const response = await axios.get(`${BASE_URL}/api/chat/sessions/${datasourceId}`);
+      const response = await axios.get(`${BASE_URL}/api/chat/sessions/${datasourceId}`, getAuthHeaders());
       console.log('✓ 获取会话列表成功');
       console.log(`  会话数: ${response.data.length}`);
       return true;
@@ -155,7 +201,7 @@ describe('AI 数据问答平台 API 测试', () => {
       return false;
     }
     try {
-      const response = await axios.get(`${BASE_URL}/api/chat/session/${sessionId}`);
+      const response = await axios.get(`${BASE_URL}/api/chat/session/${sessionId}`, getAuthHeaders());
       console.log('✓ 获取会话详情成功');
       console.log(`  消息数: ${response.data.messages?.length || 0}`);
       return true;
@@ -168,7 +214,7 @@ describe('AI 数据问答平台 API 测试', () => {
   // 测试 9: 获取 Agent 能力
   test('应该能获取 Agent 能力', async () => {
     try {
-      const response = await axios.get(`${BASE_URL}/api/agent/capabilities`);
+      const response = await axios.get(`${BASE_URL}/api/agent/capabilities`, getAuthHeaders());
       console.log('✓ 获取 Agent 能力成功');
       console.log(`  技能数: ${response.data.skills?.length || 0}`);
       console.log(`  MCP 工具数: ${response.data.mcpTools?.length || 0}`);
@@ -183,7 +229,7 @@ describe('AI 数据问答平台 API 测试', () => {
   // 测试 10: 获取所有技能
   test('应该能获取所有技能', async () => {
     try {
-      const response = await axios.get(`${BASE_URL}/api/agent/skills`);
+      const response = await axios.get(`${BASE_URL}/api/agent/skills`, getAuthHeaders());
       console.log('✓ 获取技能列表成功');
       console.log(`  技能数: ${response.data.length}`);
       response.data.slice(0, 3).forEach((skill: any) => {
@@ -199,7 +245,7 @@ describe('AI 数据问答平台 API 测试', () => {
   // 测试 11: 获取 MCP 工具
   test('应该能获取 MCP 工具', async () => {
     try {
-      const response = await axios.get(`${BASE_URL}/api/agent/mcp/tools`);
+      const response = await axios.get(`${BASE_URL}/api/agent/mcp/tools`, getAuthHeaders());
       console.log('✓ 获取 MCP 工具成功');
       console.log(`  工具数: ${response.data.length}`);
       return true;
@@ -216,7 +262,7 @@ describe('AI 数据问答平台 API 测试', () => {
       return false;
     }
     try {
-      const response = await axios.delete(`${BASE_URL}/api/datasource/${datasourceId}`);
+      const response = await axios.delete(`${BASE_URL}/api/datasource/${datasourceId}`, getAuthHeaders());
       console.log('✓ 删除数据源成功');
       return true;
     } catch (error: any) {
@@ -230,18 +276,14 @@ describe('AI 数据问答平台 API 测试', () => {
 async function runAllTests() {
   console.log('\n========== 开始 API 测试 ==========\n');
   
-  const tests = [
-    () => test('应该能获取数据源列表', async () => {
-      const response = await axios.get(`${BASE_URL}/api/datasource`);
-      return response.data.length >= 0;
-    }),
-    () => test('应该能添加 MySQL 数据源', async () => {
-      const response = await axios.post(`${BASE_URL}/api/datasource`, testConfig.mysqlConfig);
-      return response.data.id;
-    }),
-  ];
+  // 先进行认证
+  const authenticated = await authenticate();
+  if (!authenticated) {
+    console.error('认证失败，无法继续测试');
+    return;
+  }
 
-  console.log('========== 测试完成 ==========\n');
+  console.log('\n========== 测试完成 ==========\n');
 }
 
 export { runAllTests };

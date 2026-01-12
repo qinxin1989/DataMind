@@ -1,12 +1,66 @@
 // 数据源类型
 export type DataSourceType = 'mysql' | 'postgres' | 'sqlite' | 'file' | 'api';
 
-// 数据源配置
+// 用户角色
+export type UserRole = 'admin' | 'user' | 'viewer';
+
+// 用户状态
+export type UserStatus = 'active' | 'inactive' | 'suspended';
+
+// 权限类型
+export type PermissionType = 'view' | 'edit' | 'delete' | 'share' | 'admin';
+
+// 用户信息
+export interface User {
+  id: string;
+  username: string;
+  email?: string;
+  fullName?: string;
+  role: UserRole;
+  status: UserStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 用户登录请求
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+// 用户注册请求
+export interface RegisterRequest {
+  username: string;
+  password: string;
+  email?: string;
+  fullName?: string;
+}
+
+// 认证令牌
+export interface AuthToken {
+  token: string;
+  user: User;
+  expiresIn: number;
+}
+
+// 数据源配置（添加 userId）
 export interface DataSourceConfig {
   id: string;
+  userId: string;
   name: string;
   type: DataSourceType;
   config: DatabaseConfig | FileConfig | ApiConfig;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+// 数据源权限
+export interface DataSourcePermission {
+  id: string;
+  datasourceId: string;
+  userId: string;
+  permission: PermissionType;
+  grantedAt: number;
 }
 
 export interface DatabaseConfig {
@@ -20,6 +74,7 @@ export interface DatabaseConfig {
 export interface FileConfig {
   path: string;
   fileType: 'csv' | 'xlsx' | 'json';
+  originalName?: string;
 }
 
 export interface ApiConfig {

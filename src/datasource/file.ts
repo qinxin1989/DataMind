@@ -41,7 +41,7 @@ export class FileDataSource extends BaseDataSource {
       }));
       
       // 使用原始文件名作为表名（如果有的话），否则从路径提取
-      let tableName = (this.config.config as any).originalName || this.config.path.split(/[\/\\]/).pop() || 'file_data';
+      let tableName = this.config.originalName || this.config.path.split(/[\/\\]/).pop() || 'file_data';
       // 移除文件扩展名
       tableName = tableName.replace(/\.[^.]+$/, '');
       

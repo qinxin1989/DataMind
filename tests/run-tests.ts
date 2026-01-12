@@ -10,6 +10,50 @@ interface TestResult {
 }
 
 const results: TestResult[] = [];
+let authToken: string = '';
+
+// 认证辅助函数
+async function authenticate(): Promise<boolean> {
+  try {
+    // 尝试注册测试用户
+    const username = `testuser_${Date.now()}`;
+    const registerResponse = await axios.post(`${BASE_URL}/api/auth/register`, {
+      username,
+      password: 'testpass123',
+      email: 'test@example.com',
+      fullName: 'Test User'
+    }).catch(() => null);
+
+    if (registerResponse) {
+      authToken = registerResponse.data.token;
+      return true;
+    }
+
+    // 如果注册失败，尝试登录
+    const loginResponse = await axios.post(`${BASE_URL}/api/auth/login`, {
+      username: 'testuser',
+      password: 'testpass123'
+    }).catch(() => null);
+
+    if (loginResponse) {
+      authToken = loginResponse.data.token;
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    return false;
+  }
+}
+
+// 创建带认证的 axios 实例
+function getAuthHeaders() {
+  return {
+    headers: {
+      'Authorization': `Bearer ${authToken}`
+    }
+  };
+}
 
 async function runTest(name: string, testFn: () => Promise<boolean>): Promise<void> {
   const start = Date.now();
@@ -35,6 +79,15 @@ async function main() {
   console.log('║   AI 数据问答平台 - API 测试套件      ║');
   console.log('╚════════════════════════════════════════╝\n');
 
+  // 先进行认证
+  console.log('正在进行认证...');
+  const authenticated = await authenticate();
+  if (!authenticated) {
+    console.error('❌ 认证失败，无法继续测试\n');
+    process.exit(1);
+  }
+  console.log('✓ 认证成功\n');
+
   // 测试 1: 健康检查
   await runTest('健康检查 - 获取首页', async () => {
     const response = await axios.get(`${BASE_URL}/`);
@@ -43,25 +96,25 @@ async function main() {
 
   // 测试 2: 获取数据源列表
   await runTest('API - 获取数据源列表', async () => {
-    const response = await axios.get(`${BASE_URL}/api/datasource`);
+    const response = await axios.get(`${BASE_URL}/api/datasource`, getAuthHeaders());
     return Array.isArray(response.data);
   });
 
   // 测试 3: 获取 Agent 能力
   await runTest('API - 获取 Agent 能力', async () => {
-    const response = await axios.get(`${BASE_URL}/api/agent/capabilities`);
+    const response = await axios.get(`${BASE_URL}/api/agent/capabilities`, getAuthHeaders());
     return response.data.skills && response.data.mcpTools && response.data.features;
   });
 
   // 测试 4: 获取技能列表
   await runTest('API - 获取技能列表', async () => {
-    const response = await axios.get(`${BASE_URL}/api/agent/skills`);
+    const response = await axios.get(`${BASE_URL}/api/agent/skills`, getAuthHeaders());
     return Array.isArray(response.data);
   });
 
   // 测试 5: 获取 MCP 工具
   await runTest('API - 获取 MCP 工具', async () => {
-    const response = await axios.get(`${BASE_URL}/api/agent/mcp/tools`);
+    const response = await axios.get(`${BASE_URL}/api/agent/mcp/tools`, getAuthHeaders());
     return Array.isArray(response.data);
   });
 
@@ -78,7 +131,7 @@ async function main() {
         password: 'qinxin',
         database: 'taobao_data'
       }
-    });
+    }, getAuthHeaders());
     datasourceId = response.data.id;
     return !!datasourceId;
   });
@@ -86,7 +139,7 @@ async function main() {
   // 测试 7: 测试数据源连接
   if (datasourceId) {
     await runTest('API - 测试数据源连接', async () => {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/test`);
+      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/test`, getAuthHeaders());
       return response.data.success === true;
     });
   }
@@ -94,7 +147,7 @@ async function main() {
   // 测试 8: 获取数据源 Schema
   if (datasourceId) {
     await runTest('API - 获取数据源 Schema', async () => {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema`);
+      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema`, getAuthHeaders());
       return Array.isArray(response.data);
     });
   }
@@ -102,7 +155,7 @@ async function main() {
   // 测试 9: 获取 AI 分析的 Schema
   if (datasourceId) {
     await runTest('API - 获取 AI 分析的 Schema', async () => {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema/analyze`);
+      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema/analyze`, getAuthHeaders());
       return response.data.tables && response.data.suggestedQuestions;
     });
   }
@@ -114,7 +167,7 @@ async function main() {
       const response = await axios.post(`${BASE_URL}/api/ask`, {
         datasourceId,
         question: '数据库中有多少条记录？'
-      });
+      }, getAuthHeaders());
       sessionId = response.data.sessionId;
       return !!response.data.answer && !!sessionId;
     });
@@ -123,7 +176,7 @@ async function main() {
   // 测试 11: 获取会话列表
   if (datasourceId) {
     await runTest('API - 获取会话列表', async () => {
-      const response = await axios.get(`${BASE_URL}/api/chat/sessions/${datasourceId}`);
+      const response = await axios.get(`${BASE_URL}/api/chat/sessions/${datasourceId}`, getAuthHeaders());
       return Array.isArray(response.data);
     });
   }
@@ -131,7 +184,7 @@ async function main() {
   // 测试 12: 获取会话详情
   if (sessionId) {
     await runTest('API - 获取会话详情', async () => {
-      const response = await axios.get(`${BASE_URL}/api/chat/session/${sessionId}`);
+      const response = await axios.get(`${BASE_URL}/api/chat/session/${sessionId}`, getAuthHeaders());
       return response.data.messages && Array.isArray(response.data.messages);
     });
   }
@@ -139,7 +192,7 @@ async function main() {
   // 测试 13: 删除数据源
   if (datasourceId) {
     await runTest('API - 删除数据源', async () => {
-      const response = await axios.delete(`${BASE_URL}/api/datasource/${datasourceId}`);
+      const response = await axios.delete(`${BASE_URL}/api/datasource/${datasourceId}`, getAuthHeaders());
       return response.data.message === '已删除';
     });
   }

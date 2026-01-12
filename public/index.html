@@ -13,6 +13,10 @@
     header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
     header h1 { font-size: 22px; }
     header a { color: white; text-decoration: none; opacity: 0.9; }
+    .user-info { display: flex; align-items: center; gap: 15px; }
+    .user-info .username { font-size: 14px; opacity: 0.9; }
+    .user-info .logout-btn { background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .user-info .logout-btn:hover { background: rgba(255,255,255,0.3); }
     .main-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
     .panel { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
     .panel-header { padding: 12px 16px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
@@ -91,9 +95,10 @@
   <div class="container">
     <header>
       <h1>🤖 AI数据问答平台</h1>
-      <div>
-        <a href="/chat.html" style="margin-right:15px">💬 访客模式</a>
-        <a href="/datasource.html">⚙️ 数据源管理</a>
+      <div class="user-info">
+        <span class="username" id="userDisplay"></span>
+        <a href="/datasource.html" style="margin-right:10px">⚙️ 数据源管理</a>
+        <button class="logout-btn" onclick="logout()">退出登录</button>
       </div>
     </header>
     <div class="main-grid">
@@ -129,11 +134,42 @@
     </div>
   </div>
 <script>
+// 认证检查
+function checkAuth() {
+  const token = localStorage.getItem('authToken');
+  if (!token) {
+    window.location.href = '/login.html';
+    return false;
+  }
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  document.getElementById('userDisplay').textContent = '👤 ' + (user.fullName || user.username || '用户');
+  return true;
+}
+
+function logout() {
+  localStorage.removeItem('authToken');
+  localStorage.removeItem('user');
+  window.location.href = '/login.html';
+}
+
+function getAuthHeaders() {
+  return { 'Authorization': 'Bearer ' + localStorage.getItem('authToken'), 'Content-Type': 'application/json' };
+}
+
+if (!checkAuth()) throw new Error('未登录');
+
 let ds=null,sid=null,dsList=[],schemaData=null,analysisData=null;
-async function load(){dsList=await(await fetch('/api/datasource')).json();renderDS();}
+async function load(){
+  try {
+    const res = await fetch('/api/datasource', { headers: getAuthHeaders() });
+    if (res.status === 401) { logout(); return; }
+    dsList = await res.json();
+    renderDS();
+  } catch(e) { console.error(e); }
+}
 function renderDS(){const c=document.getElementById('ds-list');if(!dsList.length){c.innerHTML='<div class="empty">暂无，<a href="/datasource.html">去添加</a></div>';return;}c.innerHTML=dsList.map(d=>`<div class="ds-item ${ds?.id===d.id?'active':''}" onclick="selDS('${d.id}')"><div class="name">${esc(d.name)}</div><div class="type">${d.type.toUpperCase()}</div></div>`).join('');}
 async function selDS(id){ds=dsList.find(d=>d.id===id);sid=null;schemaData=null;renderDS();document.getElementById('history-panel').style.display='block';document.getElementById('schema-panel').style.display='block';document.getElementById('questions').style.display='none';document.getElementById('analyze-btn').textContent='🔍 AI分析';loadHistory();loadSchema();newChat();}
-async function loadSchema(){const c=document.getElementById('schema-content');c.innerHTML='<div class="empty">加载中...</div>';try{schemaData=await(await fetch('/api/datasource/'+ds.id+'/schema')).json();analysisData=null;renderSchema();}catch{c.innerHTML='<div class="empty">加载失败</div>';}}
+async function loadSchema(){const c=document.getElementById('schema-content');c.innerHTML='<div class="empty">加载中...</div>';try{const res=await fetch('/api/datasource/'+ds.id+'/schema',{headers:getAuthHeaders()});if(res.status===401){logout();return;}schemaData=await res.json();analysisData=null;renderSchema();}catch{c.innerHTML='<div class="empty">加载失败</div>';}}
 function renderSchema(){
   const analysis = analysisData;
   document.getElementById('schema-content').innerHTML=schemaData.map((t,i)=>{
@@ -156,7 +192,7 @@ function renderSchema(){
     </div>`;
   }).join('');
 }
-async function analyzeSchema(){if(!ds)return;const btn=document.getElementById('analyze-btn');btn.textContent='分析中...';btn.disabled=true;try{const r=await(await fetch('/api/datasource/'+ds.id+'/schema/analyze')).json();analysisData=r;renderSchema();if(r.suggestedQuestions?.length){document.getElementById('questions').style.display='block';document.getElementById('q-list').innerHTML=r.suggestedQuestions.map(q=>`<span class="q-tag" onclick="askQ(this.textContent)">${esc(q)}</span>`).join('');}btn.textContent=r.cached?'✓ 已缓存':'✓ 已分析';}catch(e){btn.textContent='分析失败';console.error(e);}btn.disabled=false;}
+async function analyzeSchema(){if(!ds)return;const btn=document.getElementById('analyze-btn');btn.textContent='分析中...';btn.disabled=true;try{const res=await fetch('/api/datasource/'+ds.id+'/schema/analyze',{headers:getAuthHeaders()});if(res.status===401){logout();return;}const r=await res.json();analysisData=r;renderSchema();if(r.suggestedQuestions?.length){document.getElementById('questions').style.display='block';document.getElementById('q-list').innerHTML=r.suggestedQuestions.map(q=>`<span class="q-tag" onclick="askQ(this.textContent)">${esc(q)}</span>`).join('');}btn.textContent=r.cached?'✓ 已缓存':'✓ 已分析';}catch(e){btn.textContent='分析失败';console.error(e);}btn.disabled=false;}
 function editTableName(tableName,el){
   const oldVal=el.textContent;
   el.innerHTML=`<input class="edit-input" value="${esc(oldVal)}" onblur="saveTableName('${tableName}',this)" onkeypress="if(event.key==='Enter')this.blur()">`;
@@ -167,7 +203,7 @@ async function saveTableName(tableName,inp){
   if(!newVal){inp.parentElement.textContent=inp.defaultValue;return;}
   try{
     await fetch(`/api/datasource/${ds.id}/schema/table/${tableName}`,{
-      method:'PUT',headers:{'Content-Type':'application/json'},
+      method:'PUT',headers:getAuthHeaders(),
       body:JSON.stringify({tableNameCn:newVal})
     });
     if(analysisData){
@@ -186,7 +222,7 @@ async function saveColName(tableName,colName,inp){
   const newVal=inp.value.trim()||'-';
   try{
     await fetch(`/api/datasource/${ds.id}/schema/table/${tableName}/column/${colName}`,{
-      method:'PUT',headers:{'Content-Type':'application/json'},
+      method:'PUT',headers:getAuthHeaders(),
       body:JSON.stringify({nameCn:newVal==='-'?'':newVal})
     });
     if(analysisData){
@@ -198,10 +234,10 @@ async function saveColName(tableName,colName,inp){
   }catch{inp.parentElement.innerHTML=`${inp.defaultValue||'-'}<span class="edit-btn">✏️</span>`;}
 }
 function askQ(q){document.getElementById('input').value=q;ask();}
-async function loadHistory(){if(!ds)return;const s=await(await fetch('/api/chat/sessions/'+ds.id)).json();document.getElementById('history-list').innerHTML=s.length?s.map(x=>`<div class="history-item ${sid===x.id?'active':''}" onclick="loadSess('${x.id}')"><span class="preview">${esc(x.preview)}...</span><span class="delete" onclick="event.stopPropagation();delSess('${x.id}')">&times;</span></div>`).join(''):'<div style="color:#999;font-size:12px;text-align:center">暂无</div>';}
+async function loadHistory(){if(!ds)return;const res=await fetch('/api/chat/sessions/'+ds.id,{headers:getAuthHeaders()});if(res.status===401){logout();return;}const s=await res.json();document.getElementById('history-list').innerHTML=s.length?s.map(x=>`<div class="history-item ${sid===x.id?'active':''}" onclick="loadSess('${x.id}')"><span class="preview">${esc(x.preview)}...</span><span class="delete" onclick="event.stopPropagation();delSess('${x.id}')">&times;</span></div>`).join(''):'<div style="color:#999;font-size:12px;text-align:center">暂无</div>';}
 function newChat(){sid=null;document.getElementById('messages').innerHTML='<div class="empty">开始新对话吧！</div>';loadHistory();}
-async function loadSess(id){sid=id;const s=await(await fetch('/api/chat/session/'+id)).json();renderMsgs(s.messages);loadHistory();}
-async function delSess(id){if(!confirm('确定删除？'))return;await fetch('/api/chat/session/'+id,{method:'DELETE'});sid===id?newChat():loadHistory();}
+async function loadSess(id){sid=id;const res=await fetch('/api/chat/session/'+id,{headers:getAuthHeaders()});if(res.status===401){logout();return;}const s=await res.json();renderMsgs(s.messages);loadHistory();}
+async function delSess(id){if(!confirm('确定删除？'))return;await fetch('/api/chat/session/'+id,{method:'DELETE',headers:getAuthHeaders()});sid===id?newChat():loadHistory();}
 function renderMsgs(msgs){const c=document.getElementById('messages');if(!msgs?.length){c.innerHTML='<div class="empty">开始提问吧！</div>';return;}c.innerHTML=msgs.map(m=>m.role==='user'?`<div class="message user"><div class="bubble">${esc(m.content)}</div></div>`:`<div class="message ai"><div class="bubble"><div class="md-content">${renderMd(m.content)}</div>${m.sql?`<div class="sql">${esc(m.sql)}</div>`:''}</div></div>`).join('');c.scrollTop=c.scrollHeight;}
 function renderMd(text){try{return marked.parse(text||'');}catch{return esc(text);}}
 function renderChart(chart){
@@ -236,7 +272,7 @@ function copyAnswer(btn){
   const text=bubble.querySelector('.md-content')?.innerText||'';
   navigator.clipboard.writeText(text).then(()=>{btn.textContent='✓ 已复制';setTimeout(()=>btn.textContent='📋 复制',1500);});
 }
-async function ask(){const inp=document.getElementById('input'),q=inp.value.trim();if(!q||!ds)return;inp.value='';const c=document.getElementById('messages');if(c.querySelector('.empty'))c.innerHTML='';c.innerHTML+=`<div class="message user"><div class="bubble">${esc(q)}</div></div><div class="message ai" id="loading"><div class="bubble">思考中...</div></div>`;c.scrollTop=c.scrollHeight;try{const r=await(await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({datasourceId:ds.id,question:q,sessionId:sid})})).json();if(r.sessionId)sid=r.sessionId;document.getElementById('loading').remove();const answer=r.answer||r.error||'无法获取回答';let h=`<div class="message ai"><div class="bubble"><div class="md-content">${renderMd(answer)}</div>`;if(r.sql)h+=`<div class="sql">${esc(r.sql)}</div>`;if(r.chart)h+=`<div class="chart-inline" id="chart_${Date.now()}"></div>`;if(r.data?.length)h+=renderTbl(r.data.slice(0,20));h+=`<div class="action-btns"><button onclick="genDashboardFromQ('${esc(q)}')">📊 生成大屏</button><button onclick="copyAnswer(this)">📋 复制</button></div>`;c.innerHTML+=h+'</div></div>';if(r.chart)renderChart(r.chart);loadHistory();}catch(e){document.getElementById('loading').remove();c.innerHTML+=`<div class="message ai"><div class="bubble">请求失败: ${esc(e.message||'未知错误')}</div></div>`;}c.scrollTop=c.scrollHeight;}
+async function ask(){const inp=document.getElementById('input'),q=inp.value.trim();if(!q||!ds)return;inp.value='';const c=document.getElementById('messages');if(c.querySelector('.empty'))c.innerHTML='';c.innerHTML+=`<div class="message user"><div class="bubble">${esc(q)}</div></div><div class="message ai" id="loading"><div class="bubble">思考中...</div></div>`;c.scrollTop=c.scrollHeight;try{const res=await fetch('/api/ask',{method:'POST',headers:getAuthHeaders(),body:JSON.stringify({datasourceId:ds.id,question:q,sessionId:sid})});if(res.status===401){logout();return;}const r=await res.json();if(r.sessionId)sid=r.sessionId;document.getElementById('loading').remove();const answer=r.answer||r.error||'无法获取回答';let h=`<div class="message ai"><div class="bubble"><div class="md-content">${renderMd(answer)}</div>`;if(r.sql)h+=`<div class="sql">${esc(r.sql)}</div>`;if(r.chart)h+=`<div class="chart-inline" id="chart_${Date.now()}"></div>`;if(r.data?.length)h+=renderTbl(r.data.slice(0,20));h+=`<div class="action-btns"><button onclick="genDashboardFromQ('${esc(q)}')">📊 生成大屏</button><button onclick="copyAnswer(this)">📋 复制</button></div>`;c.innerHTML+=h+'</div></div>';if(r.chart)renderChart(r.chart);loadHistory();}catch(e){document.getElementById('loading').remove();c.innerHTML+=`<div class="message ai"><div class="bubble">请求失败: ${esc(e.message||'未知错误')}</div></div>`;}c.scrollTop=c.scrollHeight;}
 function renderTbl(d){const k=Object.keys(d[0]);return`<div class="data-table"><table><thead><tr>${k.map(x=>`<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${d.map(r=>`<tr>${k.map(x=>`<td>${esc(String(r[x]??''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 load();
