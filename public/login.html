@@ -288,10 +288,9 @@
           throw new Error(data.error || '注册失败');
         }
 
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        showSuccess('注册成功，正在跳转...');
-        setTimeout(() => window.location.href = '/', 1000);
+        // 注册成功但需要审核
+        showSuccess(data.message || '注册成功，请等待管理员审核');
+        document.getElementById('registerForm').reset();
       } catch (error) {
         showError(error.message);
       } finally {

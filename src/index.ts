@@ -102,12 +102,12 @@ async function initDataSources() {
 
 // ========== 认证 API ==========
 
-// 用户注册
+// 用户注册（待审核）
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, password, email, fullName } = req.body;
-    const { user, token } = await authService.register(username, password, email, fullName);
-    res.json({ user, token });
+    const result = await authService.register(username, password, email, fullName);
+    res.json({ user: result.user, message: result.message });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -149,6 +149,47 @@ app.get('/api/auth/users', authMiddleware, requireAdmin, async (req, res) => {
     res.json(users);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取待审核用户（仅管理员）
+app.get('/api/auth/users/pending', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const users = await authService.getPendingUsers();
+    res.json(users);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 管理员创建用户（直接激活）
+app.post('/api/auth/users', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const { username, password, role, email, fullName } = req.body;
+    const user = await authService.createUser(username, password, role, email, fullName);
+    res.json(user);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 审核通过用户（仅管理员）
+app.post('/api/auth/users/:id/approve', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const user = await authService.approveUser(req.params.id);
+    res.json({ message: '审核通过', user });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 拒绝用户注册（仅管理员）
+app.post('/api/auth/users/:id/reject', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    await authService.rejectUser(req.params.id);
+    res.json({ message: '已拒绝' });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
   }
 });
 

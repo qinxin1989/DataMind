@@ -97,6 +97,7 @@
       <h1>🤖 AI数据问答平台</h1>
       <div class="user-info">
         <span class="username" id="userDisplay"></span>
+        <a href="/admin.html" id="adminLink" style="display:none;margin-right:10px">👥 用户管理</a>
         <a href="/datasource.html" style="margin-right:10px">⚙️ 数据源管理</a>
         <button class="logout-btn" onclick="logout()">退出登录</button>
       </div>
@@ -143,6 +144,10 @@ function checkAuth() {
   }
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   document.getElementById('userDisplay').textContent = '👤 ' + (user.fullName || user.username || '用户');
+  // 显示管理员链接
+  if (user.role === 'admin') {
+    document.getElementById('adminLink').style.display = 'inline';
+  }
   return true;
 }
 

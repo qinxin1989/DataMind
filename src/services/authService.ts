@@ -22,14 +22,14 @@ export class AuthService {
   }
 
   /**
-   * 注册新用户
+   * 注册新用户（默认待审核状态）
    */
   async register(
     username: string,
     password: string,
     email?: string,
     fullName?: string
-  ): Promise<{ user: User; token: string }> {
+  ): Promise<{ user: User; message: string }> {
     // 验证用户名
     if (!username || username.length < 3) {
       throw new Error('用户名至少需要3个字符');
@@ -53,14 +53,14 @@ export class AuthService {
     // 密码加密
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 创建用户
+    // 创建用户（默认待审核状态）
     const userId = uuidv4();
     const now = new Date();
 
     await this.pool.execute(
       `INSERT INTO users (id, username, password, email, full_name, role, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, username, hashedPassword, email || null, fullName || null, 'user', 'active', now, now]
+      [userId, username, hashedPassword, email || null, fullName || null, 'user', 'pending', now, now]
     );
 
     // 获取用户信息
@@ -69,10 +69,58 @@ export class AuthService {
       throw new Error('用户创建失败');
     }
 
-    // 生成token
-    const token = this.generateToken(user);
+    return { user, message: '注册成功，请等待管理员审核' };
+  }
 
-    return { user, token };
+  /**
+   * 管理员创建用户（直接激活）
+   */
+  async createUser(
+    username: string,
+    password: string,
+    role: UserRole = 'user',
+    email?: string,
+    fullName?: string
+  ): Promise<User> {
+    // 验证用户名
+    if (!username || username.length < 3) {
+      throw new Error('用户名至少需要3个字符');
+    }
+
+    // 验证密码
+    if (!password || password.length < 6) {
+      throw new Error('密码至少需要6个字符');
+    }
+
+    // 检查用户名是否已存在
+    const [existing] = await this.pool.execute(
+      'SELECT id FROM users WHERE username = ?',
+      [username]
+    );
+
+    if ((existing as any[]).length > 0) {
+      throw new Error('用户名已存在');
+    }
+
+    // 密码加密
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 创建用户（直接激活）
+    const userId = uuidv4();
+    const now = new Date();
+
+    await this.pool.execute(
+      `INSERT INTO users (id, username, password, email, full_name, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, username, hashedPassword, email || null, fullName || null, role, 'active', now, now]
+    );
+
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new Error('用户创建失败');
+    }
+
+    return user;
   }
 
   /**
@@ -283,5 +331,53 @@ export class AuthService {
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime()
     }));
+  }
+
+  /**
+   * 获取待审核用户列表
+   */
+  async getPendingUsers(): Promise<User[]> {
+    const [rows] = await this.pool.execute(
+      'SELECT * FROM users WHERE status = ? ORDER BY created_at DESC',
+      ['pending']
+    );
+
+    return (rows as any[]).map(row => ({
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      fullName: row.full_name,
+      role: row.role,
+      status: row.status,
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime()
+    }));
+  }
+
+  /**
+   * 审核通过用户
+   */
+  async approveUser(id: string): Promise<User> {
+    const user = await this.getUserById(id);
+    if (!user) throw new Error('用户不存在');
+    if (user.status !== 'pending') throw new Error('用户不是待审核状态');
+
+    await this.pool.execute(
+      'UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?',
+      ['active', id]
+    );
+
+    return (await this.getUserById(id))!;
+  }
+
+  /**
+   * 拒绝用户注册
+   */
+  async rejectUser(id: string): Promise<void> {
+    const user = await this.getUserById(id);
+    if (!user) throw new Error('用户不存在');
+    if (user.status !== 'pending') throw new Error('用户不是待审核状态');
+
+    await this.pool.execute('DELETE FROM users WHERE id = ?', [id]);
   }
 }

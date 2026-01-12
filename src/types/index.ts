@@ -5,7 +5,7 @@ export type DataSourceType = 'mysql' | 'postgres' | 'sqlite' | 'file' | 'api';
 export type UserRole = 'admin' | 'user' | 'viewer';
 
 // 用户状态
-export type UserStatus = 'active' | 'inactive' | 'suspended';
+export type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
 
 // 权限类型
 export type PermissionType = 'view' | 'edit' | 'delete' | 'share' | 'admin';
