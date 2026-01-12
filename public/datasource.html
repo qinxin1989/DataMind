@@ -129,9 +129,14 @@
         <!-- 文件配置 -->
         <div id="file-config" class="form-section" style="display:none">
           <div class="form-section-title">文件配置</div>
+          <div class="form-group">
+            <label>选择文件上传 *</label>
+            <input type="file" id="file-upload" accept=".csv,.xlsx,.xls,.json" onchange="handleFileSelect()">
+            <div id="file-info" style="margin-top:8px; font-size:12px; color:#888;"></div>
+          </div>
           <div class="form-row">
             <div class="form-group">
-              <label>文件路径</label>
+              <label>文件路径（手动输入）</label>
               <input type="text" id="file-path" placeholder="/path/to/data.csv">
             </div>
             <div class="form-group">
@@ -180,6 +185,75 @@
     const API_BASE = '';
     let datasources = [];
     let editingId = null;
+    let selectedFile = null;
+
+    function handleFileSelect() {
+      const fileInput = document.getElementById('file-upload');
+      selectedFile = fileInput.files[0];
+      
+      if (selectedFile) {
+        const fileInfo = document.getElementById('file-info');
+        const sizeMB = (selectedFile.size / 1024 / 1024).toFixed(2);
+        fileInfo.innerHTML = `✓ 已选择: ${escapeHtml(selectedFile.name)} (${sizeMB}MB)`;
+        
+        // 自动检测文件类型
+        const ext = selectedFile.name.split('.').pop().toLowerCase();
+        const typeMap = { 'csv': 'csv', 'xlsx': 'xlsx', 'xls': 'xlsx', 'json': 'json' };
+        if (typeMap[ext]) {
+          document.getElementById('file-type').value = typeMap[ext];
+        }
+      } else {
+        document.getElementById('file-info').innerHTML = '';
+        selectedFile = null;
+      }
+    }
+
+    async function uploadFile() {
+      if (!selectedFile) {
+        toast('请选择文件', 'error');
+        return false;
+      }
+
+      const name = document.getElementById('ds-name').value.trim();
+      if (!name) {
+        toast('请输入数据源名称', 'error');
+        return false;
+      }
+
+      const fileType = document.getElementById('file-type').value;
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('name', name);
+      formData.append('fileType', fileType);
+
+      try {
+        const res = await fetch(`${API_BASE}/api/upload`, {
+          method: 'POST',
+          body: formData
+        });
+        const result = await res.json();
+        
+        if (result.error) {
+          toast(`上传失败: ${result.error}`, 'error');
+          return false;
+        } else {
+          toast('文件上传成功', 'success');
+          selectedFile = null;
+          document.getElementById('file-upload').value = '';
+          document.getElementById('file-info').innerHTML = '';
+          hideForm();
+          loadDatasources();
+          return true;
+        }
+      } catch (e) {
+        toast('上传请求失败', 'error');
+        return false;
+      }
+    }
+
+    const API_BASE = '';
+    let datasources = [];
+    let editingId = null;
 
     async function loadDatasources() {
       const res = await fetch(`${API_BASE}/api/datasource`);
@@ -223,6 +297,9 @@
         document.getElementById('db-user').value = '';
         document.getElementById('db-password').value = '';
         document.getElementById('db-database').value = '';
+        document.getElementById('file-upload').value = '';
+        document.getElementById('file-info').innerHTML = '';
+        selectedFile = null;
         toggleConfigFields();
       }
     }
@@ -330,6 +407,14 @@
     }
 
     async function saveDataSource() {
+      const type = document.getElementById('ds-type').value;
+      
+      // 如果是文件类型且选择了文件，使用上传接口
+      if (type === 'file' && selectedFile) {
+        await uploadFile();
+        return;
+      }
+
       const data = getFormData();
       if (!data) return;
 

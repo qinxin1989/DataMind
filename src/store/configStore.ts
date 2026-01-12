@@ -57,16 +57,21 @@ export class ConfigStore {
   }
 
   async init(): Promise<void> {
-    // 创建配置表
-    await this.pool.execute(`
-      CREATE TABLE IF NOT EXISTS datasource_config (
-        id VARCHAR(36) PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        type VARCHAR(20) NOT NULL,
-        config JSON NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    try {
+      // 创建配置表
+      await this.pool.execute(`
+        CREATE TABLE IF NOT EXISTS datasource_config (
+          id VARCHAR(36) PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          type VARCHAR(20) NOT NULL,
+          config JSON NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    } catch (error: any) {
+      console.warn('数据库连接失败，将以内存模式运行:', error.message);
+      // 继续运行，使用内存存储
+    }
   }
 
   async save(config: DataSourceConfig): Promise<void> {
@@ -79,13 +84,18 @@ export class ConfigStore {
   }
 
   async getAll(): Promise<DataSourceConfig[]> {
-    const [rows] = await this.pool.execute('SELECT * FROM datasource_config');
-    return (rows as any[]).map(row => ({
-      id: row.id,
-      name: row.name,
-      type: row.type,
-      config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
-    }));
+    try {
+      const [rows] = await this.pool.execute('SELECT * FROM datasource_config');
+      return (rows as any[]).map(row => ({
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
+      }));
+    } catch (error: any) {
+      console.warn('获取数据源配置失败，返回空列表:', error.message);
+      return [];
+    }
   }
 
   async delete(id: string): Promise<void> {
@@ -94,22 +104,26 @@ export class ConfigStore {
 
   // 对话历史相关
   async initChatTable(): Promise<void> {
-    // 检查表是否存在，不存在才创建
-    const [tables] = await this.pool.execute(
-      `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_history'`
-    );
-    
-    if ((tables as any[]).length === 0) {
-      await this.pool.execute(`
-        CREATE TABLE chat_history (
-          id VARCHAR(36) PRIMARY KEY,
-          datasource_id VARCHAR(36) NOT NULL,
-          messages MEDIUMTEXT NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          INDEX idx_datasource (datasource_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-      `);
+    try {
+      // 检查表是否存在，不存在才创建
+      const [tables] = await this.pool.execute(
+        `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_history'`
+      );
+      
+      if ((tables as any[]).length === 0) {
+        await this.pool.execute(`
+          CREATE TABLE chat_history (
+            id VARCHAR(36) PRIMARY KEY,
+            datasource_id VARCHAR(36) NOT NULL,
+            messages MEDIUMTEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_datasource (datasource_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+      }
+    } catch (error: any) {
+      console.warn('聊天表初始化失败，将以内存模式运行:', error.message);
     }
   }
 
@@ -193,16 +207,20 @@ export class ConfigStore {
   // ========== Schema 分析结果存储 ==========
 
   async initSchemaAnalysisTable(): Promise<void> {
-    await this.pool.execute(`
-      CREATE TABLE IF NOT EXISTS schema_analysis (
-        datasource_id VARCHAR(36) PRIMARY KEY,
-        tables JSON NOT NULL,
-        suggested_questions JSON NOT NULL,
-        analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        is_user_edited BOOLEAN DEFAULT FALSE
-      )
-    `);
+    try {
+      await this.pool.execute(`
+        CREATE TABLE IF NOT EXISTS schema_analysis (
+          datasource_id VARCHAR(36) PRIMARY KEY,
+          tables JSON NOT NULL,
+          suggested_questions JSON NOT NULL,
+          analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          is_user_edited BOOLEAN DEFAULT FALSE
+        )
+      `);
+    } catch (error: any) {
+      console.warn('Schema分析表初始化失败，将以内存模式运行:', error.message);
+    }
   }
 
   // 保存 Schema 分析结果

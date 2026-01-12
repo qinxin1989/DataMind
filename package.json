@@ -1,19 +1,22 @@
 {
   "name": "ai-data-platform",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AI数据问答平台 - 支持多数据源连接和自然语言查询",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "tsx tests/run-tests.ts"
   },
   "dependencies": {
+    "@types/multer": "^2.0.0",
     "axios": "^1.6.2",
     "cors": "^2.8.5",
     "csv-parse": "^5.5.2",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "multer": "^2.0.2",
     "mysql2": "^3.6.5",
     "openai": "^4.20.1",
     "pg": "^8.11.3",

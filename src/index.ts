@@ -3,6 +3,8 @@ import cors from 'cors';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import * as fs from 'fs';
 import { createDataSource, BaseDataSource } from './datasource';
 import { AIAgent, skillRegistry, mcpRegistry, AnalysisReport, AnalysisStep, DashboardResult } from './agent';
 import { DataSourceConfig } from './types';
@@ -13,6 +15,38 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// 创建上传目录
+const uploadDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// 配置 multer
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const name = path.basename(file.originalname, ext);
+    cb(null, `${name}-${Date.now()}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.csv', '.xlsx', '.xls', '.json'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`不支持的文件类型: ${ext}`));
+    }
+  },
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+});
 
 // 静态文件服务
 const publicPath = path.join(process.cwd(), 'public');
@@ -29,10 +63,11 @@ const configStore = new ConfigStore();
 const dataSources = new Map<string, { config: DataSourceConfig; instance: BaseDataSource }>();
 
 // AI Agent（替代原有的 AIEngine）
+// 优先使用千问，如果没有配置则使用 OpenAI
 const aiAgent = new AIAgent(
-  process.env.OPENAI_API_KEY || '',
-  process.env.OPENAI_BASE_URL,
-  process.env.OPENAI_MODEL || 'qwen-plus'
+  process.env.QWEN_API_KEY || process.env.OPENAI_API_KEY || '',
+  process.env.QWEN_BASE_URL || process.env.OPENAI_BASE_URL,
+  process.env.QWEN_API_KEY ? 'qwen-plus' : (process.env.OPENAI_MODEL || 'gpt-4o')
 );
 
 // 初始化：加载已保存的数据源
@@ -51,6 +86,64 @@ async function initDataSources() {
     }
   }
 }
+
+// ========== 文件上传 API ==========
+
+// 上传文件并创建数据源
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '请选择文件' });
+    }
+
+    const { name, fileType } = req.body;
+    if (!name) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: '请提供数据源名称' });
+    }
+
+    // 确定文件类型
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const detectedType = fileType || (ext === '.csv' ? 'csv' : ext === '.json' ? 'json' : 'xlsx');
+
+    // 创建文件数据源配置
+    const config: DataSourceConfig = {
+      id: uuidv4(),
+      name,
+      type: 'file',
+      config: {
+        path: req.file.path,
+        fileType: detectedType
+      }
+    };
+
+    // 测试连接
+    const instance = createDataSource(config);
+    await instance.testConnection();
+
+    // 保存到MySQL
+    await configStore.save(config);
+    dataSources.set(config.id, { config, instance });
+
+    res.json({
+      id: config.id,
+      name,
+      message: '文件上传成功',
+      file: {
+        originalName: req.file.originalname,
+        size: req.file.size,
+        path: req.file.path
+      }
+    });
+  } catch (error: any) {
+    // 删除已上传的文件
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
+    console.error('文件上传失败:', error.message);
+    res.status(400).json({ error: error.message });
+  }
+});
 
 // 添加数据源
 app.post('/api/datasource', async (req, res) => {
