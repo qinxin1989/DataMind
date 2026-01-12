@@ -251,13 +251,19 @@
       }
     }
 
-    const API_BASE = '';
-    let datasources = [];
-    let editingId = null;
-
     async function loadDatasources() {
-      const res = await fetch(`${API_BASE}/api/datasource`);
-      datasources = await res.json();
+      try {
+        const res = await fetch(`${API_BASE}/api/datasource`);
+        if (!res.ok) {
+          console.error('获取数据源失败:', res.status);
+          datasources = [];
+        } else {
+          datasources = await res.json();
+        }
+      } catch (e) {
+        console.error('获取数据源异常:', e);
+        datasources = [];
+      }
       renderList();
     }
 
