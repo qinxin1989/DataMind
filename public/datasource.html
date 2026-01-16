@@ -3,193 +3,449 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>数据源管理 - AI数据问答平台</title>
+  <title>数据源管理 - AI 数据平台</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; }
-    .container { max-width: 900px; margin: 0 auto; padding: 20px; }
-    header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-    header h1 { font-size: 22px; }
-    header a { color: white; text-decoration: none; opacity: 0.9; }
-    header a:hover { opacity: 1; }
-    .panel { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 20px; }
-    .panel-header { padding: 15px 20px; border-bottom: 1px solid #eee; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
-    .panel-body { padding: 20px; }
-    .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
-    .btn-primary { background: #667eea; color: white; }
-    .btn-primary:hover { background: #5a6fd6; }
-    .btn-success { background: #27ae60; color: white; }
-    .btn-success:hover { background: #219a52; }
-    .btn-danger { background: #e74c3c; color: white; }
-    .btn-danger:hover { background: #c0392b; }
-    .btn-outline { background: white; border: 1px solid #ddd; color: #666; }
-    .btn-outline:hover { border-color: #667eea; color: #667eea; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-    input:focus, select:focus, textarea:focus { outline: none; border-color: #667eea; }
-    label { display: block; margin-bottom: 5px; font-size: 13px; color: #666; font-weight: 500; }
-    .form-group { margin-bottom: 15px; }
-    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-    .ds-list { display: flex; flex-direction: column; gap: 10px; }
-    .ds-item { padding: 15px; border: 1px solid #eee; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
-    .ds-item:hover { border-color: #667eea; box-shadow: 0 2px 8px rgba(102,126,234,0.15); }
-    .ds-item.active { border-color: #667eea; background: #f8f9ff; }
-    .ds-info { flex: 1; }
-    .ds-info .name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
-    .ds-info .meta { font-size: 12px; color: #888; }
-    .ds-actions { display: flex; gap: 8px; }
-    .ds-actions .btn { padding: 6px 12px; font-size: 12px; }
-    .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
-    .status-success { background: #d4edda; color: #155724; }
-    .status-error { background: #f8d7da; color: #721c24; }
-    .status-pending { background: #fff3cd; color: #856404; }
-    .empty { text-align: center; padding: 40px; color: #999; }
-    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; z-index: 1000; animation: slideIn 0.3s; }
-    .toast-success { background: #27ae60; }
-    .toast-error { background: #e74c3c; }
-    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    .form-section { border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-top: 15px; }
-    .form-section-title { font-size: 13px; color: #888; margin-bottom: 12px; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f7fb;
+      min-height: 100vh;
+    }
+    a { text-decoration: none; color: inherit; }
+    .app-shell {
+      height: 100vh;
+      display: flex;
+      background: #f5f7fb;
+    }
+    /* 侧边导航，硅基流动风格 */
+    .sidebar {
+      width: 230px;
+      background: #020617;
+      background: linear-gradient(180deg,#020617 0,#020617 40%,#020617 100%);
+      color: #e5edf7;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 12px;
+      box-shadow: 1px 0 0 rgba(15, 23, 42, 0.7);
+    }
+    .logo-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 8px 14px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      margin-bottom: 10px;
+    }
+    .logo-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      background: linear-gradient(135deg,#4f46e5,#8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      color: #f9fafb;
+    }
+    .logo-text-main {
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .logo-text-sub {
+      font-size: 11px;
+      color: rgba(148,163,184,0.9);
+    }
+    .nav-section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: rgba(148, 163, 184, 0.8);
+      padding: 8px 8px 4px;
+      letter-spacing: 0.08em;
+    }
+    .nav-list { list-style:none; margin-top:4px; }
+    .nav-item { border-radius:6px; margin-bottom:2px; }
+    .nav-link {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      font-size:13px;
+      border-radius:6px;
+      cursor:pointer;
+      color:#d0e2ff;
+      transition:all .15s ease;
+    }
+    .nav-icon { width:18px; text-align:center; }
+    .nav-link:hover { background:rgba(59,130,246,0.25); }
+    .nav-link.active {
+      background:rgba(59,130,246,0.9);
+      color:#f9fafb;
+    }
+    .nav-footer {
+      margin-top:auto;
+      padding:10px 6px 4px;
+      border-top:1px solid rgba(148,163,184,0.2);
+      font-size:11px;
+      color:rgba(148,163,184,0.85);
+    }
+    .nav-footer-user {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:4px;
+    }
+    .nav-footer-user-left {
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .avatar {
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      background:#e5edff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#1d4ed8;
+      font-size:11px;
+      font-weight:600;
+    }
+    .logout-link {
+      cursor:pointer;
+      padding:2px 8px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,0.6);
+      color:#e5edf7;
+    }
+    .logout-link:hover {
+      background:rgba(239,68,68,0.15);
+      border-color:rgba(248,113,113,0.9);
+      color:#fee2e2;
+    }
+
+    /* 主区域 */
+    .main {
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      padding:16px 20px 14px;
+      overflow:hidden;
+    }
+    .top-header {
+      height:52px;
+      background:#ffffff;
+      border-radius:10px;
+      box-shadow:0 1px 0 rgba(15,23,42,0.04);
+      border:1px solid rgba(226,232,240,0.9);
+      padding:0 16px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:14px;
+    }
+    .breadcrumb {
+      font-size:13px;
+      color:#6b7280;
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .breadcrumb span.current { color:#111827; font-weight:500; }
+    .header-user {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:13px;
+      color:#4b5563;
+    }
+    .header-avatar {
+      width:26px;
+      height:26px;
+      border-radius:999px;
+      background:#e5edff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#1d4ed8;
+      font-weight:600;
+      font-size:13px;
+    }
+    .page-title {
+      font-size:18px;
+      font-weight:600;
+      margin-bottom:10px;
+      color:#111827;
+    }
+
+    .panel {
+      background:#ffffff;
+      border-radius:12px;
+      box-shadow:0 6px 20px rgba(15,23,42,0.06);
+      border:1px solid rgba(226,232,240,0.9);
+      margin-bottom:16px;
+    }
+    .panel-header {
+      padding:12px 16px;
+      border-bottom:1px solid #eee;
+      font-weight:500;
+      font-size:14px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+    }
+    .panel-body { padding:16px 18px; }
+
+    .btn { padding:8px 16px; border:none; border-radius:6px; cursor:pointer; font-size:13px; transition:all .2s; }
+    .btn-primary { background:#2563eb; color:white; }
+    .btn-primary:hover { background:#1d4ed8; }
+    .btn-success { background:#16a34a; color:white; }
+    .btn-success:hover { background:#15803d; }
+    .btn-danger { background:#e11d48; color:white; }
+    .btn-danger:hover { background:#be123c; }
+    .btn-outline { background:white; border:1px solid #d1d5db; color:#4b5563; }
+    .btn-outline:hover { border-color:#2563eb; color:#111827; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+
+    input, select, textarea {
+      width:100%;
+      padding:10px 12px;
+      border:1px solid #d1d5db;
+      border-radius:6px;
+      font-size:14px;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline:none;
+      border-color:#2563eb;
+      box-shadow:0 0 0 1px rgba(37,99,235,0.25);
+    }
+    label { display:block; margin-bottom:5px; font-size:13px; color:#4b5563; font-weight:500; }
+    .form-group { margin-bottom:15px; }
+    .form-row { display:grid; grid-template-columns:1fr 1fr; gap:15px; }
+    .ds-list { display:flex; flex-direction:column; gap:10px; }
+    .ds-item { padding:15px; border:1px solid #e5e7eb; border-radius:8px; display:flex; justify-content:space-between; align-items:center; transition:all .15s; background:#f9fafb; }
+    .ds-item:hover { border-color:#2563eb; box-shadow:0 4px 12px rgba(148,163,184,0.35); }
+    .ds-info { flex:1; }
+    .ds-info .name { font-weight:600; font-size:14px; margin-bottom:4px; }
+    .ds-info .meta { font-size:12px; color:#6b7280; }
+    .ds-actions { display:flex; gap:8px; }
+    .ds-actions .btn { padding:6px 12px; font-size:12px; }
+    .status { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; }
+    .status-success { background:#d1fae5; color:#166534; }
+    .status-error { background:#fee2e2; color:#b91c1c; }
+    .status-pending { background:#fef3c7; color:#92400e; }
+    .empty { text-align:center; padding:40px; color:#9ca3af; }
+    .toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:8px; color:white; font-size:14px; z-index:1000; animation:slideIn .3s; }
+    .toast-success { background:#16a34a; }
+    .toast-error { background:#e11d48; }
+    @keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+    .form-section { border:1px solid #e5e7eb; border-radius:8px; padding:15px; margin-top:15px; background:#f9fafb; }
+    .form-section-title { font-size:13px; color:#6b7280; margin-bottom:12px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>📊 数据源管理</h1>
-      <div style="display:flex;align-items:center;gap:15px">
-        <span id="userDisplay" style="font-size:14px;opacity:0.9"></span>
-        <a href="/">← 返回问答</a>
-        <button onclick="logout()" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px">退出</button>
-      </div>
-    </header>
-
-    <!-- 数据源列表 -->
-    <div class="panel">
-      <div class="panel-header">
-        已配置的数据源
-        <button class="btn btn-primary" onclick="showForm()">+ 新增数据源</button>
-      </div>
-      <div class="panel-body">
-        <div class="ds-list" id="ds-list">
-          <div class="empty">暂无数据源，点击上方按钮添加</div>
+  <div class="app-shell">
+    <!-- 侧边导航 -->
+    <aside class="sidebar">
+      <div class="logo-row">
+        <div class="logo-mark">A</div>
+        <div>
+          <div class="logo-text-main">AI 数据平台</div>
+          <div class="logo-text-sub">AI Data Platform</div>
         </div>
       </div>
-    </div>
 
-    <!-- 新增/编辑表单 -->
-    <div class="panel" id="form-panel" style="display:none">
-      <div class="panel-header">
-        <span id="form-title">新增数据源</span>
-        <button class="btn btn-outline" onclick="hideForm()">取消</button>
+      <div class="nav-section-title">导航</div>
+      <ul class="nav-list">
+        <li class="nav-item">
+          <div class="nav-link" onclick="location.href='/'">
+            <span class="nav-icon">📊</span><span>仪表盘</span>
+          </div>
+        </li>
+        <li class="nav-item">
+          <div class="nav-link active" onclick="location.href='/datasource.html'">
+            <span class="nav-icon">🗄️</span><span>数据源</span>
+          </div>
+        </li>
+        <li class="nav-item">
+          <div class="nav-link" onclick="location.href='/knowledge.html'">
+            <span class="nav-icon">📚</span><span>知识库 / RAG</span>
+          </div>
+        </li>
+        <li class="nav-item">
+          <div class="nav-link" onclick="location.href='/chat.html'">
+            <span class="nav-icon">💬</span><span>对话历史</span>
+          </div>
+        </li>
+        <li class="nav-item">
+          <div class="nav-link" onclick="location.href='/admin.html'">
+            <span class="nav-icon">👥</span><span>用户与权限</span>
+          </div>
+        </li>
+      </ul>
+
+      <div class="nav-footer">
+        <div class="nav-footer-user">
+          <div class="nav-footer-user-left">
+            <div class="avatar" id="navAvatar">U</div>
+            <div>
+              <div id="navUserName">用户</div>
+            </div>
+          </div>
+          <div class="logout-link" onclick="logout()">退出</div>
+        </div>
       </div>
-      <div class="panel-body">
-        <input type="hidden" id="edit-id">
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label>数据源名称 *</label>
-            <input type="text" id="ds-name" placeholder="如：生产数据库">
-          </div>
-          <div class="form-group">
-            <label>类型 *</label>
-            <select id="ds-type" onchange="toggleConfigFields()">
-              <option value="mysql">MySQL</option>
-              <option value="postgres">PostgreSQL</option>
-              <option value="file">文件 (CSV/Excel/JSON)</option>
-              <option value="api">API接口</option>
-            </select>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="main">
+      <div class="top-header">
+        <div class="breadcrumb">
+          <span>首页</span><span>/</span><span class="current">数据源管理</span>
+        </div>
+        <div class="header-user">
+          <div class="header-avatar" id="headerAvatar">U</div>
+          <span id="headerUserName">用户</span>
+        </div>
+      </div>
+
+      <div class="page-title">数据源管理</div>
+
+      <!-- 数据源列表 -->
+      <div class="panel">
+        <div class="panel-header">
+          <span>已配置的数据源</span>
+          <button class="btn btn-primary" onclick="showForm()">+ 新增数据源</button>
+        </div>
+        <div class="panel-body">
+          <div class="ds-list" id="ds-list">
+            <div class="empty">暂无数据源，点击上方按钮添加</div>
           </div>
         </div>
+      </div>
 
-        <!-- 数据库配置 -->
-        <div id="db-config" class="form-section">
-          <div class="form-section-title">数据库连接配置</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>主机地址</label>
-              <input type="text" id="db-host" placeholder="localhost" value="localhost">
-            </div>
-            <div class="form-group">
-              <label>端口</label>
-              <input type="number" id="db-port" placeholder="3306" value="3306">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>用户名</label>
-              <input type="text" id="db-user" placeholder="root">
-            </div>
-            <div class="form-group">
-              <label>密码</label>
-              <input type="password" id="db-password">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>数据库名</label>
-            <input type="text" id="db-database" placeholder="mydb">
-          </div>
+      <!-- 新增/编辑表单 -->
+      <div class="panel" id="form-panel" style="display:none">
+        <div class="panel-header">
+          <span id="form-title">新增数据源</span>
+          <button class="btn btn-outline" onclick="hideForm()">取消</button>
         </div>
-
-        <!-- 文件配置 -->
-        <div id="file-config" class="form-section" style="display:none">
-          <div class="form-section-title">文件配置</div>
-          <div class="form-group">
-            <label>选择文件上传 *</label>
-            <input type="file" id="file-upload" accept=".csv,.xlsx,.xls,.json" onchange="handleFileSelect()">
-            <div id="file-info" style="margin-top:8px; font-size:12px; color:#888;"></div>
-          </div>
+        <div class="panel-body">
+          <input type="hidden" id="edit-id">
+          
           <div class="form-row">
             <div class="form-group">
-              <label>文件路径（手动输入）</label>
-              <input type="text" id="file-path" placeholder="/path/to/data.csv">
+              <label>数据源名称 *</label>
+              <input type="text" id="ds-name" placeholder="如：生产数据库">
             </div>
             <div class="form-group">
-              <label>文件类型</label>
-              <select id="file-type">
-                <option value="csv">CSV</option>
-                <option value="xlsx">Excel (.xlsx)</option>
-                <option value="json">JSON</option>
+              <label>类型 *</label>
+              <select id="ds-type" onchange="toggleConfigFields()">
+                <option value="mysql">MySQL</option>
+                <option value="postgres">PostgreSQL</option>
+                <option value="file">文件 (CSV/Excel/JSON)</option>
+                <option value="api">API接口</option>
               </select>
             </div>
           </div>
-        </div>
 
-        <!-- API配置 -->
-        <div id="api-config" class="form-section" style="display:none">
-          <div class="form-section-title">API配置</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>API地址</label>
-              <input type="text" id="api-url" placeholder="https://api.example.com/data">
+          <!-- 数据库配置 -->
+          <div id="db-config" class="form-section">
+            <div class="form-section-title">数据库连接配置</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>主机地址</label>
+                <input type="text" id="db-host" placeholder="localhost" value="localhost">
+              </div>
+              <div class="form-group">
+                <label>端口</label>
+                <input type="number" id="db-port" placeholder="3306" value="3306">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="db-user" placeholder="root">
+              </div>
+              <div class="form-group">
+                <label>密码</label>
+                <input type="password" id="db-password">
+              </div>
             </div>
             <div class="form-group">
-              <label>请求方法</label>
-              <select id="api-method">
-                <option value="GET">GET</option>
-                <option value="POST">POST</option>
+              <label>数据库名</label>
+              <input type="text" id="db-database" placeholder="mydb">
+            </div>
+          </div>
+
+          <!-- 文件配置 -->
+          <div id="file-config" class="form-section" style="display:none">
+            <div class="form-section-title">文件配置（支持多文件上传，每个文件作为一个表）</div>
+            <div class="form-group">
+              <label>添加到已有数据源（可选）</label>
+              <select id="file-target-ds" onchange="onTargetDsChange()">
+                <option value="">-- 创建新数据源 --</option>
               </select>
             </div>
+            <div class="form-group">
+              <label>选择文件上传（可多选）*</label>
+              <input type="file" id="file-upload" accept=".csv,.xlsx,.xls,.json" multiple onchange="handleFileSelect()">
+              <div id="file-info" style="margin-top:8px; font-size:12px; color:#888;"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>文件路径（手动输入，单文件）</label>
+                <input type="text" id="file-path" placeholder="/path/to/data.csv">
+              </div>
+              <div class="form-group">
+                <label>文件类型</label>
+                <select id="file-type">
+                  <option value="csv">CSV</option>
+                  <option value="xlsx">Excel (.xlsx)</option>
+                  <option value="json">JSON</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Headers (JSON格式，可选)</label>
-            <textarea id="api-headers" rows="2" placeholder='{"Authorization": "Bearer xxx"}'></textarea>
-          </div>
-        </div>
 
-        <div style="display:flex; gap:10px; margin-top:20px">
-          <button class="btn btn-success" onclick="testConnection()">🔌 测试连接</button>
-          <button class="btn btn-primary" onclick="saveDataSource()">💾 保存</button>
+          <!-- API配置 -->
+          <div id="api-config" class="form-section" style="display:none">
+            <div class="form-section-title">API配置</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>API地址</label>
+                <input type="text" id="api-url" placeholder="https://api.example.com/data">
+              </div>
+              <div class="form-group">
+                <label>请求方法</label>
+                <select id="api-method">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Headers (JSON格式，可选)</label>
+              <textarea id="api-headers" rows="2" placeholder='{"Authorization": "Bearer xxx"}'></textarea>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:20px">
+            <button class="btn btn-success" onclick="testConnection()">🔌 测试连接</button>
+            <button class="btn btn-primary" onclick="saveDataSource()">💾 保存</button>
+          </div>
+          <div id="test-result" style="margin-top:10px"></div>
         </div>
-        <div id="test-result" style="margin-top:10px"></div>
       </div>
-    </div>
+    </main>
   </div>
 
   <script>
     const API_BASE = '';
     let datasources = [];
     let editingId = null;
-    let selectedFile = null;
+    let selectedFiles = [];  // 改为数组支持多文件
 
     // 认证检查
     function checkAuth() {
@@ -199,7 +455,16 @@
         return false;
       }
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      document.getElementById('userDisplay').textContent = '👤 ' + (user.fullName || user.username || '用户');
+      const name = user.fullName || user.username || '用户';
+      const headerNameEl = document.getElementById('headerUserName');
+      const headerAvatarEl = document.getElementById('headerAvatar');
+      const navNameEl = document.getElementById('navUserName');
+      const navAvatarEl = document.getElementById('navAvatar');
+      if (headerNameEl) headerNameEl.textContent = name;
+      if (navNameEl) navNameEl.textContent = name;
+      const initial = String(name).charAt(0).toUpperCase();
+      if (headerAvatarEl) headerAvatarEl.textContent = initial;
+      if (navAvatarEl) navAvatarEl.textContent = initial;
       return true;
     }
 
@@ -217,44 +482,85 @@
 
     function handleFileSelect() {
       const fileInput = document.getElementById('file-upload');
-      selectedFile = fileInput.files[0];
+      selectedFiles = Array.from(fileInput.files);
       
-      if (selectedFile) {
+      if (selectedFiles.length > 0) {
         const fileInfo = document.getElementById('file-info');
-        const sizeMB = (selectedFile.size / 1024 / 1024).toFixed(2);
-        fileInfo.innerHTML = `✓ 已选择: ${escapeHtml(selectedFile.name)} (${sizeMB}MB)`;
-        
-        // 自动检测文件类型
-        const ext = selectedFile.name.split('.').pop().toLowerCase();
-        const typeMap = { 'csv': 'csv', 'xlsx': 'xlsx', 'xls': 'xlsx', 'json': 'json' };
-        if (typeMap[ext]) {
-          document.getElementById('file-type').value = typeMap[ext];
+        if (selectedFiles.length === 1) {
+          const file = selectedFiles[0];
+          const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+          fileInfo.innerHTML = `✓ 已选择: ${escapeHtml(file.name)} (${sizeMB}MB)`;
+          
+          // 自动检测文件类型
+          const ext = file.name.split('.').pop().toLowerCase();
+          const typeMap = { 'csv': 'csv', 'xlsx': 'xlsx', 'xls': 'xlsx', 'json': 'json' };
+          if (typeMap[ext]) {
+            document.getElementById('file-type').value = typeMap[ext];
+          }
+        } else {
+          // 多文件显示
+          const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
+          const sizeMB = (totalSize / 1024 / 1024).toFixed(2);
+          const fileNames = selectedFiles.map(f => escapeHtml(f.name)).join('<br>• ');
+          fileInfo.innerHTML = `✓ 已选择 ${selectedFiles.length} 个文件 (共 ${sizeMB}MB):<br>• ${fileNames}`;
         }
       } else {
         document.getElementById('file-info').innerHTML = '';
-        selectedFile = null;
+        selectedFiles = [];
       }
     }
 
+    // 当选择目标数据源时
+    function onTargetDsChange() {
+      const targetDs = document.getElementById('file-target-ds').value;
+      const nameInput = document.getElementById('ds-name');
+      if (targetDs) {
+        // 选择了已有数据源，禁用名称输入
+        const ds = datasources.find(d => d.id === targetDs);
+        nameInput.value = ds ? ds.name : '';
+        nameInput.disabled = true;
+      } else {
+        // 创建新数据源
+        nameInput.value = '';
+        nameInput.disabled = false;
+      }
+    }
+
+    // 更新文件数据源下拉列表
+    function updateFileTargetOptions() {
+      const select = document.getElementById('file-target-ds');
+      const fileDatasources = datasources.filter(d => d.type === 'file');
+      select.innerHTML = '<option value="">-- 创建新数据源 --</option>' + 
+        fileDatasources.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+    }
+
     async function uploadFile() {
-      if (!selectedFile) {
+      if (selectedFiles.length === 0) {
         toast('请选择文件', 'error');
         return false;
       }
 
-      const name = document.getElementById('ds-name').value.trim();
-      if (!name) {
+      const targetDsId = document.getElementById('file-target-ds').value;
+      const dsName = document.getElementById('ds-name').value.trim();
+      
+      if (!targetDsId && !dsName) {
         toast('请输入数据源名称', 'error');
         return false;
       }
 
-      const fileType = document.getElementById('file-type').value;
       const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('name', name);
-      formData.append('fileType', fileType);
+      for (const file of selectedFiles) {
+        formData.append('file', file);
+      }
+      if (targetDsId) {
+        formData.append('datasourceId', targetDsId);
+      }
+      if (dsName) {
+        formData.append('name', dsName);
+      }
 
       try {
+        toast(`正在上传 ${selectedFiles.length} 个文件...`, 'success');
         const res = await fetch(`${API_BASE}/api/upload`, {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + localStorage.getItem('authToken') },
@@ -267,8 +573,8 @@
           toast(`上传失败: ${result.error}`, 'error');
           return false;
         } else {
-          toast('文件上传成功', 'success');
-          selectedFile = null;
+          toast(result.message || '上传成功', 'success');
+          selectedFiles = [];
           document.getElementById('file-upload').value = '';
           document.getElementById('file-info').innerHTML = '';
           hideForm();
@@ -296,6 +602,7 @@
         datasources = [];
       }
       renderList();
+      updateFileTargetOptions();
     }
 
     function renderList() {
@@ -328,6 +635,7 @@
       if (!id) {
         // 清空表单
         document.getElementById('ds-name').value = '';
+        document.getElementById('ds-name').disabled = false;
         document.getElementById('ds-type').value = 'mysql';
         document.getElementById('db-host').value = 'localhost';
         document.getElementById('db-port').value = '3306';
@@ -336,7 +644,9 @@
         document.getElementById('db-database').value = '';
         document.getElementById('file-upload').value = '';
         document.getElementById('file-info').innerHTML = '';
-        selectedFile = null;
+        document.getElementById('file-target-ds').value = '';
+        selectedFiles = [];
+        updateFileTargetOptions();
         toggleConfigFields();
       }
     }
@@ -449,7 +759,7 @@
       const type = document.getElementById('ds-type').value;
       
       // 如果是文件类型且选择了文件，使用上传接口
-      if (type === 'file' && selectedFile) {
+      if (type === 'file' && selectedFiles.length > 0) {
         await uploadFile();
         return;
       }

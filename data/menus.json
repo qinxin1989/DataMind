@@ -1,0 +1,35 @@
+[
+  {
+    "id": "c6b2446f-188d-4d6b-9724-ed1ded5f76e9",
+    "title": "Third",
+    "order": 3,
+    "visible": true,
+    "external": false,
+    "target": "_self",
+    "isSystem": false,
+    "createdAt": 1768286774388,
+    "updatedAt": 1768286774388
+  },
+  {
+    "id": "ad8e3a0f-1ee7-464a-b075-550b93619731",
+    "title": "First",
+    "order": 1,
+    "visible": true,
+    "external": false,
+    "target": "_self",
+    "isSystem": false,
+    "createdAt": 1768286774389,
+    "updatedAt": 1768286774389
+  },
+  {
+    "id": "62024eec-a539-4047-9b6b-01cf93dd041d",
+    "title": "Second",
+    "order": 2,
+    "visible": true,
+    "external": false,
+    "target": "_self",
+    "isSystem": false,
+    "createdAt": 1768286774390,
+    "updatedAt": 1768286774390
+  }
+]

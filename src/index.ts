@@ -7,16 +7,23 @@ import multer from 'multer';
 import * as fs from 'fs';
 import { createDataSource, BaseDataSource } from './datasource';
 import { AIAgent, skillRegistry, mcpRegistry, AnalysisStep } from './agent';
-import { DataSourceConfig } from './types';
+import { DataSourceConfig, FileConfig } from './types';
 import { ConfigStore, ChatSession } from './store/configStore';
 import { AuthService } from './services/authService';
 import { createAuthMiddleware, requireAdmin } from './middleware/auth';
+import { fileEncryption } from './services/fileEncryption';
+import { dataMasking } from './services/dataMasking';
+import { RAGEngine } from './rag';
+import { initAdminTables } from './admin/core/database';
+import { aiConfigService } from './admin/modules/ai/aiConfigService';
+import { approvalService } from './admin/modules/approval/approvalService';
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // 创建上传目录
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -51,13 +58,17 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB
 });
 
-// 静态文件服务
+// 静态文件服务 - 优先使用 admin-ui 构建文件（融合后的前端控制台）
+const adminUiPath = path.join(process.cwd(), 'admin-ui', 'dist');
 const publicPath = path.join(process.cwd(), 'public');
-app.use(express.static(publicPath));
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
-});
+if (fs.existsSync(adminUiPath)) {
+  app.use(express.static(adminUiPath));
+  console.log('使用 admin-ui 作为前端');
+} else {
+  app.use(express.static(publicPath));
+  console.log('使用 public 作为前端');
+}
 
 // 配置存储（MySQL持久化）
 const configStore = new ConfigStore();
@@ -75,19 +86,57 @@ const authMiddleware = createAuthMiddleware(authService);
 // 存储数据源连接
 const dataSources = new Map<string, { config: DataSourceConfig; instance: BaseDataSource }>();
 
-// AI Agent（替代原有的 AIEngine）
-// 优先使用千问，如果没有配置则使用 OpenAI
-const aiAgent = new AIAgent(
-  process.env.QWEN_API_KEY || process.env.OPENAI_API_KEY || '',
-  process.env.QWEN_BASE_URL || process.env.OPENAI_BASE_URL,
-  process.env.QWEN_API_KEY ? 'qwen-plus' : (process.env.OPENAI_MODEL || 'gpt-4o')
-);
+// 检查用户是否可以访问数据源
+function canAccessDataSource(config: DataSourceConfig, userId: string): boolean {
+  // 用户自己的数据源
+  if (config.userId === userId) return true;
+  // 公共且已审核通过的数据源
+  if (config.visibility === 'public' && config.approvalStatus === 'approved') return true;
+  return false;
+}
+
+// 检查用户是否可以修改数据源
+function canModifyDataSource(config: DataSourceConfig, userId: string): boolean {
+  // 只有数据源所有者可以修改
+  return config.userId === userId;
+}
+
+// AI Agent（从数据库动态获取配置）
+const aiAgent = new AIAgent();
 
 // 初始化：加载已保存的数据源
 async function initDataSources() {
   await configStore.init();
   await configStore.initChatTable();
   await configStore.initSchemaAnalysisTable();
+  // 初始化 Admin 框架数据库表
+  await initAdminTables();
+  // 初始化审批服务表
+  await approvalService.init();
+  // 初始化默认管理员账户
+  await authService.initDefaultAdmin();
+  
+  // 设置 AI Agent 从数据库获取配置（返回所有可用配置，支持自动故障转移）
+  aiAgent.setConfigGetter(async () => {
+    const configs = await aiConfigService.getActiveConfigsByPriority();
+    console.log('=== AI 配置列表（按优先级排序）===');
+    configs.forEach((c, i) => {
+      console.log(`  ${i + 1}. ${c.name} (${c.provider}/${c.model}) - priority: ${c.priority}, baseUrl: ${c.baseUrl || '未设置'}`);
+    });
+    if (!configs || configs.length === 0) {
+      console.log('没有可用的 AI 配置！');
+      return [];
+    }
+    // 返回所有配置，AI Agent 会按顺序尝试
+    return configs.map(c => ({
+      apiKey: c.apiKey,
+      baseURL: c.baseUrl,
+      model: c.model,
+      name: c.name
+    }));
+  });
+  console.log('AI Agent 已配置为从数据库读取配置（支持自动故障转移）');
+  
   const configs = await configStore.getAll();
   for (const config of configs) {
     try {
@@ -216,10 +265,11 @@ app.delete('/api/auth/users/:id', authMiddleware, requireAdmin, async (req, res)
 
 // ========== 文件上传 API ==========
 
-// 上传文件并创建数据源
-app.post('/api/upload', authMiddleware, upload.single('file'), async (req, res) => {
+// 上传文件并创建数据源（支持多文件合并到同一数据源，自动加密）
+app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, res) => {
   try {
-    if (!req.file) {
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
       return res.status(400).json({ error: '请选择文件' });
     }
 
@@ -227,29 +277,107 @@ app.post('/api/upload', authMiddleware, upload.single('file'), async (req, res) 
       return res.status(401).json({ error: '未认证' });
     }
 
-    const { name, fileType } = req.body;
-    if (!name) {
-      fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: '请提供数据源名称' });
+    // 检查是否要添加到已有数据源
+    const datasourceId = req.body.datasourceId;
+    const datasourceName = req.body.name || '文件数据源';
+    const datasourceType = req.body.type || 'structured'; // structured 或 document
+    
+    const uploadedFiles: any[] = [];
+    const errors: any[] = [];
+
+    // 处理每个文件
+    for (const file of files) {
+      try {
+        const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+        const ext = path.extname(originalName).toLowerCase();
+        
+        // 根据扩展名检测文件类型
+        let detectedType = 'unknown';
+        if (['.csv'].includes(ext)) detectedType = 'csv';
+        else if (['.json'].includes(ext)) detectedType = 'json';
+        else if (['.xlsx', '.xls'].includes(ext)) detectedType = 'xlsx';
+        else if (['.txt'].includes(ext)) detectedType = 'txt';
+        else if (['.doc', '.docx'].includes(ext)) detectedType = 'word';
+        else if (['.pdf'].includes(ext)) detectedType = 'pdf';
+        else if (['.md'].includes(ext)) detectedType = 'markdown';
+
+        // 加密文件
+        const encryptedPath = await fileEncryption.encryptFile(file.path);
+        console.log(`文件已加密: ${originalName} -> ${encryptedPath}`);
+
+        uploadedFiles.push({
+          path: encryptedPath,
+          fileType: detectedType,
+          originalName: originalName,
+          encrypted: true
+        });
+      } catch (err: any) {
+        try { fs.unlinkSync(file.path); } catch (e) {}
+        try { fs.unlinkSync(file.path + '.enc'); } catch (e) {}
+        errors.push({
+          file: Buffer.from(file.originalname, 'latin1').toString('utf8'),
+          error: err.message
+        });
+      }
     }
 
-    // 处理中文文件名编码
-    const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-    const ext = path.extname(originalName).toLowerCase();
-    const detectedType = fileType || (ext === '.csv' ? 'csv' : ext === '.json' ? 'json' : 'xlsx');
+    if (uploadedFiles.length === 0) {
+      return res.status(400).json({ error: '所有文件上传失败', errors });
+    }
 
-    // 创建文件数据源配置
-    const config: DataSourceConfig = {
-      id: uuidv4(),
-      userId: req.user.id,
-      name,
-      type: 'file',
-      config: {
-        path: req.file.path,
-        fileType: detectedType,
-        originalName: originalName
+    let config: DataSourceConfig;
+    let isNew = true;
+
+    // 如果指定了数据源ID，添加到已有数据源
+    if (datasourceId && dataSources.has(datasourceId)) {
+      const existing = dataSources.get(datasourceId)!;
+      if (existing.config.userId !== req.user.id) {
+        return res.status(403).json({ error: '无权修改此数据源' });
       }
-    };
+      
+      const existingConfig = existing.config.config as FileConfig;
+      // 合并文件列表
+      const existingFiles = existingConfig.files || [{
+        path: existingConfig.path,
+        fileType: existingConfig.fileType,
+        originalName: existingConfig.originalName,
+        encrypted: existingConfig.encrypted
+      }];
+      
+      const fileConfig: FileConfig = {
+        path: existingFiles[0].path,
+        fileType: existingFiles[0].fileType,
+        originalName: existingFiles[0].originalName,
+        encrypted: existingFiles[0].encrypted,
+        files: [...existingFiles, ...uploadedFiles]
+      };
+      
+      config = {
+        ...existing.config,
+        config: fileConfig
+      };
+      isNew = false;
+      
+      // 断开旧连接
+      await existing.instance.disconnect();
+    } else {
+      // 创建新数据源
+      const fileConfig: FileConfig = {
+        path: uploadedFiles[0].path,
+        fileType: uploadedFiles[0].fileType,
+        originalName: uploadedFiles[0].originalName,
+        encrypted: uploadedFiles[0].encrypted,
+        files: uploadedFiles.length > 1 ? uploadedFiles : undefined
+      };
+      
+      config = {
+        id: uuidv4(),
+        userId: req.user.id,
+        name: datasourceName,
+        type: 'file',
+        config: fileConfig
+      };
+    }
 
     // 测试连接
     const instance = createDataSource(config);
@@ -261,21 +389,20 @@ app.post('/api/upload', authMiddleware, upload.single('file'), async (req, res) 
 
     res.json({
       id: config.id,
-      name,
-      message: '文件上传成功',
-      file: {
-        originalName: originalName,
-        size: req.file.size,
-        path: req.file.path
-      }
+      name: config.name,
+      isNew,
+      filesAdded: uploadedFiles.length,
+      totalFiles: (config.config as FileConfig).files?.length || 1,
+      errors: errors.length > 0 ? errors : undefined,
+      message: isNew 
+        ? `创建数据源成功，包含 ${uploadedFiles.length} 个文件` 
+        : `已添加 ${uploadedFiles.length} 个文件到数据源`
     });
   } catch (error: any) {
-    // 删除已上传的文件
-    if (req.file) {
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (e) {
-        // 忽略删除失败
+    const files = req.files as Express.Multer.File[];
+    if (files) {
+      for (const file of files) {
+        try { fs.unlinkSync(file.path); } catch (e) {}
       }
     }
     console.error('文件上传失败:', error.message);
@@ -311,13 +438,32 @@ app.get('/api/datasource', authMiddleware, (req, res) => {
     return res.status(401).json({ error: '未认证' });
   }
 
+  // 返回用户自己的数据源 + 公共且已审核通过的数据源
   const list = Array.from(dataSources.entries())
-    .filter(([, { config }]) => config.userId === req.user!.id)
+    .filter(([, { config }]) => {
+      // 调试日志
+      if (config.name === 'sakila') {
+        console.log('=== sakila 数据源信息 ===');
+        console.log('userId:', config.userId);
+        console.log('visibility:', config.visibility);
+        console.log('approvalStatus:', config.approvalStatus);
+        console.log('当前用户ID:', req.user!.id);
+      }
+      
+      // 用户自己的数据源
+      if (config.userId === req.user!.id) return true;
+      // 公共且已审核通过的数据源
+      if (config.visibility === 'public' && config.approvalStatus === 'approved') return true;
+      return false;
+    })
     .map(([id, { config }]) => ({
       id,
       name: config.name,
       type: config.type,
       host: (config.config as any).host || (config.config as any).url || (config.config as any).path,
+      visibility: config.visibility || 'private',
+      approvalStatus: config.approvalStatus,
+      ownerId: config.userId,
     }));
   res.json(list);
 });
@@ -359,7 +505,7 @@ app.get('/api/datasource/:id/test', authMiddleware, async (req, res) => {
   const ds = dataSources.get(req.params.id);
   if (!ds) return res.status(404).json({ success: false, error: '数据源不存在' });
   
-  if (ds.config.userId !== req.user.id) {
+  if (!canAccessDataSource(ds.config, req.user.id)) {
     return res.status(403).json({ success: false, error: '无权访问此数据源' });
   }
   
@@ -412,7 +558,7 @@ app.get('/api/datasource/:id/schema', authMiddleware, async (req, res) => {
   const ds = dataSources.get(req.params.id);
   if (!ds) return res.status(404).json({ error: '数据源不存在' });
 
-  if (ds.config.userId !== req.user.id) {
+  if (!canAccessDataSource(ds.config, req.user.id)) {
     return res.status(403).json({ error: '无权访问此数据源' });
   }
 
@@ -433,7 +579,7 @@ app.get('/api/datasource/:id/schema/analyze', authMiddleware, async (req, res) =
   const ds = dataSources.get(req.params.id);
   if (!ds) return res.status(404).json({ error: '数据源不存在' });
 
-  if (ds.config.userId !== req.user.id) {
+  if (!canAccessDataSource(ds.config, req.user.id)) {
     return res.status(403).json({ error: '无权访问此数据源' });
   }
 
@@ -564,6 +710,255 @@ app.put('/api/datasource/:id/schema/questions', authMiddleware, async (req, res)
   }
 });
 
+// 刷新推荐问题（基于当前中文名重新生成）
+app.post('/api/datasource/:id/schema/questions/refresh', authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: '未认证' });
+  }
+
+  const ds = dataSources.get(req.params.id);
+  if (!ds) return res.status(404).json({ error: '数据源不存在' });
+  if (ds.config.userId !== req.user.id) {
+    return res.status(403).json({ error: '无权访问此数据源' });
+  }
+
+  try {
+    // 获取当前分析数据（包含用户编辑的中文名）
+    const cached = await configStore.getSchemaAnalysis(req.params.id, req.user.id);
+    if (!cached || !cached.tables) {
+      return res.status(404).json({ error: '请先进行AI分析' });
+    }
+
+    // 基于中文名生成新的推荐问题
+    const questions = generateQuestionsFromAnalysis(cached.tables);
+    
+    // 保存新问题
+    await configStore.updateSuggestedQuestions(req.params.id, questions, req.user.id);
+    
+    res.json({ suggestedQuestions: questions });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 基于分析数据生成推荐问题
+function generateQuestionsFromAnalysis(tables: any[]): string[] {
+  const questions: string[] = [];
+  
+  for (const table of tables) {
+    const tableCn = table.tableNameCn || table.tableName;
+    
+    // 基础统计
+    questions.push(`${tableCn}共有多少条记录？`);
+    
+    // 找分类字段
+    const categoryFields = table.columns?.filter((c: any) => 
+      c.name.includes('代码') || c.name.includes('类型') || c.name.includes('性别') || 
+      c.name.includes('状态') || c.nameCn?.includes('类型') || c.nameCn?.includes('性别')
+    ) || [];
+    
+    for (const field of categoryFields.slice(0, 2)) {
+      const fieldCn = field.nameCn || field.name;
+      questions.push(`按${fieldCn}统计${tableCn}的分布情况`);
+    }
+    
+    // 日期字段
+    const dateFields = table.columns?.filter((c: any) => 
+      c.type?.toLowerCase().includes('date') || c.name.includes('日期') || c.nameCn?.includes('日期')
+    ) || [];
+    if (dateFields.length > 0) {
+      questions.push(`按月份统计${tableCn}的时间趋势`);
+    }
+    
+    // 数值字段
+    const numericFields = table.columns?.filter((c: any) => 
+      c.name.includes('年龄') || c.name.includes('金额') || c.nameCn?.includes('年龄') || c.nameCn?.includes('金额')
+    ) || [];
+    if (numericFields.length > 0) {
+      const fieldCn = numericFields[0].nameCn || numericFields[0].name;
+      questions.push(`${tableCn}中${fieldCn}的统计情况`);
+    }
+  }
+  
+  // 综合分析
+  const allTablesCn = tables.map(t => t.tableNameCn || t.tableName).join('和');
+  questions.push(`对${allTablesCn}进行全面分析`);
+  
+  // 随机打乱并限制数量
+  return questions.sort(() => Math.random() - 0.5).slice(0, 15);
+}
+
+// 更新数据源可见性
+app.put('/api/datasource/:id/visibility', authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: '未认证' });
+  }
+
+  const { visibility, reason } = req.body;
+  if (!visibility || !['private', 'public'].includes(visibility)) {
+    return res.status(400).json({ error: '可见性参数无效' });
+  }
+
+  const ds = dataSources.get(req.params.id);
+  if (!ds) {
+    return res.status(404).json({ error: '数据源不存在' });
+  }
+
+  if (ds.config.userId !== req.user.id) {
+    return res.status(403).json({ error: '无权修改此数据源' });
+  }
+
+  try {
+    const oldVisibility = ds.config.visibility || 'private';
+    
+    // 如果是设为公共
+    if (visibility === 'public' && oldVisibility !== 'public') {
+      // 检查用户是否是管理员
+      const isAdmin = req.user.role === 'admin';
+      
+      if (isAdmin) {
+        // 管理员直接审核通过
+        ds.config.visibility = 'public';
+        ds.config.approvalStatus = 'approved';
+      } else {
+        // 普通用户需要创建审批申请
+        await approvalService.create({
+          type: 'datasource_visibility',
+          applicantId: req.user.id,
+          applicantName: req.user.username,
+          resourceId: ds.config.id,
+          resourceName: ds.config.name,
+          oldValue: oldVisibility,
+          newValue: visibility,
+          reason: reason || '申请将数据源设为公共可见',
+        });
+        
+        // 更新状态为待审批
+        ds.config.visibility = 'public';
+        ds.config.approvalStatus = 'pending';
+      }
+    } else {
+      // 设为私有，直接生效
+      ds.config.visibility = visibility;
+      ds.config.approvalStatus = undefined;
+    }
+    
+    // 保存到数据库
+    await configStore.save(ds.config);
+    
+    res.json({ 
+      success: true, 
+      data: { 
+        id: ds.config.id, 
+        visibility: ds.config.visibility, 
+        approvalStatus: ds.config.approvalStatus 
+      } 
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取待审核的数据源列表（管理员）
+app.get('/api/datasource/pending-approvals', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const pendingList = Array.from(dataSources.values())
+      .filter(({ config }) => config.visibility === 'public' && config.approvalStatus === 'pending')
+      .map(({ config }) => ({
+        id: config.id,
+        name: config.name,
+        type: config.type,
+        host: (config.config as any).host || (config.config as any).path,
+        port: (config.config as any).port,
+        database: (config.config as any).database,
+        ownerId: config.userId,
+        visibility: config.visibility,
+        approvalStatus: config.approvalStatus,
+        createdAt: config.createdAt || Date.now(),
+      }));
+    
+    res.json({ 
+      success: true, 
+      data: { 
+        list: pendingList, 
+        total: pendingList.length, 
+        page: 1, 
+        pageSize: 20 
+      } 
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 审核通过数据源（管理员）
+app.post('/api/datasource/:id/approve', authMiddleware, requireAdmin, async (req, res) => {
+  const ds = dataSources.get(req.params.id);
+  if (!ds) {
+    return res.status(404).json({ error: '数据源不存在' });
+  }
+
+  if (ds.config.visibility !== 'public' || ds.config.approvalStatus !== 'pending') {
+    return res.status(400).json({ error: '该数据源不在待审核状态' });
+  }
+
+  try {
+    ds.config.approvalStatus = 'approved';
+    await configStore.save(ds.config);
+    
+    res.json({ success: true, data: { id: ds.config.id, approvalStatus: 'approved' } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 审核拒绝数据源（管理员）
+app.post('/api/datasource/:id/reject', authMiddleware, requireAdmin, async (req, res) => {
+  const { comment } = req.body;
+  if (!comment) {
+    return res.status(400).json({ error: '拒绝时必须填写原因' });
+  }
+
+  const ds = dataSources.get(req.params.id);
+  if (!ds) {
+    return res.status(404).json({ error: '数据源不存在' });
+  }
+
+  if (ds.config.visibility !== 'public' || ds.config.approvalStatus !== 'pending') {
+    return res.status(400).json({ error: '该数据源不在待审核状态' });
+  }
+
+  try {
+    ds.config.approvalStatus = 'rejected';
+    await configStore.save(ds.config);
+    
+    res.json({ success: true, data: { id: ds.config.id, approvalStatus: 'rejected' } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 临时修复接口：修复公共数据源的审核状态
+app.post('/api/datasource/:id/fix-approval', authMiddleware, requireAdmin, async (req, res) => {
+  const ds = dataSources.get(req.params.id);
+  if (!ds) {
+    return res.status(404).json({ error: '数据源不存在' });
+  }
+
+  try {
+    // 如果是公共数据源但没有审核状态，自动设为已审核
+    if (ds.config.visibility === 'public' && !ds.config.approvalStatus) {
+      ds.config.approvalStatus = 'approved';
+      await configStore.save(ds.config);
+      res.json({ success: true, message: '已修复审核状态', data: { id: ds.config.id, approvalStatus: 'approved' } });
+    } else {
+      res.json({ success: true, message: '无需修复', data: { id: ds.config.id, approvalStatus: ds.config.approvalStatus } });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 删除数据源
 app.delete('/api/datasource/:id', authMiddleware, async (req, res) => {
   if (!req.user) {
@@ -601,10 +996,12 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
     return res.status(404).json({ error: '数据源不存在' });
   }
 
-  if (ds.config.userId !== req.user.id) {
+  if (!canAccessDataSource(ds.config, req.user.id)) {
     return res.status(403).json({ error: '无权访问此数据源' });
   }
 
+  const startTime = Date.now();
+  
   try {
     // 获取或创建会话
     let session: ChatSession;
@@ -618,25 +1015,62 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
     // 调用AI Agent（传入历史消息）
     const response = await aiAgent.answer(question, ds.instance, ds.config.type, session.messages);
     
-    // 保存对话记录
+    console.log('=== AI Response ===');
+    console.log('answer:', response.answer);
+    console.log('sql:', response.sql);
+    console.log('data length:', response.data?.length);
+    console.log('tokensUsed:', response.tokensUsed);
+    console.log('modelName:', response.modelName);
+    
+    const responseTime = Date.now() - startTime;
+    
+    // 对返回数据进行脱敏处理
+    let maskedData = response.data;
+    let maskedAnswer = response.answer;
+    if (response.data && Array.isArray(response.data)) {
+      maskedData = dataMasking.maskData(response.data);
+    }
+    if (response.answer) {
+      maskedAnswer = dataMasking.maskText(response.answer);
+      console.log('Original answer:', response.answer.substring(0, 100));
+      console.log('Masked answer:', maskedAnswer.substring(0, 100));
+    } else {
+      console.log('WARNING: response.answer is empty or undefined!');
+    }
+    
+    // 保存对话记录（包含响应时间和 token 信息）
     session.messages.push({ role: 'user', content: question, timestamp: Date.now() });
     session.messages.push({ 
       role: 'assistant', 
-      content: response.answer, 
+      content: maskedAnswer, 
       sql: response.sql, 
-      timestamp: Date.now() 
+      timestamp: Date.now(),
+      responseTime,
+      tokensUsed: response.tokensUsed || 0,
+      modelName: response.modelName
     });
     await configStore.saveChatSession(session, req.user.id);
 
-    res.json({ 
-      ...response, 
+    const responseData = { 
+      ...response,
+      answer: maskedAnswer,
+      data: maskedData,
       sessionId: session.id,
+      responseTime,
       meta: {
         skillUsed: response.skillUsed,
         toolUsed: response.toolUsed,
         visualization: response.visualization
       }
-    });
+    };
+    
+    console.log('=== Final Response to Frontend ===');
+    console.log('Full response:', JSON.stringify(responseData).substring(0, 300));
+    console.log('answer field:', responseData.answer?.substring(0, 100));
+    console.log('sql field:', responseData.sql?.substring(0, 100));
+    console.log('data field length:', responseData.data?.length);
+    
+    res.json(responseData);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -651,7 +1085,7 @@ app.get('/api/chat/sessions/:datasourceId', authMiddleware, async (req, res) => 
   // 检查权限
   const ds = dataSources.get(req.params.datasourceId);
   if (!ds) return res.status(404).json({ error: '数据源不存在' });
-  if (ds.config.userId !== req.user.id) {
+  if (!canAccessDataSource(ds.config, req.user.id)) {
     return res.status(403).json({ error: '无权访问此数据源' });
   }
 
@@ -956,7 +1390,8 @@ app.get('/api/agent/dashboard/preview', authMiddleware, async (req, res) => {
     return res.status(404).send('数据源不存在');
   }
 
-  if (ds.config.userId !== req.user.id) {
+  // 检查权限：数据源所有者或公共数据源
+  if (!canAccessDataSource(ds.config, req.user.id)) {
     return res.status(403).send('无权访问此数据源');
   }
 
@@ -1007,54 +1442,313 @@ app.post('/api/agent/format', authMiddleware, async (req, res) => {
   }
 });
 
-// 内容编排 + 生成 PPT（链式调用两个 MCP 工具）
+// 内容编排 + 生成 PPT（通过 MCP 调度）
 app.post('/api/agent/format-and-ppt', authMiddleware, async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: '未认证' });
   }
 
-  const { content, title, theme = 'corporate', style = 'report' } = req.body;
+  const { content, title, theme = 'default', style = 'report' } = req.body;
 
   if (!content) {
     return res.status(400).json({ error: '请提供要处理的内容' });
   }
 
   try {
-    // 1. 先调用 text_formatter 编排内容
-    const formatResult = await mcpRegistry.callTool('text_formatter', 'format_report', {
-      content,
-      style
-    });
-
-    if (formatResult.isError) {
-      return res.status(500).json({ error: '内容编排失败: ' + formatResult.content[0]?.text });
+    // 步骤1: 通过 MCP text_formatter 编排内容
+    let formattedContent = content;
+    try {
+      const formatResult = await mcpRegistry.callTool('text_formatter', 'format_report', {
+        content,
+        style
+      });
+      if (!formatResult.isError && formatResult.content[0]?.text) {
+        formattedContent = formatResult.content[0].text;
+      }
+    } catch (e) {
+      console.log('Text formatting skipped:', e);
     }
 
-    const formattedContent = formatResult.content[0]?.text || content;
-
-    // 2. 再调用 ppt_generator 生成 PPT
+    // 步骤2: 通过 MCP ppt_generator 生成 PPT
     const pptResult = await mcpRegistry.callTool('ppt_generator', 'create_ppt_from_text', {
       title: title || '分析报告',
       content: formattedContent,
-      theme
+      theme: theme
     });
 
     if (pptResult.isError) {
-      return res.status(500).json({ 
-        error: 'PPT生成失败: ' + pptResult.content[0]?.text,
-        formatted: formattedContent
-      });
+      return res.status(500).json({ error: pptResult.content[0]?.text || 'PPT生成失败' });
     }
 
-    res.json({
-      formatted: formattedContent,
+    res.json({ 
       ppt: pptResult.content[0]?.text,
-      style,
-      theme
+      formatted: formattedContent
+    });
+  } catch (error: any) {
+    console.error('PPT generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 静态文件服务 - downloads 目录
+const downloadsPath = path.join(process.cwd(), 'public', 'downloads');
+if (!fs.existsSync(downloadsPath)) {
+  fs.mkdirSync(downloadsPath, { recursive: true });
+}
+app.use('/downloads', express.static(downloadsPath));
+
+// ========== RAG 知识库 API ==========
+
+// RAG 引擎实例（按用户隔离）
+const ragEngines = new Map<string, RAGEngine>();
+
+// 获取或创建用户的 RAG 引擎
+function getRAGEngine(userId: string): RAGEngine {
+  if (!ragEngines.has(userId)) {
+    const ragEngine = new RAGEngine(
+      process.env.QWEN_API_KEY || process.env.OPENAI_API_KEY || '',
+      process.env.QWEN_BASE_URL || process.env.OPENAI_BASE_URL,
+      process.env.QWEN_API_KEY ? 'qwen-plus' : 'gpt-4o',
+      process.env.QWEN_API_KEY ? 'text-embedding-v2' : 'text-embedding-ada-002'
+    );
+    ragEngines.set(userId, ragEngine);
+  }
+  return ragEngines.get(userId)!;
+}
+
+// 获取知识库统计信息
+app.get('/api/rag/stats', authMiddleware, (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const ragEngine = getRAGEngine(req.user.id);
+  res.json(ragEngine.getStats());
+});
+
+// 获取知识库文档列表
+app.get('/api/rag/documents', authMiddleware, (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const ragEngine = getRAGEngine(req.user.id);
+  const docs = ragEngine.getKnowledgeBase().getAllDocuments();
+  
+  res.json(docs.map((d: any) => ({
+    id: d.id,
+    title: d.title,
+    type: d.type,
+    chunks: d.chunks?.length || 0,
+    createdAt: d.metadata?.createdAt,
+    tags: d.metadata?.tags,
+  })));
+});
+
+// 添加文档到知识库
+app.post('/api/rag/documents', authMiddleware, async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const { title, content, type = 'note', tags } = req.body;
+  
+  if (!title || !content) {
+    return res.status(400).json({ error: '请提供标题和内容' });
+  }
+  
+  try {
+    const ragEngine = getRAGEngine(req.user.id);
+    const doc = await ragEngine.addDocument(
+      content,
+      title,
+      type,
+      req.user.id,
+      { tags }
+    );
+    
+    res.json({
+      id: doc.id,
+      title: doc.title,
+      chunksCount: doc.chunks?.length || 0,
+      message: '文档已添加到知识库'
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// 上传文件到知识库
+app.post('/api/rag/upload', authMiddleware, upload.single('file'), async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: '请选择文件' });
+  }
+  
+  try {
+    const ragEngine = getRAGEngine(req.user.id);
+    const doc = await ragEngine.addFromFile(file.path, req.user.id);
+    
+    // 删除临时文件
+    try { fs.unlinkSync(file.path); } catch (e) {}
+    
+    res.json({
+      id: doc.id,
+      title: doc.title,
+      chunksCount: doc.chunks?.length || 0,
+      message: '文件已添加到知识库'
+    });
+  } catch (error: any) {
+    try { fs.unlinkSync(file.path); } catch (e) {}
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 将数据源添加到知识库
+app.post('/api/rag/datasource/:id', authMiddleware, async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const ds = dataSources.get(req.params.id);
+  if (!ds) return res.status(404).json({ error: '数据源不存在' });
+  
+  if (ds.config.userId !== req.user.id) {
+    return res.status(403).json({ error: '无权访问此数据源' });
+  }
+  
+  try {
+    const schema = await ds.instance.getSchema();
+    const sampleData = schema[0]?.sampleData || [];
+    
+    const ragEngine = getRAGEngine(req.user.id);
+    const doc = await ragEngine.addFromDataSource(
+      ds.config.id,
+      ds.config.name,
+      schema,
+      sampleData,
+      req.user.id
+    );
+    
+    res.json({
+      id: doc.id,
+      title: doc.title,
+      message: '数据源已添加到知识库'
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除知识库文档
+app.delete('/api/rag/documents/:id', authMiddleware, async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const ragEngine = getRAGEngine(req.user.id);
+  const success = await ragEngine.deleteDocument(req.params.id);
+  
+  if (success) {
+    res.json({ message: '文档已删除' });
+  } else {
+    res.status(404).json({ error: '文档不存在' });
+  }
+});
+
+// RAG 问答
+app.post('/api/rag/ask', authMiddleware, async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const { question, datasourceId } = req.body;
+  
+  if (!question) {
+    return res.status(400).json({ error: '请提供问题' });
+  }
+  
+  try {
+    const ragEngine = getRAGEngine(req.user.id);
+    
+    // 如果指定了数据源，先执行数据查询
+    let dataContext;
+    if (datasourceId) {
+      const ds = dataSources.get(datasourceId);
+      if (ds && ds.config.userId === req.user.id) {
+        try {
+          const response = await aiAgent.answer(question, ds.instance, ds.config.type, []);
+          dataContext = {
+            sql: response.sql,
+            data: response.data,
+          };
+        } catch (e) {
+          // 数据查询失败，继续使用知识库
+        }
+      }
+    }
+    
+    // RAG 问答
+    const result = await ragEngine.hybridAnswer(question, dataContext);
+    
+    res.json({
+      answer: result.answer,
+      confidence: result.confidence,
+      sources: result.sources,
+      dataContext: dataContext ? {
+        sql: dataContext.sql,
+        rowCount: dataContext.data?.length || 0,
+      } : undefined,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取知识图谱数据
+app.get('/api/rag/graph', authMiddleware, (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const ragEngine = getRAGEngine(req.user.id);
+  const graph = ragEngine.getKnowledgeGraph();
+  const data = graph.export();
+  
+  res.json({
+    entities: data.entities.map((e: any) => ({
+      id: e.id,
+      name: e.name,
+      nameCn: e.nameCn,
+      type: e.type,
+      description: e.description,
+    })),
+    relations: data.relations.map((r: any) => ({
+      id: r.id,
+      source: r.sourceId,
+      target: r.targetId,
+      type: r.type,
+      weight: r.weight,
+    })),
+    stats: graph.getStats(),
+  });
+});
+
+// 图谱子图查询
+app.post('/api/rag/graph/query', authMiddleware, (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' });
+  
+  const { keywords, maxEntities = 20 } = req.body;
+  
+  if (!keywords || !Array.isArray(keywords)) {
+    return res.status(400).json({ error: '请提供关键词数组' });
+  }
+  
+  const ragEngine = getRAGEngine(req.user.id);
+  const graph = ragEngine.getKnowledgeGraph();
+  const result = graph.querySubgraph(keywords, maxEntities);
+  
+  res.json({
+    entities: result.entities.map((e: any) => ({
+      id: e.id,
+      name: e.name,
+      nameCn: e.nameCn,
+      type: e.type,
+    })),
+    relations: result.relations.map((r: any) => ({
+      source: r.sourceId,
+      target: r.targetId,
+      type: r.type,
+    })),
+  });
 });
 
 // 提取关键要点（调用 MCP 工具）
@@ -1113,6 +1807,35 @@ app.post('/api/agent/data-report-ppt', authMiddleware, async (req, res) => {
     res.json({ ppt: result.content[0]?.text });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// 注册管理后台路由
+import { createAdminRouter } from './admin';
+app.use('/api/admin', authMiddleware, createAdminRouter());
+
+// OCR 路由
+import ocrRoutes from './admin/modules/ai/ocrRoutes';
+app.use('/api/ocr', authMiddleware, ocrRoutes);
+
+// Skills 路由
+import skillsRoutes from './admin/modules/skills/routes';
+app.use('/api/skills', authMiddleware, skillsRoutes);
+
+// SPA 路由支持 - 所有非 API 请求返回 index.html
+app.get('*', (req, res) => {
+  // 跳过 API 请求
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API not found' });
+  }
+  
+  const adminUiIndex = path.join(process.cwd(), 'admin-ui', 'dist', 'index.html');
+  const publicIndex = path.join(process.cwd(), 'public', 'index.html');
+  
+  if (fs.existsSync(adminUiIndex)) {
+    res.sendFile(adminUiIndex);
+  } else {
+    res.sendFile(publicIndex);
   }
 });
 

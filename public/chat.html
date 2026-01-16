@@ -222,12 +222,14 @@ function renderChart(chart) {
 
 async function openDashboard() {
   if (!ds) return;
-  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=数据大屏&theme=dark`);
+  const token=localStorage.getItem('authToken')||'';
+  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=数据大屏&theme=dark&token=${token}`);
 }
 
 async function genDashboard(topic) {
   if (!ds) return;
-  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=${encodeURIComponent(topic)}&theme=dark`);
+  const token=localStorage.getItem('authToken')||'';
+  window.open(`/api/agent/dashboard/preview?datasourceId=${ds.id}&topic=${encodeURIComponent(topic)}&theme=dark&token=${token}`);
 }
 
 async function generatePPT() {

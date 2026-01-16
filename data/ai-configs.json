@@ -1,0 +1,42 @@
+[
+  {
+    "name": "an2G",
+    "provider": "qwen",
+    "apiKey": "test-key-12345678901234",
+    "model": "test-model",
+    "maxTokens": 4096,
+    "temperature": 0.005623925011605024,
+    "isDefault": true,
+    "status": "active",
+    "id": "3f6b109c-625c-4447-b399-7f30b76f3c81",
+    "createdAt": 1768286776121,
+    "updatedAt": 1768286776127
+  },
+  {
+    "name": "K:'>kG@rXm-",
+    "provider": "qwen",
+    "apiKey": "test-key-12345678901234",
+    "model": "test-model",
+    "maxTokens": 2048,
+    "temperature": 3.2229864679470793e-44,
+    "isDefault": false,
+    "status": "active",
+    "id": "721540ec-4c71-4a36-a5c1-fda0fba640b0",
+    "createdAt": 1768286776122,
+    "updatedAt": 1768286776122
+  },
+  {
+    "name": "#fn",
+    "provider": "custom",
+    "apiKey": "test-key-12345678901234",
+    "apiEndpoint": "https://api.test.com",
+    "model": "test-model",
+    "maxTokens": 2048,
+    "temperature": 2.0294525782116324e-10,
+    "isDefault": false,
+    "status": "active",
+    "id": "3d93c30c-8bcd-44aa-9093-be43a750680d",
+    "createdAt": 1768286776126,
+    "updatedAt": 1768286776126
+  }
+]

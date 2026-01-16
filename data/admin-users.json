@@ -1,0 +1,12 @@
+[
+  {
+    "id": "e877a729-b629-4f1e-9b90-3e56e832752a",
+    "username": "testuser",
+    "passwordHash": "$2b$04$KgmtYmlwQiLO2mSJKgxL.ecL9H1MaiKCgm211bsTTKg01FkbAZT3m",
+    "role": "user",
+    "status": "active",
+    "roleIds": [],
+    "createdAt": 1768286777491,
+    "updatedAt": 1768286777498
+  }
+]

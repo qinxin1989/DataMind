@@ -1,0 +1,16 @@
+[
+  {
+    "datasourceId": "0a565908-2f13-4c22-b157-c4ccbeb6f198",
+    "totalQueries": 4,
+    "successQueries": 0,
+    "failedQueries": 4,
+    "avgResponseTime": 783,
+    "queriesByDay": [
+      {
+        "date": "2026-01-13",
+        "count": 4
+      }
+    ],
+    "lastQueryAt": 1768286773582
+  }
+]

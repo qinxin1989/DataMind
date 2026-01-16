@@ -52,6 +52,9 @@ export interface DataSourceConfig {
   config: DatabaseConfig | FileConfig | ApiConfig;
   createdAt?: number;
   updatedAt?: number;
+  // 可见性和审核相关
+  visibility?: 'private' | 'public';
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
 }
 
 // 数据源权限
@@ -75,6 +78,14 @@ export interface FileConfig {
   path: string;
   fileType: 'csv' | 'xlsx' | 'json';
   originalName?: string;
+  encrypted?: boolean;
+  // 多文件支持
+  files?: {
+    path: string;
+    fileType: 'csv' | 'xlsx' | 'json';
+    originalName?: string;
+    encrypted?: boolean;
+  }[];
 }
 
 export interface ApiConfig {

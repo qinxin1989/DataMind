@@ -7,6 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:secure": "tsx scripts/start-secure.ts",
+    "encrypt-env": "tsx scripts/encrypt-env.ts",
     "test": "tsx tests/run-tests.ts"
   },
   "dependencies": {
@@ -21,8 +23,10 @@
     "multer": "^2.0.2",
     "mysql2": "^3.6.5",
     "openai": "^4.20.1",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.11.3",
     "pptxgenjs": "^4.0.1",
+    "sm-crypto": "^0.3.13",
     "uuid": "^9.0.1",
     "xlsx": "^0.18.5"
   },
@@ -34,7 +38,10 @@
     "@types/node": "^20.10.4",
     "@types/pg": "^8.10.9",
     "@types/uuid": "^9.0.7",
+    "@vitest/coverage-v8": "^4.0.17",
+    "fast-check": "^4.5.3",
     "tsx": "^4.6.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.17"
   }
 }

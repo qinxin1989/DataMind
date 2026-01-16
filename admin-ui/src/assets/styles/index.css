@@ -1,0 +1,242 @@
+/* 硅基流动风格主题变量（偏紫色、轻量） */
+:root {
+  --primary-color: #7c3aed;
+  --success-color: #52c41a;
+  --warning-color: #faad14;
+  --error-color: #ff4d4f;
+  --heading-color: rgba(0, 0, 0, 0.85);
+  --text-color: rgba(0, 0, 0, 0.65);
+  --text-color-secondary: rgba(0, 0, 0, 0.45);
+  --border-color: #d9d9d9;
+  --layout-header-bg: #ffffff;
+  --layout-sider-bg: linear-gradient(180deg,#5b21ff 0%,#9333ea 45%,#a855f7 100%);
+  --layout-body-bg: #f5f7fb;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: radial-gradient(circle at top left,#eef2ff 0,#f5f7fb 40%,#f3f4f6 100%);
+}
+
+#app {
+  height: 100%;
+  overflow-x: hidden; /* 只禁止横向滚动 */
+  overflow-y: auto; /* 允许纵向滚动 */
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 布局样式 */
+.admin-layout {
+  min-height: 100vh;
+}
+
+.admin-sider {
+  overflow: auto;
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  background: var(--layout-sider-bg);
+}
+
+.admin-sider .logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 16px;
+  color: #f9fafb;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.admin-sider .logo img {
+  height: 32px;
+  margin-right: 8px;
+}
+
+/* 菜单整体样式（硅基流动风格） */
+.admin-sider .ant-menu {
+  margin-top: 6px;
+  padding: 4px 8px 12px;
+  background: transparent;
+  border-inline-end: none !important;
+}
+
+.admin-sider .ant-menu-item,
+.admin-sider .ant-menu-submenu-title {
+  height: 38px;
+  line-height: 38px;
+  border-radius: 10px;
+  margin-block: 2px;
+  padding-inline: 12px !important;
+  display: flex;
+  align-items: center;
+}
+
+.admin-sider .ant-menu-item .anticon,
+.admin-sider .ant-menu-submenu-title .anticon {
+  font-size: 16px;
+}
+
+.admin-sider .ant-menu-dark.ant-menu-inline .ant-menu-item,
+.admin-sider .ant-menu-dark.ant-menu-inline .ant-menu-submenu-title {
+  background: transparent;
+}
+
+/* 选中态：浅白圆角块 */
+.admin-sider .ant-menu-item-selected {
+  background: rgba(248, 250, 252, 0.18) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(248, 250, 252, 0.25);
+}
+
+.admin-sider .ant-menu-item-selected .anticon {
+  color: #ffffff !important;
+}
+
+.admin-sider .ant-menu-item:hover,
+.admin-sider .ant-menu-submenu-title:hover {
+  background: rgba(248, 250, 252, 0.12);
+}
+
+/* 子菜单展开箭头颜色 */
+.admin-sider .ant-menu-submenu-expand-icon,
+.admin-sider .ant-menu-submenu-arrow {
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.admin-header {
+  background: var(--layout-header-bg);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  position: sticky;
+  top: 0;
+  z-index: 9;
+}
+
+.admin-header-left {
+  display: flex;
+  align-items: center;
+}
+
+.admin-header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.admin-content {
+  margin: 24px;
+  padding: 24px;
+  background: #ffffff;
+  border-radius: 14px;
+  min-height: calc(100vh - 64px - 48px);
+  box-shadow: 0 18px 45px rgba(15,23,42,0.08);
+}
+
+/* 面包屑样式 */
+.admin-breadcrumb {
+  margin-bottom: 16px;
+}
+
+/* 页面标题样式 */
+.page-header {
+  margin-bottom: 24px;
+}
+
+.page-header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--heading-color);
+  margin: 0;
+}
+
+/* 表格操作栏 */
+.table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.table-toolbar-left {
+  display: flex;
+  gap: 8px;
+}
+
+.table-toolbar-right {
+  display: flex;
+  gap: 8px;
+}
+
+/* 搜索表单 */
+.search-form {
+  background: #fafafa;
+  padding: 24px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+/* 卡片样式 */
+.stat-card {
+  text-align: center;
+}
+
+.stat-card .stat-value {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.stat-card .stat-label {
+  color: var(--text-color-secondary);
+  margin-top: 8px;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .admin-content {
+    margin: 12px;
+    padding: 16px;
+  }
+  
+  .table-toolbar {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .table-toolbar-left,
+  .table-toolbar-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

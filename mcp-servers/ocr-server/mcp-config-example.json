@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "ocr": {
+      "command": "node",
+      "args": [
+        "--loader",
+        "ts-node/esm",
+        "F:/Project/ai-data-platform/ai-data-platform/mcp-servers/ocr-server/index.ts"
+      ],
+      "env": {
+        "OCR_SERVICE_URL": "http://localhost:5100"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "ocr_check_status",
+        "ocr_recognize_image"
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "name": "123",
+    "description": "",
+    "datasourceId": "ee7875a1-20db-4a0f-87ce-128cf6ff2345",
+    "datasourceName": "sakila",
+    "charts": [],
+    "theme": "dark",
+    "createdBy": "00000000-0000-0000-0000-000000000001",
+    "id": "8bc443fe-2301-4056-ae48-e7863bee1fe3",
+    "createdAt": 1768530942022,
+    "updatedAt": 1768530942022
+  }
+]

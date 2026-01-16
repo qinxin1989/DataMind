@@ -1,0 +1,54 @@
+/**
+ * Agent Skills - 技能系统入口
+ * 统一导出所有技能和注册中心
+ */
+
+import { skillsRegistry, SkillsRegistry, SkillDefinition, SkillContext, SkillResult, SkillParameter, SkillCategory } from './registry';
+import { dataSkills } from './data';
+import { documentSkills } from './document';
+import { mediaSkills } from './media';
+import { reportSkills } from './report';
+
+// 注册所有技能
+function registerAllSkills() {
+  console.log('[Skills] Registering all skills...');
+  
+  // 注册数据技能
+  skillsRegistry.registerAll(dataSkills);
+  console.log(`[Skills] Registered ${dataSkills.length} data skills`);
+  
+  // 注册文档技能
+  skillsRegistry.registerAll(documentSkills);
+  console.log(`[Skills] Registered ${documentSkills.length} document skills`);
+  
+  // 注册媒体技能
+  skillsRegistry.registerAll(mediaSkills);
+  console.log(`[Skills] Registered ${mediaSkills.length} media skills`);
+  
+  // 注册报告技能
+  skillsRegistry.registerAll(reportSkills);
+  console.log(`[Skills] Registered ${reportSkills.length} report skills`);
+  
+  console.log(`[Skills] Total skills registered: ${skillsRegistry.getAll().length}`);
+}
+
+// 初始化时注册所有技能
+registerAllSkills();
+
+// 导出
+export {
+  skillsRegistry,
+  SkillsRegistry,
+  SkillDefinition,
+  SkillContext,
+  SkillResult,
+  SkillParameter,
+  SkillCategory,
+  dataSkills,
+  documentSkills,
+  mediaSkills,
+  reportSkills
+};
+
+// 默认导出注册中心
+export default skillsRegistry;

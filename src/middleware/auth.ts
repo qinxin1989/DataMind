@@ -16,11 +16,18 @@ export function createAuthMiddleware(authService: AuthService) {
   return (req: Request, res: Response, next: NextFunction) => {
     // 从Authorization header获取token
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let token: string | undefined;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (req.query.token && typeof req.query.token === 'string') {
+      // 支持从 URL query 参数获取 token（用于大屏预览等场景）
+      token = req.query.token;
+    }
+    
+    if (!token) {
       return res.status(401).json({ error: '缺少认证token' });
     }
-
-    const token = authHeader.substring(7);
 
     try {
       const user = authService.verifyToken(token);

@@ -1,0 +1,77 @@
+[
+  {
+    "name": "超级管理员",
+    "code": "super_admin",
+    "description": "拥有系统所有权限",
+    "permissionCodes": [
+      "*"
+    ],
+    "status": "active",
+    "isSystem": true,
+    "id": "4164c97d-44fc-49f5-9204-ab0b47476808",
+    "createdAt": 1768273323550,
+    "updatedAt": 1768273323550
+  },
+  {
+    "name": "管理员",
+    "code": "admin",
+    "description": "拥有大部分管理权限",
+    "permissionCodes": [
+      "user:view",
+      "user:create",
+      "user:update",
+      "role:view",
+      "menu:view",
+      "menu:update",
+      "datasource:view",
+      "datasource:create",
+      "datasource:update",
+      "datasource:approve",
+      "ai:view",
+      "ai:config",
+      "system:view",
+      "dashboard:view",
+      "dashboard:create",
+      "dashboard:update",
+      "dashboard:delete"
+    ],
+    "status": "active",
+    "isSystem": true,
+    "id": "cb8be696-9fff-4a25-b8ee-bc1aa5c46d1f",
+    "createdAt": 1768273323550,
+    "updatedAt": 1768273323550
+  },
+  {
+    "name": "普通用户",
+    "code": "user",
+    "description": "普通用户权限",
+    "permissionCodes": [
+      "datasource:view",
+      "datasource:create",
+      "ai:view",
+      "ai:query",
+      "dashboard:view",
+      "dashboard:create"
+    ],
+    "status": "active",
+    "isSystem": true,
+    "id": "95f9f828-d59b-4067-987a-99a43de733be",
+    "createdAt": 1768273323550,
+    "updatedAt": 1768273323550
+  },
+  {
+    "name": "访客",
+    "code": "viewer",
+    "description": "只读权限",
+    "permissionCodes": [
+      "datasource:view",
+      "ai:view",
+      "dashboard:view"
+    ],
+    "status": "active",
+    "isSystem": true,
+    "id": "e53704ef-9b0a-4886-b68a-2da3d9577e61",
+    "createdAt": 1768273323550,
+    "updatedAt": 1768273323550
+  }
+]

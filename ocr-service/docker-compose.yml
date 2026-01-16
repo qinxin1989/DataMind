@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  paddleocr:
+    build: .
+    container_name: paddleocr-service
+    ports:
+      - "5100:5100"
+    environment:
+      - OCR_PORT=5100
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    volumes:
+      - ./models:/root/.paddleocr  # 持久化模型缓存

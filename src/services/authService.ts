@@ -30,19 +30,16 @@ export class AuthService {
     email?: string,
     fullName?: string
   ): Promise<{ user: User; message: string }> {
-    // 验证用户名
     if (!username || username.length < 3) {
       throw new Error('用户名至少需要3个字符');
     }
 
-    // 验证密码
     if (!password || password.length < 6) {
       throw new Error('密码至少需要6个字符');
     }
 
-    // 检查用户名是否已存在
     const [existing] = await this.pool.execute(
-      'SELECT id FROM users WHERE username = ?',
+      'SELECT id FROM sys_users WHERE username = ?',
       [username]
     );
 
@@ -50,20 +47,15 @@ export class AuthService {
       throw new Error('用户名已存在');
     }
 
-    // 密码加密
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 创建用户（默认待审核状态）
     const userId = uuidv4();
-    const now = new Date();
 
     await this.pool.execute(
-      `INSERT INTO users (id, username, password, email, full_name, role, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, username, hashedPassword, email || null, fullName || null, 'user', 'pending', now, now]
+      `INSERT INTO sys_users (id, username, password_hash, email, full_name, role, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, username, hashedPassword, email || null, fullName || null, 'user', 'pending']
     );
 
-    // 获取用户信息
     const user = await this.getUserById(userId);
     if (!user) {
       throw new Error('用户创建失败');
@@ -82,19 +74,16 @@ export class AuthService {
     email?: string,
     fullName?: string
   ): Promise<User> {
-    // 验证用户名
     if (!username || username.length < 3) {
       throw new Error('用户名至少需要3个字符');
     }
 
-    // 验证密码
     if (!password || password.length < 6) {
       throw new Error('密码至少需要6个字符');
     }
 
-    // 检查用户名是否已存在
     const [existing] = await this.pool.execute(
-      'SELECT id FROM users WHERE username = ?',
+      'SELECT id FROM sys_users WHERE username = ?',
       [username]
     );
 
@@ -102,17 +91,13 @@ export class AuthService {
       throw new Error('用户名已存在');
     }
 
-    // 密码加密
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 创建用户（直接激活）
     const userId = uuidv4();
-    const now = new Date();
 
     await this.pool.execute(
-      `INSERT INTO users (id, username, password, email, full_name, role, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, username, hashedPassword, email || null, fullName || null, role, 'active', now, now]
+      `INSERT INTO sys_users (id, username, password_hash, email, full_name, role, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, username, hashedPassword, email || null, fullName || null, role, 'active']
     );
 
     const user = await this.getUserById(userId);
@@ -127,9 +112,8 @@ export class AuthService {
    * 登录
    */
   async login(username: string, password: string): Promise<{ user: User; token: string }> {
-    // 查找用户
     const [rows] = await this.pool.execute(
-      'SELECT * FROM users WHERE username = ?',
+      'SELECT * FROM sys_users WHERE username = ?',
       [username]
     );
 
@@ -138,18 +122,15 @@ export class AuthService {
       throw new Error('用户名或密码错误');
     }
 
-    // 检查用户状态
     if (userRow.status !== 'active') {
       throw new Error('用户已被禁用');
     }
 
-    // 验证密码
-    const passwordMatch = await bcrypt.compare(password, userRow.password);
+    const passwordMatch = await bcrypt.compare(password, userRow.password_hash);
     if (!passwordMatch) {
       throw new Error('用户名或密码错误');
     }
 
-    // 转换为User对象
     const user: User = {
       id: userRow.id,
       username: userRow.username,
@@ -161,9 +142,13 @@ export class AuthService {
       updatedAt: new Date(userRow.updated_at).getTime()
     };
 
-    // 生成token
-    const token = this.generateToken(user);
+    // 更新最后登录时间
+    await this.pool.execute(
+      'UPDATE sys_users SET last_login_at = NOW() WHERE id = ?',
+      [userRow.id]
+    );
 
+    const token = this.generateToken(user);
     return { user, token };
   }
 
@@ -188,9 +173,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * 生成token
-   */
   private generateToken(user: User): string {
     const payload = {
       id: user.id,
@@ -206,12 +188,9 @@ export class AuthService {
     return jwt.sign(payload, this.jwtSecret as string, { expiresIn: this.jwtExpiresIn } as any);
   }
 
-  /**
-   * 根据ID获取用户
-   */
   async getUserById(id: string): Promise<User | null> {
     const [rows] = await this.pool.execute(
-      'SELECT * FROM users WHERE id = ?',
+      'SELECT * FROM sys_users WHERE id = ?',
       [id]
     );
 
@@ -230,9 +209,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * 更新用户信息
-   */
   async updateUser(
     id: string,
     updates: Partial<{ email: string; fullName: string; role: UserRole; status: UserStatus }>
@@ -263,11 +239,10 @@ export class AuthService {
       return user;
     }
 
-    fields.push('updated_at = NOW()');
     values.push(id);
 
     await this.pool.execute(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
+      `UPDATE sys_users SET ${fields.join(', ')} WHERE id = ?`,
       values
     );
 
@@ -276,50 +251,38 @@ export class AuthService {
     return user;
   }
 
-  /**
-   * 修改密码
-   */
   async changePassword(id: string, oldPassword: string, newPassword: string): Promise<void> {
     if (!newPassword || newPassword.length < 6) {
       throw new Error('新密码至少需要6个字符');
     }
 
-    // 获取用户
-    const user = await this.getUserById(id);
-    if (!user) throw new Error('用户不存在');
-
-    // 验证旧密码
     const [rows] = await this.pool.execute(
-      'SELECT password FROM users WHERE id = ?',
+      'SELECT password_hash FROM sys_users WHERE id = ?',
       [id]
     );
 
     const userRow = (rows as any[])[0];
-    const passwordMatch = await bcrypt.compare(oldPassword, userRow.password);
+    if (!userRow) throw new Error('用户不存在');
+
+    const passwordMatch = await bcrypt.compare(oldPassword, userRow.password_hash);
     if (!passwordMatch) {
       throw new Error('旧密码错误');
     }
 
-    // 更新密码
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.pool.execute(
-      'UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?',
+      'UPDATE sys_users SET password_hash = ? WHERE id = ?',
       [hashedPassword, id]
     );
   }
 
-  /**
-   * 删除用户
-   */
   async deleteUser(id: string): Promise<void> {
-    await this.pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    await this.pool.execute('DELETE FROM sys_users WHERE id = ?', [id]);
+    await this.pool.execute('DELETE FROM sys_user_roles WHERE user_id = ?', [id]);
   }
 
-  /**
-   * 获取所有用户（仅管理员）
-   */
   async getAllUsers(): Promise<User[]> {
-    const [rows] = await this.pool.execute('SELECT * FROM users ORDER BY created_at DESC');
+    const [rows] = await this.pool.execute('SELECT * FROM sys_users ORDER BY created_at DESC');
 
     return (rows as any[]).map(row => ({
       id: row.id,
@@ -333,12 +296,9 @@ export class AuthService {
     }));
   }
 
-  /**
-   * 获取待审核用户列表
-   */
   async getPendingUsers(): Promise<User[]> {
     const [rows] = await this.pool.execute(
-      'SELECT * FROM users WHERE status = ? ORDER BY created_at DESC',
+      'SELECT * FROM sys_users WHERE status = ? ORDER BY created_at DESC',
       ['pending']
     );
 
@@ -354,30 +314,64 @@ export class AuthService {
     }));
   }
 
-  /**
-   * 审核通过用户
-   */
   async approveUser(id: string): Promise<User> {
     const user = await this.getUserById(id);
     if (!user) throw new Error('用户不存在');
     if (user.status !== 'pending') throw new Error('用户不是待审核状态');
 
     await this.pool.execute(
-      'UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?',
+      'UPDATE sys_users SET status = ? WHERE id = ?',
       ['active', id]
     );
 
     return (await this.getUserById(id))!;
   }
 
-  /**
-   * 拒绝用户注册
-   */
   async rejectUser(id: string): Promise<void> {
     const user = await this.getUserById(id);
     if (!user) throw new Error('用户不存在');
     if (user.status !== 'pending') throw new Error('用户不是待审核状态');
 
-    await this.pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    await this.pool.execute('DELETE FROM sys_users WHERE id = ?', [id]);
+  }
+
+  /**
+   * 初始化默认管理员账户
+   */
+  async initDefaultAdmin(): Promise<void> {
+    const [rows] = await this.pool.execute(
+      'SELECT id, password_hash FROM sys_users WHERE username = ?',
+      ['admin']
+    );
+
+    const existingAdmin = (rows as any[])[0];
+    
+    if (!existingAdmin) {
+      // 不存在 admin 用户，创建新的
+      const hashedPassword = await bcrypt.hash('admin123', 10);
+      const adminId = '00000000-0000-0000-0000-000000000001';
+
+      await this.pool.execute(
+        `INSERT INTO sys_users (id, username, password_hash, email, full_name, role, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [adminId, 'admin', hashedPassword, 'admin@example.com', '系统管理员', 'admin', 'active']
+      );
+
+      // 关联超级管理员角色
+      await this.pool.execute(
+        `INSERT IGNORE INTO sys_user_roles (user_id, role_id) VALUES (?, ?)`,
+        [adminId, '00000000-0000-0000-0000-000000000001']
+      );
+
+      console.log('已创建默认管理员账户: admin / admin123');
+    } else if (!existingAdmin.password_hash) {
+      // 存在 admin 用户但没有密码，更新密码
+      const hashedPassword = await bcrypt.hash('admin123', 10);
+      await this.pool.execute(
+        'UPDATE sys_users SET password_hash = ?, role = ?, status = ? WHERE username = ?',
+        [hashedPassword, 'admin', 'active', 'admin']
+      );
+      console.log('已更新管理员账户密码: admin / admin123');
+    }
   }
 }

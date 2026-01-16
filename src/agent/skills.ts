@@ -64,28 +64,42 @@ export class SkillRegistry {
         }
         
         let sql: string;
+        let vizData: any[] = [];
         
         if (field && groupBy) {
-          sql = `SELECT ${groupBy}, COUNT(*) as count, SUM(${field}) as total, AVG(${field}) as avg FROM ${table} GROUP BY ${groupBy} ORDER BY count DESC LIMIT 20`;
+          // 分组统计 - 只返回聚合结果
+          sql = `SELECT ${groupBy}, COUNT(*) as count, SUM(${field}) as total FROM ${table} GROUP BY ${groupBy} ORDER BY count DESC LIMIT 15`;
+        } else if (groupBy) {
+          // 只有分组，按分组计数
+          sql = `SELECT ${groupBy}, COUNT(*) as count FROM ${table} GROUP BY ${groupBy} ORDER BY count DESC LIMIT 15`;
         } else if (field) {
+          // 单字段统计
           sql = `SELECT COUNT(*) as count, SUM(${field}) as total, AVG(${field}) as avg, MAX(${field}) as max, MIN(${field}) as min FROM ${table}`;
         } else {
+          // 只统计总数
           sql = `SELECT COUNT(*) as total_rows FROM ${table}`;
         }
         
         console.log('data_statistics SQL:', sql);
         const result = await ctx.dataSource.executeQuery(sql);
-        return {
-          success: result.success,
-          data: result.data,
-          message: result.success ? '统计完成' : result.error,
-          visualization: result.data && groupBy ? {
+        
+        // 构建可视化数据
+        let visualization: VisualizationConfig | undefined;
+        if (result.data && groupBy && result.data.length > 1) {
+          visualization = {
             type: 'bar',
             title: `${table} 按 ${groupBy} 统计`,
             xField: groupBy,
             yField: 'count',
-            data: result.data
-          } : undefined
+            data: result.data.slice(0, 15)
+          };
+        }
+        
+        return {
+          success: result.success,
+          data: result.data,
+          message: result.success ? '统计完成' : result.error,
+          visualization
         };
       }
     });
@@ -183,7 +197,13 @@ export class SkillRegistry {
           compareField = compareField.split(',')[0].trim();
         }
         
-        const sql = `SELECT ${compareField}, SUM(${valueField}) as value, COUNT(*) as count FROM ${table} WHERE ${valueField} IS NOT NULL GROUP BY ${compareField} ORDER BY value DESC LIMIT 20`;
+        // 如果 valueField 是 COUNT(*)，使用计数
+        let sql: string;
+        if (valueField === 'COUNT(*)' || !valueField) {
+          sql = `SELECT ${compareField}, COUNT(*) as value FROM ${table} WHERE ${compareField} IS NOT NULL GROUP BY ${compareField} ORDER BY value DESC LIMIT 15`;
+        } else {
+          sql = `SELECT ${compareField}, SUM(${valueField}) as value, COUNT(*) as count FROM ${table} WHERE ${compareField} IS NOT NULL GROUP BY ${compareField} ORDER BY value DESC LIMIT 15`;
+        }
         
         console.log('data_comparison SQL:', sql);
         const result = await ctx.dataSource.executeQuery(sql);
@@ -195,7 +215,7 @@ export class SkillRegistry {
             title: `${compareField} 分布对比`,
             xField: compareField,
             yField: 'value',
-            data: result.data
+            data: result.data.slice(0, 10)
           } : undefined
         };
       }

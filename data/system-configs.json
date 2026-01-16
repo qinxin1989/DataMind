@@ -1,0 +1,122 @@
+[
+  {
+    "key": "site.name",
+    "value": "新站点名称",
+    "type": "string",
+    "description": "站点名称",
+    "group": "site",
+    "editable": true
+  },
+  {
+    "key": "site.logo",
+    "value": "/logo.png",
+    "type": "string",
+    "description": "站点 Logo",
+    "group": "site",
+    "editable": true
+  },
+  {
+    "key": "site.description",
+    "value": "智能数据分析平台",
+    "type": "string",
+    "description": "站点描述",
+    "group": "site",
+    "editable": true
+  },
+  {
+    "key": "security.sessionTimeout",
+    "value": "3600",
+    "type": "number",
+    "description": "会话超时时间(秒)",
+    "group": "security",
+    "editable": true
+  },
+  {
+    "key": "security.maxLoginAttempts",
+    "value": "5",
+    "type": "number",
+    "description": "最大登录尝试次数",
+    "group": "security",
+    "editable": true
+  },
+  {
+    "key": "security.passwordMinLength",
+    "value": "8",
+    "type": "number",
+    "description": "密码最小长度",
+    "group": "security",
+    "editable": true
+  },
+  {
+    "key": "upload.maxFileSize",
+    "value": "10485760",
+    "type": "number",
+    "description": "最大上传文件大小(字节)",
+    "group": "upload",
+    "editable": true
+  },
+  {
+    "key": "upload.allowedTypes",
+    "value": "[\"csv\",\"xlsx\",\"json\"]",
+    "type": "json",
+    "description": "允许的文件类型",
+    "group": "upload",
+    "editable": true
+  },
+  {
+    "key": "ai.defaultProvider",
+    "value": "qwen",
+    "type": "string",
+    "description": "默认 AI 提供商",
+    "group": "ai",
+    "editable": true
+  },
+  {
+    "key": "ai.maxTokensPerRequest",
+    "value": "4096",
+    "type": "number",
+    "description": "每次请求最大 Token 数",
+    "group": "ai",
+    "editable": true
+  },
+  {
+    "key": "test.boolean",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  },
+  {
+    "key": "test.boolean.1768281599717",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  },
+  {
+    "key": "test.boolean.1768281755932",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  },
+  {
+    "key": "test.boolean.1768285680459",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  },
+  {
+    "key": "test.boolean.1768286769988",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  }
+]

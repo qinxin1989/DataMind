@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "skills": {
+      "command": "node",
+      "args": ["F:/Project/ai-data-platform/ai-data-platform/mcp-servers/skills-server/dist/index.js"],
+      "env": {
+        "BACKEND_URL": "http://localhost:3000"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "skill_list",
+        "data_summarize",
+        "report_insight"
+      ]
+    }
+  }
+}

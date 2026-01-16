@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import { DataSourceConfig } from '../types';
+import { pool } from '../admin/core/database';
 
 // 对话历史
 export interface ChatMessage {
@@ -7,6 +8,9 @@ export interface ChatMessage {
   content: string;
   sql?: string;
   timestamp: number;
+  responseTime?: number;
+  tokensUsed?: number;
+  modelName?: string;
 }
 
 export interface ChatSession {
@@ -40,20 +44,13 @@ export interface ColumnAnalysis {
   description: string;
 }
 
-// 配置存储 - 使用MySQL持久化
+// 配置存储 - 使用统一的 MySQL 连接池
 export class ConfigStore {
   pool: mysql.Pool;
 
   constructor() {
-    this.pool = mysql.createPool({
-      host: process.env.CONFIG_DB_HOST || 'localhost',
-      port: parseInt(process.env.CONFIG_DB_PORT || '3306'),
-      user: process.env.CONFIG_DB_USER || 'root',
-      password: process.env.CONFIG_DB_PASSWORD || '',
-      database: process.env.CONFIG_DB_NAME || 'ai-data-platform',
-      waitForConnections: true,
-      connectionLimit: 5,
-    });
+    // 使用统一的连接池
+    this.pool = pool;
   }
 
   async init(): Promise<void> {
@@ -62,12 +59,46 @@ export class ConfigStore {
       await this.pool.execute(`
         CREATE TABLE IF NOT EXISTS datasource_config (
           id VARCHAR(36) PRIMARY KEY,
+          user_id VARCHAR(36) DEFAULT '',
           name VARCHAR(100) NOT NULL,
           type VARCHAR(20) NOT NULL,
           config JSON NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          visibility VARCHAR(20) DEFAULT 'private',
+          approval_status VARCHAR(20) DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_user_id (user_id)
         )
       `);
+      
+      // 检查是否需要添加 user_id 列（兼容旧表）
+      try {
+        const [columns] = await this.pool.execute(
+          `SELECT COLUMN_NAME FROM information_schema.COLUMNS 
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'datasource_config' AND COLUMN_NAME = 'user_id'`
+        );
+        if ((columns as any[]).length === 0) {
+          await this.pool.execute(`ALTER TABLE datasource_config ADD COLUMN user_id VARCHAR(36) DEFAULT '' AFTER id`);
+          await this.pool.execute(`ALTER TABLE datasource_config ADD INDEX idx_user_id (user_id)`);
+          console.log('已添加 user_id 列到 datasource_config 表');
+        }
+      } catch (e) {
+        // 忽略
+      }
+      
+      // 检查是否需要添加 visibility 和 approval_status 列
+      try {
+        const [columns] = await this.pool.execute(
+          `SELECT COLUMN_NAME FROM information_schema.COLUMNS 
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'datasource_config' AND COLUMN_NAME = 'visibility'`
+        );
+        if ((columns as any[]).length === 0) {
+          await this.pool.execute(`ALTER TABLE datasource_config ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'`);
+          await this.pool.execute(`ALTER TABLE datasource_config ADD COLUMN approval_status VARCHAR(20) DEFAULT NULL`);
+          console.log('已添加 visibility 和 approval_status 列到 datasource_config 表');
+        }
+      } catch (e) {
+        // 忽略
+      }
     } catch (error: any) {
       console.warn('数据库连接失败，将以内存模式运行:', error.message);
       // 继续运行，使用内存存储
@@ -76,10 +107,12 @@ export class ConfigStore {
 
   async save(config: DataSourceConfig): Promise<void> {
     await this.pool.execute(
-      `INSERT INTO datasource_config (id, user_id, name, type, config) VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE name=?, type=?, config=?`,
-      [config.id, config.userId, config.name, config.type, JSON.stringify(config.config),
-       config.name, config.type, JSON.stringify(config.config)]
+      `INSERT INTO datasource_config (id, user_id, name, type, config, visibility, approval_status) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE name=?, type=?, config=?, visibility=?, approval_status=?`,
+      [config.id, config.userId, config.name, config.type, JSON.stringify(config.config), 
+       config.visibility || 'private', config.approvalStatus || null,
+       config.name, config.type, JSON.stringify(config.config),
+       config.visibility || 'private', config.approvalStatus || null]
     );
   }
 
@@ -100,6 +133,8 @@ export class ConfigStore {
         name: row.name,
         type: row.type,
         config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
+        visibility: row.visibility || 'private',
+        approvalStatus: row.approval_status,
       }));
     } catch (error: any) {
       console.warn('获取数据源配置失败，返回空列表:', error.message);
@@ -122,6 +157,8 @@ export class ConfigStore {
         name: row.name,
         type: row.type,
         config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
+        visibility: row.visibility || 'private',
+        approvalStatus: row.approval_status,
       };
     } catch (error: any) {
       console.warn('获取数据源配置失败:', error.message);
@@ -244,36 +281,50 @@ export class ConfigStore {
     try {
       await this.pool.execute(`
         CREATE TABLE IF NOT EXISTS schema_analysis (
-          datasource_id VARCHAR(36) PRIMARY KEY,
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id VARCHAR(36) NOT NULL,
+          datasource_id VARCHAR(36) NOT NULL,
           tables JSON NOT NULL,
           suggested_questions JSON NOT NULL,
           analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          is_user_edited BOOLEAN DEFAULT FALSE
+          is_user_edited BOOLEAN DEFAULT FALSE,
+          UNIQUE KEY unique_user_ds (user_id, datasource_id)
         )
       `);
+      
+      // 检查是否需要添加 user_id 列（兼容旧表）
+      try {
+        await this.pool.execute(`ALTER TABLE schema_analysis ADD COLUMN user_id VARCHAR(36) NOT NULL DEFAULT '' AFTER id`);
+        await this.pool.execute(`ALTER TABLE schema_analysis DROP PRIMARY KEY`);
+        await this.pool.execute(`ALTER TABLE schema_analysis ADD PRIMARY KEY (id)`);
+        await this.pool.execute(`ALTER TABLE schema_analysis ADD UNIQUE KEY unique_user_ds (user_id, datasource_id)`);
+      } catch (e) {
+        // 列已存在，忽略
+      }
     } catch (error: any) {
       console.warn('Schema分析表初始化失败，将以内存模式运行:', error.message);
     }
   }
 
   async saveSchemaAnalysis(analysis: SchemaAnalysis, userId: string): Promise<void> {
-    await this.pool.execute(
-      `INSERT INTO schema_analysis (user_id, datasource_id, tables, suggested_questions, analyzed_at, is_user_edited) 
-       VALUES (?, ?, ?, ?, FROM_UNIXTIME(?/1000), ?)
-       ON DUPLICATE KEY UPDATE tables=?, suggested_questions=?, updated_at=NOW(), is_user_edited=?`,
-      [
-        userId,
-        analysis.datasourceId,
-        JSON.stringify(analysis.tables),
-        JSON.stringify(analysis.suggestedQuestions),
-        analysis.analyzedAt,
-        analysis.isUserEdited,
-        JSON.stringify(analysis.tables),
-        JSON.stringify(analysis.suggestedQuestions),
-        analysis.isUserEdited
-      ]
-    );
+    try {
+      await this.pool.execute(
+        `INSERT INTO schema_analysis (user_id, datasource_id, tables, suggested_questions, analyzed_at, is_user_edited) 
+         VALUES (?, ?, ?, ?, NOW(), ?)
+         ON DUPLICATE KEY UPDATE tables=VALUES(tables), suggested_questions=VALUES(suggested_questions), updated_at=NOW(), is_user_edited=VALUES(is_user_edited)`,
+        [
+          userId,
+          analysis.datasourceId,
+          JSON.stringify(analysis.tables),
+          JSON.stringify(analysis.suggestedQuestions),
+          analysis.isUserEdited || false
+        ]
+      );
+    } catch (error: any) {
+      console.error('保存Schema分析失败:', error.message);
+      throw error;
+    }
   }
 
   async getSchemaAnalysis(datasourceId: string, userId: string): Promise<SchemaAnalysis | null> {
