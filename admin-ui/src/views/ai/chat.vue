@@ -213,7 +213,7 @@ import {
   HistoryOutlined, BulbOutlined, CloseOutlined, SettingOutlined,
   LeftOutlined, RightOutlined
 } from '@ant-design/icons-vue'
-import { get, post, del } from '@/api/request'
+import { get, post, del, aiPost, aiGet } from '@/api/request'
 import * as echarts from 'echarts'
 import { marked } from 'marked'
 
@@ -366,7 +366,7 @@ async function analyzeSchema() {
   if (!selectedDatasource.value || analyzing.value) return
   analyzing.value = true
   try {
-    const res = await get<any>(`/datasource/${selectedDatasource.value.id}/schema/analyze?refresh=true`)
+    const res = await aiGet<any>(`/datasource/${selectedDatasource.value.id}/schema/analyze?refresh=true`)
     const data = res.data || res
     analysisData.value = data
     suggestedQuestions.value = data.suggestedQuestions || []
@@ -440,8 +440,8 @@ async function handleSend(e?: KeyboardEvent) {
 
   loading.value = true
   try {
-    // 调用数据源查询接口
-    const res = await post<any>('/ask', {
+    // 调用数据源查询接口（使用 aiPost，超时时间更长）
+    const res = await aiPost<any>('/ask', {
       datasourceId: selectedDatasource.value.id,
       question,
       sessionId: currentSessionId.value || undefined
@@ -489,8 +489,9 @@ async function handleSend(e?: KeyboardEvent) {
 }
 
 // 点击推荐问题
-function askQuestion(q: string) {
+async function askQuestion(q: string) {
   inputText.value = q
+  await nextTick() // 等待 DOM 更新
   handleSend()
 }
 

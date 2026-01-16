@@ -80,7 +80,7 @@ export class RAGEngine {
   async addDocument(
     content: string,
     title: string,
-    type: 'document' | 'note' | 'webpage',
+    type: 'document' | 'note' | 'webpage' | 'datasource',
     userId: string,
     metadata?: Record<string, any>
   ): Promise<KnowledgeDocument> {

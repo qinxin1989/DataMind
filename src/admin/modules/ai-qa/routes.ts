@@ -27,13 +27,13 @@ const ragUpload = multer({
   storage: ragStorage,
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (['.pdf', '.txt', '.md', '.json', '.csv'].includes(ext)) {
+    if (['.pdf', '.txt', '.md', '.json', '.csv', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg', '.bmp', '.gif'].includes(ext)) {
       cb(null, true);
     } else {
       cb(new Error('不支持的文件格式'));
     }
   },
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+  limits: { fileSize: 20 * 1024 * 1024 } // 20MB
 });
 
 // 获取用户 ID 的辅助函数
@@ -511,12 +511,12 @@ router.get('/rag/documents', checkAuth, (req: Request, res: Response) => {
 // 添加文档到知识库
 router.post('/rag/documents', checkAuth, async (req: Request, res: Response) => {
   try {
-    const { title, content, type = 'note', tags } = req.body;
+    const { title, content, type = 'note', tags, categoryId, datasourceId } = req.body;
     if (!title || !content) {
       return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供标题和内容' } });
     }
 
-    const doc = await aiQAService.addRAGDocument(title, content, type, getUserId(req), tags);
+    const doc = await aiQAService.addRAGDocument(title, content, type, getUserId(req), tags, categoryId, datasourceId);
     res.json({
       success: true,
       data: {
@@ -552,7 +552,7 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
       return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请上传文件' } });
     }
 
-    const { title, type = 'text' } = req.body;
+    const { title, type = 'text', categoryId, datasourceId } = req.body;
     const tags = req.body.tags ? JSON.parse(req.body.tags) : [];
     const filePath = req.file.path;
     const ext = path.extname(req.file.originalname).toLowerCase();
@@ -575,10 +575,7 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
           
           if (isOcrAvailable) {
             console.log('PDF 文本内容较少，尝试 OCR 识别...');
-            // 将 PDF 转为图片进行 OCR（需要额外处理）
-            // 这里简化处理：提示用户 PDF 可能是扫描件
             ocrUsed = true;
-            // 实际项目中可以用 pdf2pic 等库将 PDF 转图片再 OCR
           }
         } catch (e) {
           console.log('OCR 服务不可用，使用原始文本');
@@ -596,12 +593,15 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
             content = result.text;
             ocrUsed = true;
           } else {
+            fs.unlinkSync(filePath);
             return res.status(400).json({ success: false, error: { code: 'OCR_ERROR', message: result.error } });
           }
         } else {
+          fs.unlinkSync(filePath);
           return res.status(400).json({ success: false, error: { code: 'OCR_UNAVAILABLE', message: 'OCR 服务不可用，无法识别图片' } });
         }
       } catch (e: any) {
+        fs.unlinkSync(filePath);
         return res.status(500).json({ success: false, error: { code: 'OCR_ERROR', message: e.message } });
       }
     } else {
@@ -617,7 +617,7 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
     }
 
     const docTitle = title || req.file.originalname.replace(/\.[^/.]+$/, '');
-    const doc = await aiQAService.addRAGDocument(docTitle, content, type, getUserId(req), tags);
+    const doc = await aiQAService.addRAGDocument(docTitle, content, type, getUserId(req), tags, categoryId, datasourceId);
 
     res.json({
       success: true,
@@ -626,6 +626,7 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
         title: doc.title,
         chunksCount: doc.chunks?.length || 0,
         contentLength: content.length,
+        ocrUsed,
       },
       message: '文档已添加到知识库',
     });
@@ -664,6 +665,25 @@ router.post('/rag/graph/query', checkAuth, (req: Request, res: Response) => {
 
   const result = aiQAService.querySubgraph(keywords, getUserId(req), maxEntities);
   res.json({ success: true, data: result });
+});
+
+// 将数据源 Schema 分析导入知识库
+router.post('/rag/import-schema', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const { datasourceId } = req.body;
+    if (!datasourceId) {
+      return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供数据源ID' } });
+    }
+
+    const result = await aiQAService.importSchemaToRAG(datasourceId, getUserId(req));
+    res.json({ 
+      success: true, 
+      data: result,
+      message: `已将数据源 Schema 导入知识库，生成 ${result.chunksCount} 个知识块`
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+  }
 });
 
 export default router;

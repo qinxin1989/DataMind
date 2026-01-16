@@ -58,17 +58,10 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB
 });
 
-// 静态文件服务 - 优先使用 admin-ui 构建文件（融合后的前端控制台）
+// 静态文件服务 - 使用 admin-ui 构建文件
 const adminUiPath = path.join(process.cwd(), 'admin-ui', 'dist');
-const publicPath = path.join(process.cwd(), 'public');
-
-if (fs.existsSync(adminUiPath)) {
-  app.use(express.static(adminUiPath));
-  console.log('使用 admin-ui 作为前端');
-} else {
-  app.use(express.static(publicPath));
-  console.log('使用 public 作为前端');
-}
+app.use(express.static(adminUiPath));
+console.log('前端路径:', adminUiPath);
 
 // 配置存储（MySQL持久化）
 const configStore = new ConfigStore();

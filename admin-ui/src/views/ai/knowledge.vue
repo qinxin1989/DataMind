@@ -38,6 +38,9 @@
           <a-button type="primary" @click="showAddModal">
             <PlusOutlined /> 添加文档
           </a-button>
+          <a-button @click="showImportSchemaModal">
+            <DatabaseOutlined /> 导入数据源
+          </a-button>
           <a-button @click="showBatchImportModal">
             <UploadOutlined /> 批量导入
           </a-button>
@@ -207,7 +210,12 @@
           </a-select>
         </a-form-item>
         <a-form-item label="标签">
-          <a-select v-model:value="addForm.tags" mode="tags" placeholder="输入标签后回车" />
+          <a-select 
+            v-model:value="addForm.tags" 
+            mode="tags" 
+            placeholder="输入标签后回车，支持逗号/空格分隔多个"
+            :token-separators="[',', '，', ' ', ';', '；']"
+          />
         </a-form-item>
         
         <!-- 手动输入 -->
@@ -288,14 +296,42 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 导入数据源 Schema 弹窗 -->
+    <a-modal
+      v-model:open="importSchemaVisible"
+      title="导入数据源结构到知识库"
+      @ok="handleImportSchema"
+      :confirm-loading="importSchemaLoading"
+      width="500px"
+    >
+      <a-alert 
+        message="将数据源的表结构和字段说明导入知识库，可以让 AI 更好地理解数据，减少 Token 使用量。" 
+        type="info" 
+        show-icon 
+        style="margin-bottom: 16px"
+      />
+      <a-form layout="vertical">
+        <a-form-item label="选择数据源" required>
+          <a-select v-model:value="importSchemaForm.datasourceId" placeholder="选择要导入的数据源" style="width: 100%">
+            <a-select-option v-for="ds in datasources" :key="ds.id" :value="ds.id">{{ ds.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item>
+          <a-checkbox v-model:checked="importSchemaForm.analyzeFirst">
+            如果未分析过，先进行 Schema 分析
+          </a-checkbox>
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons-vue'
-import { get, post, del } from '@/api/request'
+import { PlusOutlined, ReloadOutlined, UploadOutlined, DatabaseOutlined, FolderOutlined, MoreOutlined, InboxOutlined } from '@ant-design/icons-vue'
+import { get, post, del, put } from '@/api/request'
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'
 
@@ -320,20 +356,51 @@ const stats = ref<Stats>({ documentCount: 0, chunkCount: 0, entityCount: 0, rela
 const loading = ref(false)
 const addModalVisible = ref(false)
 const addLoading = ref(false)
-const addForm = ref({ title: '', type: 'text', content: '', tags: [] as string[], inputType: 'text' as 'text' | 'file' })
+const addForm = ref({ title: '', type: 'text', content: '', tags: [] as string[], inputType: 'text' as 'text' | 'file', categoryId: '', datasourceId: '' })
 const fileList = ref<any[]>([])
+
+// 分类相关
+const categories = ref<any[]>([{ id: 'all', name: '全部', documentCount: 0 }])
+const selectedCategory = ref<any>(null)
+const categoryModalVisible = ref(false)
+const categoryLoading = ref(false)
+const editingCategory = ref<any>(null)
+const categoryForm = ref({ name: '', description: '' })
+
+// 批量导入相关
+const batchImportVisible = ref(false)
+const batchLoading = ref(false)
+const batchFileList = ref<any[]>([])
+const batchForm = ref({ categoryId: '', datasourceId: '', type: 'text' })
+
+// 过滤后的文档
+const filteredDocuments = computed(() => {
+  if (!selectedCategory.value || selectedCategory.value.id === 'all') {
+    return documents.value
+  }
+  return documents.value.filter(d => (d as any).categoryId === selectedCategory.value.id)
+})
 
 const ragQuestion = ref('')
 const ragAnswer = ref<any>(null)
 const ragLoading = ref(false)
+const ragDatasourceId = ref<string>()
+const datasources = ref<any[]>([])
+
+// 导入数据源 Schema 相关
+const importSchemaVisible = ref(false)
+const importSchemaLoading = ref(false)
+const importSchemaForm = ref({ datasourceId: '', analyzeFirst: true })
 
 const columns = [
   { title: '标题', dataIndex: 'title', key: 'title' },
-  { title: '类型', dataIndex: 'type', key: 'type', width: 100 },
+  { title: '分类', dataIndex: 'categoryId', key: 'category', width: 100 },
+  { title: '数据源', dataIndex: 'datasourceId', key: 'datasource', width: 120 },
+  { title: '类型', dataIndex: 'type', key: 'type', width: 80 },
   { title: '知识块', dataIndex: 'chunks', key: 'chunks', width: 80 },
-  { title: '标签', dataIndex: 'tags', key: 'tags', width: 200 },
-  { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 160 },
-  { title: '操作', key: 'action', width: 100 },
+  { title: '标签', dataIndex: 'tags', key: 'tags', width: 180 },
+  { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 150 },
+  { title: '操作', key: 'action', width: 80 },
 ]
 
 function getTypeColor(type: string) {
@@ -439,8 +506,154 @@ function renderGraph(data: { entities?: any[], relations?: any[] } | null | unde
   })
 }
 
+// 分类相关函数
+function showAddCategoryModal() {
+  editingCategory.value = null
+  categoryForm.value = { name: '', description: '' }
+  categoryModalVisible.value = true
+}
+
+function selectCategory(cat: any) {
+  selectedCategory.value = cat
+}
+
+function editCategory(cat: any) {
+  editingCategory.value = cat
+  categoryForm.value = { name: cat.name, description: cat.description || '' }
+  categoryModalVisible.value = true
+}
+
+async function deleteCategory(cat: any) {
+  Modal.confirm({
+    title: '确认删除',
+    content: `确定要删除分类 "${cat.name}" 吗？`,
+    onOk: async () => {
+      try {
+        const res = await del(`/admin/ai-qa/categories/${cat.id}`)
+        if (res.success) {
+          message.success('删除成功')
+          loadCategories()
+        }
+      } catch (e) {
+        message.error('删除失败')
+      }
+    }
+  })
+}
+
+async function handleSaveCategory() {
+  if (!categoryForm.value.name) {
+    message.warning('请输入分类名称')
+    return
+  }
+  categoryLoading.value = true
+  try {
+    if (editingCategory.value) {
+      await put(`/admin/ai-qa/categories/${editingCategory.value.id}`, categoryForm.value)
+    } else {
+      await post('/admin/ai-qa/categories', categoryForm.value)
+    }
+    message.success('保存成功')
+    categoryModalVisible.value = false
+    loadCategories()
+  } catch (e) {
+    message.error('保存失败')
+  } finally {
+    categoryLoading.value = false
+  }
+}
+
+async function loadCategories() {
+  try {
+    const res = await get<any[]>('/admin/ai-qa/categories')
+    if (res.success) {
+      categories.value = [{ id: 'all', name: '全部', documentCount: documents.value.length }, ...(res.data || [])]
+    }
+  } catch (e) {
+    console.error('加载分类失败', e)
+  }
+}
+
+function getCategoryName(categoryId: string) {
+  const cat = categories.value.find(c => c.id === categoryId)
+  return cat?.name || '未分类'
+}
+
+// 批量导入相关函数
+function showBatchImportModal() {
+  batchForm.value = { categoryId: '', datasourceId: '', type: 'text' }
+  batchFileList.value = []
+  batchImportVisible.value = true
+}
+
+function handleBatchFileSelect(file: File) {
+  return false // 阻止自动上传
+}
+
+async function handleBatchImport() {
+  if (batchFileList.value.length === 0) {
+    message.warning('请选择文件')
+    return
+  }
+  if (!batchForm.value.categoryId) {
+    message.warning('请选择分类')
+    return
+  }
+
+  batchLoading.value = true
+  let successCount = 0
+  let failCount = 0
+
+  try {
+    for (const fileItem of batchFileList.value) {
+      const file = fileItem.originFileObj || fileItem
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('title', file.name.replace(/\.[^/.]+$/, ''))
+      formData.append('type', batchForm.value.type)
+      formData.append('tags', JSON.stringify([]))
+      formData.append('categoryId', batchForm.value.categoryId)
+      if (batchForm.value.datasourceId) {
+        formData.append('datasourceId', batchForm.value.datasourceId)
+      }
+
+      try {
+        const res = await fetch('/api/admin/ai-qa/rag/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: formData
+        })
+        const data = await res.json()
+        if (data.success) {
+          successCount++
+        } else {
+          failCount++
+          console.error(`文件 ${file.name} 导入失败:`, data.error)
+        }
+      } catch (e) {
+        failCount++
+        console.error(`文件 ${file.name} 导入失败:`, e)
+      }
+    }
+
+    if (successCount > 0) {
+      message.success(`成功导入 ${successCount} 个文件${failCount > 0 ? `，${failCount} 个失败` : ''}`)
+      batchImportVisible.value = false
+      batchFileList.value = []
+      refreshDocuments()
+      loadCategories()
+    } else {
+      message.error('所有文件导入失败')
+    }
+  } finally {
+    batchLoading.value = false
+  }
+}
+
 function showAddModal() {
-  addForm.value = { title: '', type: 'text', content: '', tags: [], inputType: 'text' }
+  addForm.value = { title: '', type: 'text', content: '', tags: [], inputType: 'text', categoryId: '', datasourceId: '' }
   fileList.value = []
   addModalVisible.value = true
 }
@@ -488,7 +701,7 @@ async function handleAddDocument() {
     return
   }
   
-  // PDF 文件需要上传
+  // PDF/图片文件需要上传
   if (selectedFile.value) {
     addLoading.value = true
     try {
@@ -497,11 +710,13 @@ async function handleAddDocument() {
       formData.append('title', addForm.value.title)
       formData.append('type', addForm.value.type)
       formData.append('tags', JSON.stringify(addForm.value.tags))
+      if (addForm.value.categoryId) formData.append('categoryId', addForm.value.categoryId)
+      if (addForm.value.datasourceId) formData.append('datasourceId', addForm.value.datasourceId)
       
       const res = await fetch('/api/admin/ai-qa/rag/upload', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: formData
       })
@@ -512,6 +727,7 @@ async function handleAddDocument() {
         addModalVisible.value = false
         selectedFile.value = null
         refreshDocuments()
+        loadCategories()
       } else {
         message.error(data.error?.message || '添加失败')
       }
@@ -570,7 +786,10 @@ async function handleRAGAsk() {
   ragLoading.value = true
   ragAnswer.value = null
   try {
-    const res = await post<any>('/admin/ai-qa/rag/ask', { question: ragQuestion.value })
+    const res = await post<any>('/admin/ai-qa/rag/ask', { 
+      question: ragQuestion.value,
+      datasourceId: ragDatasourceId.value 
+    })
     if (res.success) {
       ragAnswer.value = res.data
     } else {
@@ -583,8 +802,64 @@ async function handleRAGAsk() {
   }
 }
 
+// 显示导入数据源 Schema 弹窗
+function showImportSchemaModal() {
+  importSchemaForm.value = { datasourceId: '', analyzeFirst: true }
+  importSchemaVisible.value = true
+}
+
+// 导入数据源 Schema 到知识库
+async function handleImportSchema() {
+  if (!importSchemaForm.value.datasourceId) {
+    message.warning('请选择数据源')
+    return
+  }
+
+  importSchemaLoading.value = true
+  try {
+    // 如果需要先分析
+    if (importSchemaForm.value.analyzeFirst) {
+      message.loading('正在分析数据源结构...', 0)
+      await get(`/admin/ai-qa/datasources/${importSchemaForm.value.datasourceId}/schema/analyze`)
+      message.destroy()
+    }
+
+    // 导入到知识库
+    const res = await post<any>('/admin/ai-qa/rag/import-schema', {
+      datasourceId: importSchemaForm.value.datasourceId
+    })
+    
+    if (res.success) {
+      message.success(res.message || '导入成功')
+      importSchemaVisible.value = false
+      refreshDocuments()
+    } else {
+      message.error(res.error?.message || '导入失败')
+    }
+  } catch (e: any) {
+    message.error(e.message || '导入失败')
+  } finally {
+    importSchemaLoading.value = false
+    message.destroy()
+  }
+}
+
+// 加载数据源列表
+async function loadDatasources() {
+  try {
+    const res = await get<any[]>('/admin/ai-qa/datasources')
+    if (res.success) {
+      datasources.value = res.data || []
+    }
+  } catch (e) {
+    console.error('加载数据源失败', e)
+  }
+}
+
 onMounted(() => {
   refreshDocuments()
+  loadDatasources()
+  loadCategories()
 })
 </script>
 

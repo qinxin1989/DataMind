@@ -16,6 +16,7 @@ import { dataMasking } from '../../../services/dataMasking';
 interface DataSourceInstance {
   config: DataSourceConfig;
   instance: BaseDataSource;
+  name?: string;  // 数据源名称
 }
 
 export class AIQAService {
@@ -77,7 +78,7 @@ export class AIQAService {
     for (const config of configs) {
       try {
         const instance = createDataSource(config);
-        this.dataSources.set(config.id, { config, instance });
+        this.dataSources.set(config.id, { config, instance, name: config.name });
         console.log(`Loaded datasource: ${config.name}`);
       } catch (e: any) {
         console.error(`Failed to load datasource ${config.name}:`, e.message);
@@ -189,7 +190,7 @@ export class AIQAService {
     const instance = createDataSource(fullConfig);
     await instance.testConnection();
     await this.configStore.save(fullConfig);
-    this.dataSources.set(fullConfig.id, { config: fullConfig, instance });
+    this.dataSources.set(fullConfig.id, { config: fullConfig, instance, name: fullConfig.name });
     return fullConfig;
   }
 
@@ -203,7 +204,7 @@ export class AIQAService {
     await instance.testConnection();
     await ds.instance.disconnect();
     await this.configStore.save(newConfig);
-    this.dataSources.set(id, { config: newConfig, instance });
+    this.dataSources.set(id, { config: newConfig, instance, name: newConfig.name });
     return newConfig;
   }
 
@@ -307,7 +308,7 @@ export class AIQAService {
 
   // ==================== AI Q&A ====================
 
-  async ask(datasourceId: string, question: string, sessionId: string | undefined, userId: string): Promise<AgentResponse & { sessionId: string }> {
+  async ask(datasourceId: string, question: string, sessionId: string | undefined, userId: string): Promise<AgentResponse & { sessionId: string; ragContext?: { used: boolean; sources?: string[] } }> {
     const ds = this.dataSources.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
@@ -321,7 +322,53 @@ export class AIQAService {
       session = { id: uuidv4(), datasourceId, messages: [], createdAt: Date.now() };
     }
 
-    const response = await this.getAIAgent().answer(question, ds.instance, ds.config.type, session.messages);
+    // 1. 尝试从缓存的 Schema 分析中获取上下文（减少 token）
+    let schemaContext: string | undefined;
+    try {
+      const cachedAnalysis = await this.configStore.getSchemaAnalysis(datasourceId, userId);
+      if (cachedAnalysis && cachedAnalysis.tables) {
+        // 使用缓存的中文表名和字段描述，而不是原始 schema
+        schemaContext = this.buildSchemaContextFromAnalysis(cachedAnalysis);
+        console.log('[RAG] Using cached schema analysis, context length:', schemaContext.length);
+      }
+    } catch (e) {
+      console.log('[RAG] No cached schema analysis available');
+    }
+
+    // 2. 查询 RAG 知识库获取相关上下文
+    let ragContext: { used: boolean; sources?: string[]; context?: string } = { used: false };
+    try {
+      const ragEngine = this.ragEngines.get(userId);
+      if (ragEngine) {
+        const ragResult = await ragEngine.retrieve(question, 3);
+        if (ragResult.chunks.length > 0) {
+          // 构建 RAG 上下文（只取高相关度的）
+          const relevantChunks = ragResult.chunks.filter(c => c.score > 0.6);
+          if (relevantChunks.length > 0) {
+            ragContext = {
+              used: true,
+              sources: ragResult.sources.map(s => s.title),
+              context: relevantChunks.map(c => c.chunk.content).join('\n\n')
+            };
+            console.log('[RAG] Found relevant knowledge, chunks:', relevantChunks.length);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log('[RAG] Knowledge retrieval skipped:', e.message);
+    }
+
+    // 3. 调用 AI Agent（传入优化后的上下文）
+    const response = await this.getAIAgent().answerWithContext(
+      question, 
+      ds.instance, 
+      ds.config.type, 
+      session.messages,
+      {
+        schemaContext,
+        ragContext: ragContext.context
+      }
+    );
 
     let maskedData = response.data;
     let maskedAnswer = response.answer;
@@ -336,7 +383,29 @@ export class AIQAService {
     session.messages.push({ role: 'assistant', content: maskedAnswer, sql: response.sql, timestamp: Date.now() });
     await this.configStore.saveChatSession(session, userId);
 
-    return { ...response, answer: maskedAnswer, data: maskedData, sessionId: session.id };
+    return { 
+      ...response, 
+      answer: maskedAnswer, 
+      data: maskedData, 
+      sessionId: session.id,
+      ragContext: ragContext.used ? { used: true, sources: ragContext.sources } : { used: false }
+    };
+  }
+
+  // 从缓存的 Schema 分析构建精简上下文
+  private buildSchemaContextFromAnalysis(analysis: SchemaAnalysis): string {
+    if (!analysis.tables || analysis.tables.length === 0) return '';
+    
+    const lines: string[] = [];
+    for (const table of analysis.tables) {
+      const tableName = table.tableNameCn || table.tableName;
+      const cols = table.columns
+        .slice(0, 10) // 只取前10个字段
+        .map(c => `${c.nameCn || c.name}(${c.name})`)
+        .join(',');
+      lines.push(`${tableName}(${table.tableName}):${cols}`);
+    }
+    return lines.join('\n');
   }
 
   async executeQuery(datasourceId: string, sql: string, userId: string): Promise<{ success: boolean; data?: any[]; error?: string; rowCount?: number }> {
@@ -485,12 +554,22 @@ export class AIQAService {
     const ragEngine = this.ragEngines.get(userId);
     if (!ragEngine) return [];
     const docs = ragEngine.getKnowledgeBase().getAllDocuments();
-    return docs.map((d: any) => ({ id: d.id, title: d.title, type: d.type, chunks: d.chunks?.length || 0, createdAt: d.metadata?.createdAt, tags: d.metadata?.tags }));
+    return docs.map((d: any) => ({ 
+      id: d.id, 
+      title: d.title, 
+      type: d.type, 
+      chunks: d.chunks?.length || 0, 
+      createdAt: d.metadata?.createdAt, 
+      tags: d.metadata?.tags,
+      categoryId: d.metadata?.categoryId,
+      datasourceId: d.metadata?.datasourceId,
+      datasourceName: d.metadata?.datasourceId ? this.dataSources.get(d.metadata.datasourceId)?.name : undefined
+    }));
   }
 
-  async addRAGDocument(title: string, content: string, type: string, userId: string, tags?: string[]): Promise<any> {
+  async addRAGDocument(title: string, content: string, type: string, userId: string, tags?: string[], categoryId?: string, datasourceId?: string): Promise<any> {
     const ragEngine = await this.getRAGEngine(userId);
-    return ragEngine.addDocument(content, title, type as any, userId, { tags });
+    return ragEngine.addDocument(content, title, type as any, userId, { tags, categoryId, datasourceId });
   }
 
   async deleteRAGDocument(docId: string, userId: string): Promise<boolean> {
@@ -539,6 +618,77 @@ export class AIQAService {
       relations: result.relations.map((r: any) => ({ source: r.sourceId, target: r.targetId, type: r.type })),
     };
   }
+
+  // 将数据源 Schema 分析导入知识库（减少 token 使用的关键功能）
+  async importSchemaToRAG(datasourceId: string, userId: string): Promise<{ docId: string; chunksCount: number; datasourceName: string }> {
+    const ds = this.dataSources.get(datasourceId);
+    if (!ds || !this.canAccessDataSource(ds, userId)) {
+      throw new Error('Datasource not found or access denied');
+    }
+
+    // 获取缓存的 Schema 分析
+    const cachedAnalysis = await this.configStore.getSchemaAnalysis(datasourceId, userId);
+    if (!cachedAnalysis || !cachedAnalysis.tables) {
+      throw new Error('请先对数据源进行 Schema 分析');
+    }
+
+    // 构建知识文档内容
+    const datasourceName = ds.config.name;
+    let content = `# 数据源: ${datasourceName}\n\n`;
+    content += `## 数据结构说明\n\n`;
+
+    for (const table of cachedAnalysis.tables) {
+      const tableName = table.tableNameCn || table.tableName;
+      content += `### ${tableName} (${table.tableName})\n\n`;
+      
+      if (table.description) {
+        content += `${table.description}\n\n`;
+      }
+
+      content += `| 字段名 | 中文名 | 类型 | 说明 |\n`;
+      content += `|--------|--------|------|------|\n`;
+      
+      for (const col of table.columns) {
+        const colName = col.name;
+        const colNameCn = col.nameCn || col.name;
+        const colType = col.type || '';
+        const colDesc = col.description || '';
+        content += `| ${colName} | ${colNameCn} | ${colType} | ${colDesc} |\n`;
+      }
+      content += `\n`;
+    }
+
+    // 添加推荐问题
+    if (cachedAnalysis.suggestedQuestions && cachedAnalysis.suggestedQuestions.length > 0) {
+      content += `## 常见问题示例\n\n`;
+      for (const q of cachedAnalysis.suggestedQuestions) {
+        content += `- ${q}\n`;
+      }
+    }
+
+    // 添加到知识库
+    const ragEngine = await this.getRAGEngine(userId);
+    const doc = await ragEngine.addDocument(
+      content,
+      `数据源结构: ${datasourceName}`,
+      'datasource',
+      userId,
+      { 
+        datasourceId,
+        datasourceName,
+        tags: ['数据源', datasourceName, 'Schema']
+      }
+    );
+
+    console.log(`[RAG] Imported schema for ${datasourceName}, chunks: ${doc.chunks?.length || 0}`);
+
+    return {
+      docId: doc.id,
+      chunksCount: doc.chunks?.length || 0,
+      datasourceName
+    };
+  }
 }
+
 
 export const aiQAService = new AIQAService();

@@ -124,14 +124,92 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
     }
   }
 
+  // MySQL 保留字列表（常见的）
+  private static MYSQL_RESERVED_WORDS = new Set([
+    'add', 'all', 'alter', 'analyze', 'and', 'as', 'asc', 'before', 'between', 'bigint',
+    'binary', 'blob', 'both', 'by', 'call', 'cascade', 'case', 'change', 'char', 'character',
+    'check', 'code', 'collate', 'column', 'condition', 'constraint', 'continue', 'convert',
+    'create', 'cross', 'current_date', 'current_time', 'current_timestamp', 'current_user',
+    'cursor', 'database', 'databases', 'day_hour', 'day_microsecond', 'day_minute', 'day_second',
+    'dec', 'decimal', 'declare', 'default', 'delayed', 'delete', 'desc', 'describe', 'deterministic',
+    'distinct', 'distinctrow', 'div', 'double', 'drop', 'dual', 'each', 'else', 'elseif', 'enclosed',
+    'escaped', 'exists', 'exit', 'explain', 'false', 'fetch', 'float', 'float4', 'float8', 'for',
+    'force', 'foreign', 'from', 'fulltext', 'grant', 'group', 'having', 'high_priority', 'hour_microsecond',
+    'hour_minute', 'hour_second', 'if', 'ignore', 'in', 'index', 'infile', 'inner', 'inout', 'insensitive',
+    'insert', 'int', 'int1', 'int2', 'int3', 'int4', 'int8', 'integer', 'interval', 'into', 'is', 'iterate',
+    'join', 'key', 'keys', 'kill', 'leading', 'leave', 'left', 'like', 'limit', 'linear', 'lines', 'load',
+    'localtime', 'localtimestamp', 'lock', 'long', 'longblob', 'longtext', 'loop', 'low_priority', 'master_ssl_verify_server_cert',
+    'match', 'mediumblob', 'mediumint', 'mediumtext', 'middleint', 'minute_microsecond', 'minute_second', 'mod',
+    'modifies', 'natural', 'not', 'no_write_to_binlog', 'null', 'numeric', 'on', 'optimize', 'option', 'optionally',
+    'or', 'order', 'out', 'outer', 'outfile', 'precision', 'primary', 'procedure', 'purge', 'range', 'read',
+    'reads', 'read_write', 'real', 'references', 'regexp', 'release', 'rename', 'repeat', 'replace', 'require',
+    'restrict', 'return', 'revoke', 'right', 'rlike', 'schema', 'schemas', 'second_microsecond', 'select',
+    'sensitive', 'separator', 'set', 'show', 'smallint', 'spatial', 'specific', 'sql', 'sqlexception', 'sqlstate',
+    'sqlwarning', 'sql_big_result', 'sql_calc_found_rows', 'sql_small_result', 'ssl', 'starting', 'straight_join',
+    'table', 'terminated', 'text', 'then', 'time', 'timestamp', 'tinyblob', 'tinyint', 'tinytext', 'to', 'trailing',
+    'trigger', 'true', 'undo', 'union', 'unique', 'unlock', 'unsigned', 'update', 'usage', 'use', 'using', 'utc_date',
+    'utc_time', 'utc_timestamp', 'values', 'varbinary', 'varchar', 'varcharacter', 'varying', 'when', 'where',
+    'while', 'with', 'write', 'xor', 'year_month', 'zerofill', 'rank', 'row', 'rows', 'name', 'type', 'status'
+  ]);
+
+  // 转义 MySQL 保留字
+  private escapeReservedWords(sql: string, dbType: string): string {
+    if (dbType !== 'mysql') return sql;
+    
+    // 匹配 SELECT 子句中的字段名（包括 COUNT(field) 等函数中的字段）
+    // 以及 FROM/JOIN 后的表名和字段名
+    let escapedSql = sql;
+    
+    // 转义 COUNT(field), SUM(field) 等聚合函数中的保留字
+    escapedSql = escapedSql.replace(
+      /\b(COUNT|SUM|AVG|MAX|MIN|GROUP_CONCAT)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)/gi,
+      (match, func, field) => {
+        if (AutoAnalyst.MYSQL_RESERVED_WORDS.has(field.toLowerCase())) {
+          return `${func}(\`${field}\`)`;
+        }
+        return match;
+      }
+    );
+    
+    // 转义 SELECT 子句中的独立字段名（不在函数内的）
+    // 匹配模式：SELECT field1, field2 或 SELECT table.field
+    escapedSql = escapedSql.replace(
+      /\bSELECT\s+([\s\S]*?)\s+FROM\b/gi,
+      (match, selectClause) => {
+        const escapedSelect = selectClause.replace(
+          /(?<![`\w.])([a-zA-Z_][a-zA-Z0-9_]*)(?![`\w(])/g,
+          (fieldMatch: string, field: string) => {
+            // 跳过 SQL 关键字和函数名
+            const keywords = ['as', 'distinct', 'count', 'sum', 'avg', 'max', 'min', 'case', 'when', 'then', 'else', 'end', 'null'];
+            if (keywords.includes(field.toLowerCase())) return fieldMatch;
+            
+            if (AutoAnalyst.MYSQL_RESERVED_WORDS.has(field.toLowerCase())) {
+              return `\`${field}\``;
+            }
+            return fieldMatch;
+          }
+        );
+        return `SELECT ${escapedSelect} FROM`;
+      }
+    );
+    
+    console.log(`[SQL Escape] Original: ${sql}`);
+    console.log(`[SQL Escape] Escaped: ${escapedSql}`);
+    
+    return escapedSql;
+  }
+
   // 第二步：执行查询并生成摘要（自然语言版）
   private async executeAndSummarize(
     sql: string,
     description: string,
-    dataSource: BaseDataSource
+    dataSource: BaseDataSource,
+    dbType: string = 'mysql'
   ): Promise<{ result: any; summary: string; chart?: ChartInfo }> {
     try {
-      const queryResult = await dataSource.executeQuery(sql);
+      // 转义 MySQL 保留字
+      const escapedSql = this.escapeReservedWords(sql, dbType);
+      const queryResult = await dataSource.executeQuery(escapedSql);
       
       if (!queryResult.success) {
         return { result: null, summary: `查询未能完成` };
@@ -490,7 +568,8 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
       const { result, summary, chart } = await this.executeAndSummarize(
         planStep.sql,
         planStep.description,
-        dataSource
+        dataSource,
+        dbType
       );
       step.result = result;
       step.summary = summary;

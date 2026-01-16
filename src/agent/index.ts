@@ -20,6 +20,74 @@ export interface AgentResponse extends AIResponse {
   modelName?: string;    // 使用的模型名称
 }
 
+// MySQL 保留字列表（常见的）
+const MYSQL_RESERVED_WORDS = new Set([
+  'add', 'all', 'alter', 'analyze', 'and', 'as', 'asc', 'before', 'between', 'bigint',
+  'binary', 'blob', 'both', 'by', 'call', 'cascade', 'case', 'change', 'char', 'character',
+  'check', 'code', 'collate', 'column', 'condition', 'constraint', 'continue', 'convert',
+  'create', 'cross', 'current_date', 'current_time', 'current_timestamp', 'current_user',
+  'cursor', 'database', 'databases', 'day_hour', 'day_microsecond', 'day_minute', 'day_second',
+  'dec', 'decimal', 'declare', 'default', 'delayed', 'delete', 'desc', 'describe', 'deterministic',
+  'distinct', 'distinctrow', 'div', 'double', 'drop', 'dual', 'each', 'else', 'elseif', 'enclosed',
+  'escaped', 'exists', 'exit', 'explain', 'false', 'fetch', 'float', 'float4', 'float8', 'for',
+  'force', 'foreign', 'from', 'fulltext', 'grant', 'group', 'having', 'high_priority', 'hour_microsecond',
+  'hour_minute', 'hour_second', 'if', 'ignore', 'in', 'index', 'infile', 'inner', 'inout', 'insensitive',
+  'insert', 'int', 'int1', 'int2', 'int3', 'int4', 'int8', 'integer', 'interval', 'into', 'is', 'iterate',
+  'join', 'key', 'keys', 'kill', 'leading', 'leave', 'left', 'like', 'limit', 'linear', 'lines', 'load',
+  'localtime', 'localtimestamp', 'lock', 'long', 'longblob', 'longtext', 'loop', 'low_priority', 'master_ssl_verify_server_cert',
+  'match', 'mediumblob', 'mediumint', 'mediumtext', 'middleint', 'minute_microsecond', 'minute_second', 'mod',
+  'modifies', 'natural', 'not', 'no_write_to_binlog', 'null', 'numeric', 'on', 'optimize', 'option', 'optionally',
+  'or', 'order', 'out', 'outer', 'outfile', 'precision', 'primary', 'procedure', 'purge', 'range', 'read',
+  'reads', 'read_write', 'real', 'references', 'regexp', 'release', 'rename', 'repeat', 'replace', 'require',
+  'restrict', 'return', 'revoke', 'right', 'rlike', 'schema', 'schemas', 'second_microsecond', 'select',
+  'sensitive', 'separator', 'set', 'show', 'smallint', 'spatial', 'specific', 'sql', 'sqlexception', 'sqlstate',
+  'sqlwarning', 'sql_big_result', 'sql_calc_found_rows', 'sql_small_result', 'ssl', 'starting', 'straight_join',
+  'table', 'terminated', 'text', 'then', 'time', 'timestamp', 'tinyblob', 'tinyint', 'tinytext', 'to', 'trailing',
+  'trigger', 'true', 'undo', 'union', 'unique', 'unlock', 'unsigned', 'update', 'usage', 'use', 'using', 'utc_date',
+  'utc_time', 'utc_timestamp', 'values', 'varbinary', 'varchar', 'varcharacter', 'varying', 'when', 'where',
+  'while', 'with', 'write', 'xor', 'year_month', 'zerofill', 'rank', 'row', 'rows', 'name', 'type', 'status'
+]);
+
+// 转义 MySQL 保留字
+function escapeReservedWords(sql: string, dbType: string): string {
+  if (dbType !== 'mysql') return sql;
+  
+  let escapedSql = sql;
+  
+  // 转义 COUNT(field), SUM(field) 等聚合函数中的保留字
+  escapedSql = escapedSql.replace(
+    /\b(COUNT|SUM|AVG|MAX|MIN|GROUP_CONCAT)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)/gi,
+    (match, func, field) => {
+      if (MYSQL_RESERVED_WORDS.has(field.toLowerCase())) {
+        return `${func}(\`${field}\`)`;
+      }
+      return match;
+    }
+  );
+  
+  // 转义 SELECT 子句中的独立字段名
+  escapedSql = escapedSql.replace(
+    /\bSELECT\s+([\s\S]*?)\s+FROM\b/gi,
+    (match, selectClause) => {
+      const escapedSelect = selectClause.replace(
+        /(?<![`\w.])([a-zA-Z_][a-zA-Z0-9_]*)(?![`\w(])/g,
+        (fieldMatch: string, field: string) => {
+          const keywords = ['as', 'distinct', 'count', 'sum', 'avg', 'max', 'min', 'case', 'when', 'then', 'else', 'end', 'null'];
+          if (keywords.includes(field.toLowerCase())) return fieldMatch;
+          
+          if (MYSQL_RESERVED_WORDS.has(field.toLowerCase())) {
+            return `\`${field}\``;
+          }
+          return fieldMatch;
+        }
+      );
+      return `SELECT ${escapedSelect} FROM`;
+    }
+  );
+  
+  return escapedSql;
+}
+
 // 内嵌图表数据
 export interface ChartData {
   type: 'bar' | 'line' | 'pie' | 'area';
@@ -1005,7 +1073,13 @@ ${schemaCompact}`
         sql = await this.generateSQL(question, schemas, dbType, history);
         console.log('AI generated SQL:', sql);
         
-        const queryResult = await dataSource.executeQuery(sql);
+        // 转义 MySQL 保留字
+        const escapedSql = escapeReservedWords(sql, dbType);
+        if (escapedSql !== sql) {
+          console.log('Escaped SQL:', escapedSql);
+        }
+        
+        const queryResult = await dataSource.executeQuery(escapedSql);
         if (!queryResult.success) {
           return { answer: `查询失败: ${queryResult.error}`, sql, tokensUsed: this.lastRequestTokens, modelName: this.model };
         }
@@ -1021,7 +1095,9 @@ ${schemaCompact}`
           sql = await this.regenerateSQL(question, schemas, dbType, history, sql, validation.reason);
           console.log('Corrected SQL:', sql);
           
-          const retryResult = await dataSource.executeQuery(sql);
+          // 转义保留字
+          const escapedCorrectedSql = escapeReservedWords(sql, dbType);
+          const retryResult = await dataSource.executeQuery(escapedCorrectedSql);
           if (retryResult.success) {
             result = retryResult.data;
           }
@@ -1073,7 +1149,8 @@ ${schemaCompact}`
           // 技能不存在，回退到简单SQL
           console.log('Skill not found, falling back to SQL');
           sql = await this.generateSQL(question, schemas, dbType, history);
-          const queryResult = await dataSource.executeQuery(sql);
+          const escapedSql = escapeReservedWords(sql, dbType);
+          const queryResult = await dataSource.executeQuery(escapedSql);
           if (!queryResult.success) {
             return { answer: `查询失败: ${queryResult.error}`, sql, tokensUsed: this.lastRequestTokens, modelName: this.model };
           }
@@ -1109,6 +1186,255 @@ ${schemaCompact}`
       };
     } catch (error: any) {
       return { answer: `处理失败: ${error.message}`, tokensUsed: this.lastRequestTokens, modelName: this.model };
+    }
+  }
+
+  // 带上下文的智能问答（优化版，减少 token 使用）
+  async answerWithContext(
+    question: string,
+    dataSource: BaseDataSource,
+    dbType: string,
+    history: ChatMessage[] = [],
+    context?: {
+      schemaContext?: string;  // 预处理的 schema 上下文（中文名称）
+      ragContext?: string;     // RAG 知识库上下文
+    }
+  ): Promise<AgentResponse> {
+    // 重置 token 计数
+    this.lastRequestTokens = 0;
+    
+    try {
+      // 首先检测是否为闲聊/非数据查询
+      const q = question.toLowerCase();
+      if (this.isChitChatQuestion(q)) {
+        console.log('=== Detected chitchat question (no AI call)');
+        const chitChatAnswer = this.handleChitChat(question);
+        return { answer: chitChatAnswer, tokensUsed: 0, modelName: 'none' };
+      }
+      
+      const schemas = await dataSource.getSchema();
+      
+      // 检测是否需要数据质量检测
+      const needQualityCheck = q.includes('质量') && (q.includes('检测') || q.includes('检查') || q.includes('分析') || q.includes('评估'));
+      
+      if (needQualityCheck) {
+        console.log('=== Using quality inspection mode');
+        const { reports, markdown } = await this.inspectQuality(dataSource, dbType);
+        return {
+          answer: markdown,
+          sql: '',
+          data: reports,
+          tokensUsed: this.lastRequestTokens,
+          modelName: this.model
+        };
+      }
+      
+      // 检测是否需要综合分析
+      const hasAnalysisKeyword = q.includes('分析');
+      const hasComprehensiveKeyword = 
+        q.includes('整体') || q.includes('全面') || q.includes('综合') ||
+        q.includes('深入') || q.includes('详细') || q.includes('完整') ||
+        q.includes('所有') || q.includes('全部');
+      const needComprehensiveAnalysis = hasAnalysisKeyword && hasComprehensiveKeyword;
+      
+      if (needComprehensiveAnalysis) {
+        // 综合分析使用原有逻辑
+        return this.answer(question, dataSource, dbType, history);
+      }
+      
+      let result: any;
+      let sql: string | undefined;
+      let skillUsed: string | undefined;
+      let chart: ChartData | undefined;
+
+      // 使用优化的 schema 上下文（如果提供）
+      const schemaForAI = context?.schemaContext || this.formatSchemaForAI(schemas);
+      
+      // 构建增强的系统提示（包含 RAG 上下文）
+      let systemPromptAddition = '';
+      if (context?.ragContext) {
+        systemPromptAddition = `\n\n相关知识背景:\n${context.ragContext.slice(0, 500)}`;
+        console.log('=== Using RAG context, length:', context.ragContext.length);
+      }
+
+      // 对于文件类型，使用 AI 来规划查询
+      if (dbType === 'file') {
+        console.log('=== Using AI planning for file datasource (with context)');
+        const queryPlan = await this.planFileQueryWithContext(question, schemas, history, schemaForAI, systemPromptAddition);
+        const internalSql = queryPlan.sql;
+        console.log('AI generated query:', internalSql);
+        
+        const queryResult = await dataSource.executeQuery(internalSql);
+        console.log('Query result:', queryResult.success, 'rows:', queryResult.rowCount);
+        
+        if (!queryResult.success) {
+          return { answer: `查询失败: ${queryResult.error}`, tokensUsed: this.lastRequestTokens, modelName: this.model };
+        }
+        
+        result = queryResult.data;
+        
+        if (queryPlan.chartType && queryPlan.chartType !== 'none' && result && result.length > 1) {
+          chart = this.generateChartData(result, queryPlan.chartType as any, question);
+        }
+        
+        const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext);
+        
+        return {
+          answer: explanation,
+          data: result,
+          chart,
+          tokensUsed: this.lastRequestTokens,
+          modelName: this.model
+        };
+      }
+      
+      // 数据库类型：使用优化的 SQL 生成
+      console.log('=== Using optimized SQL generation with context');
+      sql = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition);
+      console.log('AI generated SQL:', sql);
+      
+      // 转义 MySQL 保留字
+      const escapedSql = escapeReservedWords(sql, dbType);
+      if (escapedSql !== sql) {
+        console.log('Escaped SQL:', escapedSql);
+      }
+      
+      const queryResult = await dataSource.executeQuery(escapedSql);
+      if (!queryResult.success) {
+        return { answer: `查询失败: ${queryResult.error}`, sql, tokensUsed: this.lastRequestTokens, modelName: this.model };
+      }
+      result = queryResult.data;
+      
+      // 根据结果生成图表
+      if (result && result.length > 1) {
+        chart = this.generateChartData(result, 'bar', question);
+      }
+      
+      // 解读结果（带 RAG 上下文）
+      const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext);
+
+      return {
+        answer: explanation,
+        sql,
+        data: Array.isArray(result) ? result : undefined,
+        skillUsed,
+        chart,
+        tokensUsed: this.lastRequestTokens,
+        modelName: this.model
+      };
+    } catch (error: any) {
+      return { answer: `处理失败: ${error.message}`, tokensUsed: this.lastRequestTokens, modelName: this.model };
+    }
+  }
+
+  // 带上下文的文件查询规划
+  private async planFileQueryWithContext(
+    question: string,
+    schemas: TableSchema[],
+    history: ChatMessage[],
+    schemaContext: string,
+    additionalContext: string
+  ): Promise<{ sql: string; chartType?: string }> {
+    await this.ensureInitialized();
+    
+    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none"}
+规则:聚合查询按值DESC排序，LIMIT 20
+表结构:
+${schemaContext}${additionalContext}`
+        },
+        { role: 'user', content: question }
+      ],
+      temperature: 0.1,
+    }));
+
+    const content = response.choices[0].message.content || '{}';
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error('Failed to parse AI query plan:', e);
+    }
+    
+    return { sql: `SELECT COUNT(*) as total FROM ${schemas[0]?.tableName || 'data'}`, chartType: 'none' };
+  }
+
+  // 带上下文的 SQL 生成
+  private async generateSQLWithContext(
+    question: string,
+    schemas: TableSchema[],
+    dbType: string,
+    history: ChatMessage[],
+    schemaContext: string,
+    additionalContext: string
+  ): Promise<string> {
+    await this.ensureInitialized();
+    
+    const recentContext = history.slice(-2).map(m => m.content.slice(0, 100)).join(';');
+
+    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content: `SQL生成器(${dbType})。只返回SQL，无解释。
+规则:SELECT only,LIMIT 20,聚合按值DESC排序
+表结构:
+${schemaContext}${additionalContext}`
+        },
+        { role: 'user', content: recentContext ? `上文:${recentContext}\n问:${question}` : question }
+      ],
+      temperature: 0,
+    }));
+
+    const sql = response.choices[0].message.content?.trim() || '';
+    return sql.replace(/```sql\n?/gi, '').replace(/```\n?/g, '').trim();
+  }
+
+  // 带上下文的结果解读
+  private async explainResultWithContext(
+    question: string,
+    result: any,
+    history: ChatMessage[],
+    ragContext?: string
+  ): Promise<string> {
+    await this.ensureInitialized();
+    
+    if (!result || (Array.isArray(result) && result.length === 0)) {
+      return '数据库中没有相关数据';
+    }
+    
+    const limitedResult = Array.isArray(result) ? result.slice(0, 10) : result;
+    const resultStr = JSON.stringify(limitedResult);
+    
+    let systemPrompt = `数据分析助手。用中文简洁回答，数字加单位，英文地名翻译成中文。`;
+    if (ragContext) {
+      systemPrompt += `\n\n参考知识:\n${ragContext.slice(0, 300)}`;
+    }
+    
+    try {
+      const response = await this.callWithRetry(() => this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `问题:${question}\n结果:${resultStr}` }
+        ],
+        temperature: 0.3,
+      }));
+
+      return response.choices[0].message.content || '无法解读结果';
+    } catch (error: any) {
+      console.error('explainResultWithContext: AI call failed:', error.message);
+      if (Array.isArray(result) && result.length > 0) {
+        return `查询成功，共返回 ${result.length} 条数据。`;
+      }
+      return '查询成功，但无法生成详细说明。';
     }
   }
 
