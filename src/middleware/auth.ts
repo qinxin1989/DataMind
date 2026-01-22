@@ -17,14 +17,29 @@ export function createAuthMiddleware(authService: AuthService) {
     // 从Authorization header获取token
     const authHeader = req.headers.authorization;
     let token: string | undefined;
-    
+
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.substring(7);
     } else if (req.query.token && typeof req.query.token === 'string') {
       // 支持从 URL query 参数获取 token（用于大屏预览等场景）
       token = req.query.token;
     }
-    
+
+    // 特殊处理：支持 MCP Server 的静态 API Key
+    if (token && process.env.MCP_API_KEY && token === process.env.MCP_API_KEY) {
+      req.user = {
+        id: 'mcp-server',
+        username: 'mcp-server',
+        name: 'MCP Server',
+        role: 'admin',
+        email: 'mcp@local',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      req.token = token;
+      return next();
+    }
+
     if (!token) {
       return res.status(401).json({ error: '缺少认证token' });
     }

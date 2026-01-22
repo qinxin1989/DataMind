@@ -116,7 +116,17 @@ ${schemaDesc}`
     });
 
     const sql = response.choices[0].message.content?.trim() || '';
-    return sql.replace(/```sql\n?/gi, '').replace(/```\n?/g, '').trim();
+    
+    // 移除 <think> 标签和其内部内容（Qwen3-32B 模型可能返回）
+    let cleanedSql = sql.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    
+    // 移除 Markdown 代码块
+    cleanedSql = cleanedSql.replace(/```sql\n?/gi, '').replace(/```\n?/g, '').trim();
+    
+    // 如果有多个 SQL 语句，只取第一个
+    const firstStatement = cleanedSql.split(';')[0].trim();
+    
+    return firstStatement;
   }
 
   // 智能问答（带上下文）

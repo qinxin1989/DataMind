@@ -19,6 +19,7 @@ const SENSITIVE_KEYS = [
   'CONFIG_DB_PASSWORD',
   'FILE_ENCRYPTION_KEY',
   'JWT_SECRET',
+  'MCP_API_KEY',
 ];
 
 /**
@@ -60,7 +61,7 @@ export async function encryptEnvFile(masterPassword: string): Promise<void> {
 
   for (const line of lines) {
     const trimmed = line.trim();
-    
+
     // 跳过空行和注释
     if (!trimmed || trimmed.startsWith('#')) {
       encryptedLines.push(line);
@@ -109,7 +110,7 @@ export function loadEncryptedEnv(masterPassword: string): void {
 
   for (const line of lines) {
     const trimmed = line.trim();
-    
+
     // 跳过空行和注释
     if (!trimmed || trimmed.startsWith('#')) continue;
 
@@ -149,11 +150,11 @@ export function promptPassword(prompt: string): Promise<string> {
     if (process.stdin.isTTY) {
       process.stdout.write(prompt);
       let password = '';
-      
+
       process.stdin.setRawMode(true);
       process.stdin.resume();
       process.stdin.setEncoding('utf8');
-      
+
       const onData = (char: string) => {
         if (char === '\n' || char === '\r' || char === '\u0004') {
           process.stdin.setRawMode(false);
@@ -175,7 +176,7 @@ export function promptPassword(prompt: string): Promise<string> {
           process.stdout.write('*');
         }
       };
-      
+
       process.stdin.on('data', onData);
     } else {
       rl.question(prompt, (answer) => {

@@ -9,6 +9,7 @@ import { VectorStore, VectorSearchResult } from './vectorStore';
 import { KnowledgeGraph, Entity, Relation } from './knowledgeGraph';
 import { EmbeddingService } from './embeddingService';
 import { DocumentProcessor } from './documentProcessor';
+import { v4 as uuidv4 } from 'uuid';
 
 // RAG 检索结果
 export interface RAGContext {
@@ -17,7 +18,7 @@ export interface RAGContext {
     entities: Entity[];
     relations: Relation[];
   };
-  sources: { documentId: string; title: string; type: string }[];
+  sources: { documentId: string; title: string; type: string; content?: string }[];
 }
 
 // RAG 回答结果
@@ -25,35 +26,99 @@ export interface RAGResponse {
   answer: string;
   context: RAGContext;
   confidence: number;
-  sources: string[];
+  sources: { documentId: string; title: string; type: string; content?: string }[];
+}
+
+export interface RAGSource {
+  documentId: string;
+  title: string;
+  type: string;
+  content?: string;
+}
+
+// 搜索结果
+export interface SearchResult {
+  documentId: string;
+  documentTitle: string;
+  chunkId: string;
+  content: string;
+  score: number;
+  metadata: any;
 }
 
 export class RAGEngine {
-  private openai: OpenAI;
-  private model: string;
+  private openai!: OpenAI;
+  private model!: string;
   private knowledgeBase: KnowledgeBase;
   private vectorStore: VectorStore;
   private knowledgeGraph: KnowledgeGraph;
   private embeddingService: EmbeddingService;
   private documentProcessor: DocumentProcessor;
+  private userId: string;
+  private pool: any;
 
   constructor(
-    apiKey: string,
+    apiKeyOrConfigs: string | { apiKey?: string; baseURL?: string; model: string; provider?: string }[],
     baseURL?: string,
     model: string = 'qwen-plus',
-    embeddingModel: string = 'text-embedding-v2'
+    embeddingModel: string = 'text-embedding-v2',
+    userId: string = 'system',
+    pool?: any
   ) {
-    this.openai = new OpenAI({ apiKey, baseURL });
-    this.model = model;
-    
+    this.userId = userId;
+    this.pool = pool;
+
+    let embeddingConfigs: { apiKey?: string; baseURL?: string; model: string; provider?: string }[];
+
+    if (Array.isArray(apiKeyOrConfigs)) {
+      embeddingConfigs = apiKeyOrConfigs;
+      const firstConfig = apiKeyOrConfigs[0];
+
+      // 支持空 API Key
+      const openaiConfig: any = {
+        baseURL: firstConfig.baseURL,
+      };
+
+      if (firstConfig.apiKey && firstConfig.apiKey.trim() !== '') {
+        openaiConfig.apiKey = firstConfig.apiKey;
+      }
+
+      this.openai = new OpenAI(openaiConfig);
+      this.model = model;
+    } else {
+      // 单 API Key 配置，支持空值
+      const apiKey = apiKeyOrConfigs;
+
+      embeddingConfigs = [{
+        apiKey: apiKey || '',
+        baseURL,
+        model: embeddingModel,
+        provider: 'unknown'
+      }];
+
+      // 支持空 API Key
+      const openaiConfig: any = {
+        baseURL: baseURL,
+      };
+
+      if (apiKey && apiKey.trim() !== '') {
+        openaiConfig.apiKey = apiKey;
+      }
+
+      this.openai = new OpenAI(openaiConfig);
+      this.model = model;
+    }
+
+    console.log(`[RAGEngine] 初始化，嵌入模型数量: ${embeddingConfigs.length}`);
+
     // 初始化组件
-    this.embeddingService = new EmbeddingService(apiKey, baseURL, embeddingModel);
-    this.vectorStore = new VectorStore(this.embeddingService.getDimension());
+    this.embeddingService = new EmbeddingService(embeddingConfigs);
+    this.vectorStore = new VectorStore();  // 不再限制维度
     this.documentProcessor = new DocumentProcessor();
-    
+
     // 创建默认知识库
     this.knowledgeBase = new KnowledgeBase({
-      userId: 'system',
+      userId,
       name: '默认知识库',
       settings: {
         chunkSize: 500,
@@ -62,7 +127,7 @@ export class RAGEngine {
         enableGraph: true,
       },
     });
-    
+
     this.knowledgeGraph = new KnowledgeGraph(this.knowledgeBase.id);
   }
 
@@ -106,7 +171,7 @@ export class RAGEngine {
     // 生成嵌入并存储
     const chunkTexts = chunks.map(c => c.content);
     const embeddings = await this.embeddingService.embedBatch(chunkTexts);
-    
+
     for (let i = 0; i < chunks.length; i++) {
       chunks[i].embedding = embeddings[i];
       this.vectorStore.addVector(chunks[i], embeddings[i]);
@@ -114,6 +179,49 @@ export class RAGEngine {
 
     // 更新文档的chunks
     this.knowledgeBase.updateDocument(doc.id, { chunks });
+
+    // 保存到数据库
+    if (this.pool) {
+      try {
+        // 保存文档
+        await this.pool.execute(
+          `INSERT INTO knowledge_documents (id, knowledge_base_id, user_id, type, title, content, metadata)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            doc.id,
+            this.knowledgeBase.id,
+            userId,
+            type,
+            title,
+            content,
+            JSON.stringify(doc.metadata)
+          ]
+        );
+
+        // 保存分块
+        for (let i = 0; i < chunks.length; i++) {
+          // 确保 embedding 存在
+          const embeddingJson = embeddings[i] ? JSON.stringify(embeddings[i]) : '[]';
+
+          await this.pool.execute(
+            `INSERT INTO knowledge_chunks (id, document_id, chunk_index, content, embedding, metadata)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+              chunks[i].id,
+              doc.id,
+              i,
+              chunks[i].content,
+              embeddingJson,
+              JSON.stringify(chunks[i].metadata || {})
+            ]
+          );
+        }
+
+        console.log(`[RAG] 文档已保存到数据库: ${doc.id}`);
+      } catch (error: any) {
+        console.error('[RAG] 保存文档到数据库失败:', error.message);
+      }
+    }
 
     // 提取实体添加到图谱
     if (this.knowledgeBase.settings.enableGraph) {
@@ -146,7 +254,7 @@ export class RAGEngine {
     // 分块和嵌入
     const chunks = this.documentProcessor.smartChunk(doc.content, doc.id);
     const embeddings = await this.embeddingService.embedBatch(chunks.map(c => c.content));
-    
+
     for (let i = 0; i < chunks.length; i++) {
       chunks[i].embedding = embeddings[i];
       this.vectorStore.addVector(chunks[i], embeddings[i]);
@@ -238,11 +346,101 @@ export class RAGEngine {
     }
   }
 
+  // 全文检索分块 (支持多词模糊搜索)
+  async searchChunks(query: string, limit: number = 20): Promise<SearchResult[]> {
+    console.log(`[RAG] 全文检索: ${query}`);
+    const keywords = query.trim().split(/\s+/).filter(k => k);
+    if (keywords.length === 0) return [];
+
+    if (this.pool) {
+      try {
+        // 动态构建 SQL
+        const conditions = keywords.map(() => 'c.content LIKE ?').join(' AND ');
+        const params = [...keywords.map(k => `%${k}%`), limit];
+
+        const sql = `SELECT c.id as chunk_id, c.document_id, c.content, c.metadata, d.title as document_title
+           FROM knowledge_chunks c
+           JOIN knowledge_documents d ON c.document_id = d.id
+           WHERE ${conditions}
+           LIMIT ?`;
+
+        const [rows] = await this.pool.execute(sql, params);
+
+        return (rows as any[]).map(row => ({
+          chunkId: row.chunk_id,
+          documentId: row.document_id,
+          documentTitle: row.document_title,
+          content: row.content,
+          score: 1.0,
+          metadata: row.metadata ? JSON.parse(row.metadata) : {},
+        }));
+      } catch (error: any) {
+        console.error('[RAG] 全文检索失败:', error.message);
+        return [];
+      }
+    } else {
+      // 内存模式搜索
+      const results: SearchResult[] = [];
+      const lowerKeywords = keywords.map(k => k.toLowerCase());
+
+      const docs = this.knowledgeBase.getAllDocuments();
+      for (const doc of docs) {
+        if (doc.chunks) {
+          for (const chunk of doc.chunks) {
+            const contentLower = chunk.content.toLowerCase();
+            // 必须包含所有关键词
+            if (lowerKeywords.every(k => contentLower.includes(k))) {
+              results.push({
+                chunkId: chunk.id,
+                documentId: doc.id,
+                documentTitle: doc.title,
+                content: chunk.content,
+                score: 1.0,
+                metadata: chunk.metadata || {},
+              });
+              if (results.length >= limit) break;
+            }
+          }
+        }
+        if (results.length >= limit) break;
+      }
+      return results;
+    }
+  }
+
   // 检索相关上下文
-  async retrieve(query: string, topK: number = 5): Promise<RAGContext> {
+  async retrieve(query: string, topK: number = 5, categoryId?: string, documentId?: string): Promise<RAGContext> {
     // 1. 向量检索
     const queryEmbedding = await this.embeddingService.embed(query);
-    const vectorResults = this.vectorStore.search(queryEmbedding, topK, 0.5);
+    const queryDimension = queryEmbedding.length;
+
+    console.log(`[RAG.retrieve] 查询向量维度: ${queryDimension}`);
+
+    let vectorResults: VectorSearchResult[];
+
+    if (documentId) {
+      // 按文档ID检索
+      const allResults = this.vectorStore.search(queryEmbedding, topK * 2, 0.5);
+      vectorResults = allResults.filter(r => r.documentId === documentId).slice(0, topK);
+    } else if (categoryId) {
+      // 按分类检索
+      const categoryDocs = this.knowledgeBase.getDocumentsByCategory(categoryId);
+      const categoryDocIds = new Set(categoryDocs.map(d => d.id));
+      const allResults = this.vectorStore.search(queryEmbedding, topK * 2, 0.5);
+      vectorResults = allResults.filter(r => categoryDocIds.has(r.documentId)).slice(0, topK);
+    } else {
+      // 全部检索
+      vectorResults = this.vectorStore.search(queryEmbedding, topK, 0.5);
+    }
+
+    // 统计不同维度的向量
+    const dimensions = this.vectorStore.getDimensions();
+    if (dimensions.length > 1) {
+      console.warn(`[RAG.retrieve] 向量存储包含多种维度: ${dimensions.join(', ')}`);
+      console.warn(`[RAG.retrieve] 当前查询使用 ${queryDimension} 维，只匹配相同维度的向量`);
+    }
+
+    console.log(`[RAG.retrieve] 找到 ${vectorResults.length} 个相关片段 (查询维度: ${queryDimension})`);
 
     // 2. 图谱检索
     const keywords = this.documentProcessor.extractKeywords(query, 5);
@@ -250,8 +448,8 @@ export class RAGEngine {
 
     // 3. 收集来源信息
     const sourceIds = new Set<string>();
-    const sources: { documentId: string; title: string; type: string }[] = [];
-    
+    const sources: { documentId: string; title: string; type: string; content?: string }[] = [];
+
     for (const result of vectorResults) {
       if (!sourceIds.has(result.documentId)) {
         sourceIds.add(result.documentId);
@@ -261,6 +459,7 @@ export class RAGEngine {
             documentId: doc.id,
             title: doc.title,
             type: doc.type,
+            content: result.chunk.content,
           });
         }
       }
@@ -274,13 +473,13 @@ export class RAGEngine {
   }
 
   // RAG问答
-  async answer(query: string, additionalContext?: string): Promise<RAGResponse> {
+  async answer(query: string, additionalContext?: string, categoryId?: string, documentId?: string): Promise<RAGResponse> {
     // 检索上下文
-    const context = await this.retrieve(query);
+    const context = await this.retrieve(query, 5, categoryId, documentId);
 
     // 构建上下文文本
     let contextText = '';
-    
+
     // 向量检索结果
     if (context.chunks.length > 0) {
       contextText += '### 相关知识片段:\n';
@@ -310,12 +509,14 @@ export class RAGEngine {
           role: 'system',
           content: `你是一个智能知识助手。基于提供的知识上下文回答用户问题。
 
-要求：
-1. 优先使用知识库中的信息回答
-2. 如果知识库信息不足，可以结合你的知识补充
-3. 回答要准确、简洁、有条理
-4. 如果无法回答，诚实说明
-5. 适当引用来源`
+### 回答要求：
+1. **内容优先**：优先整合知识库中的信息回答，不足时可结合你的知识补充。
+2. **结构清晰**：请使用 Markdown 格式，合理使用**粗体**、列表等增强可读性。
+3. **格式规范**：
+   - 避免直接复制“相关度”或内部评分信息。
+   - 不要大段堆砌文字，关键点分条陈述。
+4. **诚实原则**：如果无法回答，请直接说明。
+5. **引用来源**：在回答末尾可简要列出参考的文档标题。`
         },
         {
           role: 'user',
@@ -326,7 +527,7 @@ export class RAGEngine {
     });
 
     const answer = response.choices[0].message.content || '抱歉，无法回答这个问题。';
-    
+
     // 计算置信度（基于检索结果的相似度）
     const confidence = context.chunks.length > 0
       ? context.chunks.reduce((sum, c) => sum + c.score, 0) / context.chunks.length
@@ -336,17 +537,95 @@ export class RAGEngine {
       answer,
       context,
       confidence,
-      sources: context.sources.map(s => s.title),
+      sources: context.sources,
     };
+  }
+
+  // 生成大纲
+  async generateOutline(topic: string, categoryId?: string): Promise<any> {
+    const context = await this.retrieve(topic, 5, categoryId);
+    let contextText = '';
+    if (context.chunks.length > 0) {
+      contextText += '### 参考知识:\n';
+      context.chunks.forEach(c => contextText += `- ${c.chunk.content.substring(0, 200)}...\n`);
+    }
+
+    const messages = [
+      {
+        role: 'system', content: `你是一个专业的写作助手。请根据用户的主题和参考知识，生成一个结构化的文章大纲。
+返回格式必须是合法的 JSON 数组，每个元素包含 "title" (章节标题) 和 "description" (内容简述)。
+例如: [{"title": "引言", "description": "背景介绍..."}, {"title": "核心观点", "description": "..."}]` },
+      { role: 'user', content: `主题: ${topic}\n\n${contextText}\n\n请生成大纲:` }
+    ];
+
+    const response = await this.openai.chat.completions.create({
+      model: this.model,
+      messages: messages as any,
+      response_format: { type: "json_object" }, // 如果模型支持 JSON 模式
+      temperature: 0.7,
+    });
+
+    const content = response.choices[0].message.content || '[]';
+    try {
+      // 尝试解析 JSON，兼容模型可能返回 { "outline": [...] } 或直接 [...]
+      const json = JSON.parse(content);
+      return Array.isArray(json) ? json : (json.outline || json.chapters || []);
+    } catch (e) {
+      console.error('解析大纲 JSON 失败', e);
+      return [];
+    }
+  }
+
+  // 生成章节内容
+  async generateSection(topic: string, sectionTitle: string, sectionDesc: string, contextOps?: { categoryId?: string, fullContext?: string }): Promise<string> {
+    // 针对该章节单独检索
+    const query = `${topic} ${sectionTitle} ${sectionDesc}`;
+    const context = await this.retrieve(query, 5, contextOps?.categoryId);
+
+    let contextText = '';
+    if (context.chunks.length > 0) {
+      contextText += context.chunks.map(c => c.chunk.content).join('\n\n');
+    }
+
+    // 系统 Prompt
+    const messages = [
+      {
+        role: 'system', content: `你是一个专业的文章撰写人。请根据主题、章节标题、大纲描述和参考资料，撰写这一章节的内容。
+要求：
+1. 内容详实，逻辑清晰。
+2. 必须基于参考资料，如果资料不足可以合理推演但需符合逻辑。
+3. 使用 Markdown 格式。
+4. 直接输出内容，不要包含"好的"等客套话。` },
+      {
+        role: 'user', content: `文章主题: ${topic}
+章节标题: ${sectionTitle}
+章节要求: ${sectionDesc}
+
+### 参考资料:
+${contextText}
+
+请撰写本章节内容:` }
+    ];
+
+    const response = await this.openai.chat.completions.create({
+      model: this.model,
+      messages: messages as any,
+      temperature: 0.7,
+      stream: false // 分段生成暂不流式，直接返回完整段落
+    });
+
+    return response.choices[0].message.content || '';
   }
 
   // 混合问答：结合数据源查询和知识库
   async hybridAnswer(
     query: string,
-    dataSourceContext?: { sql?: string; data?: any[]; schema?: any[] }
+    dataSourceContext?: { sql?: string; data?: any[]; schema?: any[] },
+    categoryId?: string,
+    documentId?: string
   ): Promise<RAGResponse> {
     let additionalContext = '';
-    
+
     if (dataSourceContext) {
       if (dataSourceContext.sql) {
         additionalContext += `执行的SQL: ${dataSourceContext.sql}\n`;
@@ -356,7 +635,7 @@ export class RAGEngine {
       }
     }
 
-    return this.answer(query, additionalContext);
+    return this.answer(query, additionalContext, categoryId, documentId);
   }
 
   // 获取统计信息
@@ -379,10 +658,101 @@ export class RAGEngine {
 
   // 删除文档
   async deleteDocument(documentId: string): Promise<boolean> {
+    // 从数据库删除
+    if (this.pool) {
+      try {
+        await this.pool.execute(
+          `DELETE FROM knowledge_chunks WHERE document_id = ?`,
+          [documentId]
+        );
+        await this.pool.execute(
+          `DELETE FROM knowledge_documents WHERE id = ?`,
+          [documentId]
+        );
+        console.log(`[RAG] 文档已从数据库删除: ${documentId}`);
+      } catch (error: any) {
+        console.error('[RAG] 从数据库删除文档失败:', error.message);
+      }
+    }
+
     // 删除向量
     this.vectorStore.deleteDocumentVectors(documentId);
     // 删除文档
     return this.knowledgeBase.deleteDocument(documentId);
+  }
+
+  // 从数据库加载文档
+  async loadFromDatabase(): Promise<void> {
+    if (!this.pool) {
+      console.log('[RAG] 未提供数据库连接池，跳过加载');
+      return;
+    }
+
+    try {
+      console.log('[RAG] 开始从数据库加载文档...');
+
+      // 加载文档
+      const [docRows] = await this.pool.execute(
+        `SELECT * FROM knowledge_documents WHERE user_id = ?`,
+        [this.userId]
+      );
+
+      const docs = docRows as any[];
+      console.log(`[RAG] 找到 ${docs.length} 个文档`);
+
+      for (const docRow of docs) {
+        // 添加文档到知识库
+        const doc = this.knowledgeBase.addDocument({
+          userId: docRow.user_id,
+          type: docRow.type,
+          title: docRow.title,
+          content: docRow.content,
+          metadata: docRow.metadata ? JSON.parse(docRow.metadata) : {},
+        });
+
+        // 加载分块
+        const [chunkRows] = await this.pool.execute(
+          `SELECT * FROM knowledge_chunks WHERE document_id = ? ORDER BY chunk_index`,
+          [docRow.id]
+        );
+
+        const chunks = chunkRows as any[];
+        console.log(`[RAG] 文档 ${docRow.title} 有 ${chunks.length} 个分块`);
+
+        for (const chunkRow of chunks) {
+          const chunk = {
+            id: chunkRow.id,
+            documentId: docRow.id,
+            index: chunkRow.chunk_index,
+            chunkIndex: chunkRow.chunk_index,
+            content: chunkRow.content,
+            startOffset: 0,
+            endOffset: chunkRow.content.length,
+            embedding: chunkRow.embedding ? JSON.parse(chunkRow.embedding) : [],
+            metadata: chunkRow.metadata ? JSON.parse(chunkRow.metadata) : {},
+          };
+
+          // 添加到向量存储
+          if (chunk.embedding && chunk.embedding.length > 0) {
+            this.vectorStore.addVector(chunk, chunk.embedding);
+          }
+
+          // 添加到文档的chunks
+          if (!doc.chunks) {
+            doc.chunks = [];
+          }
+          doc.chunks.push(chunk);
+        }
+
+        // 更新文档
+        this.knowledgeBase.updateDocument(doc.id, { chunks: doc.chunks });
+      }
+
+      console.log('[RAG] 从数据库加载文档完成');
+    } catch (error: any) {
+      console.error('[RAG] 从数据库加载文档失败:', error.message);
+      console.error('[RAG] 错误堆栈:', error.stack);
+    }
   }
 
   // 导出知识库数据

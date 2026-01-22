@@ -59,8 +59,8 @@ export const aiApi = {
     put<{ message: string }>('/admin/ai/configs/priorities', { priorities }),
 
   // 验证API Key
-  validateApiKey: (provider: string, apiKey?: string, apiEndpoint?: string, configId?: string) =>
-    post<{ valid: boolean; message?: string }>('/admin/ai/configs/validate', { provider, apiKey, apiEndpoint, configId }),
+  validateApiKey: (provider: string, apiKey?: string, apiEndpoint?: string, configId?: string, model?: string) =>
+    post<{ valid: boolean; message?: string }>('/admin/ai/configs/validate', { provider, apiKey, apiEndpoint, configId, model }),
 
   // 获取使用统计
   getUsageStats: (startTime: number, endTime: number) =>

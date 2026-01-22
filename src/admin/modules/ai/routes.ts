@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import { aiConfigService } from './aiConfigService';
 import { aiStatsService } from './aiStatsService';
+import { aiQAService } from '../ai-qa/aiQAService';
 import { requirePermission } from '../../middleware/permission';
 import type { ApiResponse } from '../../types';
 
@@ -82,6 +83,9 @@ router.post('/configs', requirePermission('ai:config'), async (req: Request, res
       status: 'active',
     });
 
+    // AI 配置更新后，重新加载 RAGEngine
+    await aiQAService.reloadRAGEngine();
+
     res.status(201).json(success(config));
   } catch (err: any) {
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -99,6 +103,10 @@ router.put('/configs/priorities', requirePermission('ai:config'), async (req: Re
       return res.status(400).json(error('VALID_PARAM_MISSING', '缺少 priorities 数组'));
     }
     await aiConfigService.updatePriorities(priorities);
+    
+    // 优先级更新后，重新加载 RAGEngine
+    await aiQAService.reloadRAGEngine();
+    
     res.json(success({ message: '优先级更新成功' }));
   } catch (err: any) {
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -111,6 +119,10 @@ router.put('/configs/priorities', requirePermission('ai:config'), async (req: Re
 router.put('/configs/:id', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
     const config = await aiConfigService.updateProviderConfig(req.params.id, req.body);
+    
+    // AI 配置更新后，重新加载 RAGEngine
+    await aiQAService.reloadRAGEngine();
+    
     res.json(success(config));
   } catch (err: any) {
     if (err.message.includes('不存在')) {
@@ -126,6 +138,10 @@ router.put('/configs/:id', requirePermission('ai:config'), async (req: Request, 
 router.delete('/configs/:id', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
     await aiConfigService.deleteProviderConfig(req.params.id);
+    
+    // AI 配置删除后，重新加载 RAGEngine
+    await aiQAService.reloadRAGEngine();
+    
     res.json(success({ message: '删除成功' }));
   } catch (err: any) {
     if (err.message.includes('不存在')) {
@@ -155,19 +171,21 @@ router.put('/configs/:id/default', requirePermission('ai:config'), async (req: R
  */
 router.post('/configs/validate', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
-    const { provider, apiKey, apiEndpoint, configId } = req.body;
+    const { provider, apiKey, apiEndpoint, configId, model } = req.body;
     
     let keyToValidate = apiKey;
     let endpointToValidate = apiEndpoint;
     let providerToValidate = provider;
+    let modelToValidate = model;
     
-    // 如果提供了 configId，从数据库获取真实的 API Key
+    // 如果提供了 configId，从数据库获取真实的配置信息
     if (configId) {
       const config = await aiConfigService.getConfigById(configId);
       if (config) {
         keyToValidate = config.apiKey;
         endpointToValidate = endpointToValidate || config.baseUrl;
         providerToValidate = providerToValidate || config.provider;
+        modelToValidate = modelToValidate || config.model;  // 获取模型
       } else {
         return res.status(404).json(error('RES_NOT_FOUND', '配置不存在'));
       }
@@ -177,7 +195,7 @@ router.post('/configs/validate', requirePermission('ai:config'), async (req: Req
       return res.status(400).json(error('VALID_PARAM_MISSING', '缺少必要参数'));
     }
 
-    const result = await aiConfigService.validateApiKey(providerToValidate, keyToValidate, endpointToValidate);
+    const result = await aiConfigService.validateApiKey(providerToValidate, keyToValidate, endpointToValidate, modelToValidate);
     res.json(success(result));
   } catch (err: any) {
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));

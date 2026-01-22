@@ -21,8 +21,8 @@ export class AIConfigService {
     const [maxRows] = await pool.execute('SELECT COALESCE(MAX(priority), 0) + 1 as next_priority FROM sys_ai_configs');
     const nextPriority = (maxRows as any[])[0].next_priority;
 
-    // 加密 API Key
-    const encryptedApiKey = encrypt(data.apiKey);
+    // 加密 API Key（支持空值）
+    const encryptedApiKey = data.apiKey && data.apiKey.trim() !== '' ? encrypt(data.apiKey) : '';
 
     await pool.execute(
       `INSERT INTO sys_ai_configs (id, name, provider, model, api_key, base_url, is_default, status, priority)
@@ -112,7 +112,7 @@ export class AIConfigService {
 
   async getActiveConfigsByPriority(): Promise<AIConfig[]> {
     const [rows] = await pool.execute(
-      'SELECT * FROM sys_ai_configs WHERE status = ? ORDER BY priority ASC',
+      'SELECT * FROM sys_ai_configs WHERE status = ? ORDER BY is_default DESC, priority ASC',
       ['active']
     );
     return (rows as any[]).map(config => ({
@@ -213,7 +213,7 @@ export const aiConfigService = {
   setDefaultProvider: service.setDefaultConfig.bind(service),
   
   // 验证 API Key - 真正调用 API 测试
-  validateApiKey: async (provider: string, apiKey: string, apiEndpoint?: string) => {
+  validateApiKey: async (provider: string, apiKey: string, apiEndpoint?: string, model?: string) => {
     // 基本格式验证
     if (!apiKey || apiKey.length < 10) {
       return { valid: false, message: 'API Key 格式不正确' };
@@ -247,10 +247,11 @@ export const aiConfigService = {
         timeout: 15000,
       });
 
-      const model = defaultModels[provider] || 'gpt-3.5-turbo';
+      // 使用用户指定的模型，如果没有则使用默认模型
+      const modelToUse = model || defaultModels[provider] || 'gpt-3.5-turbo';
       
       await openai.chat.completions.create({
-        model,
+        model: modelToUse,
         messages: [{ role: 'user', content: 'Hi' }],
         max_tokens: 5,
       });

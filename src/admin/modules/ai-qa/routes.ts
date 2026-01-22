@@ -39,13 +39,23 @@ const ragUpload = multer({
 // 获取用户 ID 的辅助函数
 const getUserId = (req: Request): string => {
   const user = req.user as { id: string } | undefined;
-  return user?.id || '';
+  const userId = user?.id || '';
+  if (!userId) {
+    console.error('[getUserId] 警告: req.user 存在但 id 为空', { user, hasUser: !!req.user });
+  }
+  return userId;
 };
 
 // 认证检查中间件
 const checkAuth = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user) {
     return res.status(401).json({ success: false, error: { code: 'AUTH_REQUIRED', message: '未认证' } });
+  }
+  // 确保用户 ID 存在
+  const userId = (req.user as { id: string })?.id;
+  if (!userId) {
+    console.error('[checkAuth] 警告: req.user 存在但 id 为空', req.user);
+    return res.status(401).json({ success: false, error: { code: 'AUTH_REQUIRED', message: '用户ID无效' } });
   }
   next();
 };
@@ -55,7 +65,7 @@ const checkAuth = (req: Request, res: Response, next: NextFunction) => {
 // 获取知识库分类列表
 router.get('/categories', checkAuth, async (req: Request, res: Response) => {
   try {
-    const categories = aiQAService.getCategories(getUserId(req));
+    const categories = await aiQAService.getCategories(getUserId(req));
     res.json({ success: true, data: categories });
   } catch (error: any) {
     res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
@@ -69,9 +79,15 @@ router.post('/categories', checkAuth, async (req: Request, res: Response) => {
     if (!name) {
       return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供分类名称' } });
     }
-    const category = aiQAService.createCategory(name, description, getUserId(req));
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, error: { code: 'AUTH_REQUIRED', message: '用户ID无效' } });
+    }
+    console.log('[POST /categories] 创建分类:', { name, description, userId });
+    const category = await aiQAService.createCategory(name, description, userId);
     res.json({ success: true, data: category, message: '分类创建成功' });
   } catch (error: any) {
+    console.error('[POST /categories] 错误:', error);
     res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
   }
 });
@@ -80,7 +96,7 @@ router.post('/categories', checkAuth, async (req: Request, res: Response) => {
 router.put('/categories/:id', checkAuth, async (req: Request, res: Response) => {
   try {
     const { name, description } = req.body;
-    const success = aiQAService.updateCategory(req.params.id, { name, description }, getUserId(req));
+    const success = await aiQAService.updateCategory(req.params.id, { name, description }, getUserId(req));
     if (success) {
       res.json({ success: true, message: '更新成功' });
     } else {
@@ -94,7 +110,7 @@ router.put('/categories/:id', checkAuth, async (req: Request, res: Response) => 
 // 删除知识库分类
 router.delete('/categories/:id', checkAuth, async (req: Request, res: Response) => {
   try {
-    const success = aiQAService.deleteCategory(req.params.id, getUserId(req));
+    const success = await aiQAService.deleteCategory(req.params.id, getUserId(req));
     if (success) {
       res.json({ success: true, message: '删除成功' });
     } else {
@@ -497,15 +513,50 @@ router.post('/agent/quality', checkAuth, async (req: Request, res: Response) => 
 // ==================== RAG 知识库 ====================
 
 // 获取知识库统计
-router.get('/rag/stats', checkAuth, (req: Request, res: Response) => {
-  const stats = aiQAService.getRAGStats(getUserId(req));
+router.get('/rag/stats', checkAuth, async (req: Request, res: Response) => {
+  const stats = await aiQAService.getRAGStats(getUserId(req));
   res.json({ success: true, data: stats });
 });
 
+// 全文检索
+router.get('/rag/search', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const { q, limit } = req.query;
+    if (!q || typeof q !== 'string') {
+      return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供搜索关键词' } });
+    }
+
+    const results = await aiQAService.searchKnowledgeBase(q, getUserId(req), limit ? parseInt(limit as string) : 20);
+    res.json({ success: true, data: results });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+  }
+});
+
 // 获取知识库文档列表
-router.get('/rag/documents', checkAuth, (req: Request, res: Response) => {
-  const docs = aiQAService.getRAGDocuments(getUserId(req));
-  res.json({ success: true, data: docs });
+// 获取知识库文档列表 (分页)
+router.get('/rag/documents', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 10;
+    const categoryId = req.query.categoryId as string;
+    const keyword = req.query.keyword as string;
+
+    const result = await aiQAService.getRAGDocuments(getUserId(req), page, pageSize, categoryId, keyword);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+// 获取单个文档详情
+router.get('/rag/documents/:id', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const doc = await aiQAService.getRAGDocument(getUserId(req), req.params.id);
+    res.json({ success: true, data: doc });
+  } catch (error: any) {
+    res.status(404).json({ success: false, error: { message: error.message } });
+  }
 });
 
 // 添加文档到知识库
@@ -548,31 +599,94 @@ router.delete('/rag/documents/:id', checkAuth, async (req: Request, res: Respons
 // 上传文件到知识库（支持 PDF + OCR）
 router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Request, res: Response) => {
   try {
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, error: { code: 'AUTH_REQUIRED', message: '用户ID无效' } });
+    }
+
     if (!req.file) {
       return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请上传文件' } });
     }
+
+    console.log('[POST /rag/upload] 开始上传文件:', {
+      filename: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype,
+      userId,
+      categoryId: req.body.categoryId
+    });
 
     const { title, type = 'text', categoryId, datasourceId } = req.body;
     const tags = req.body.tags ? JSON.parse(req.body.tags) : [];
     const filePath = req.file.path;
     const ext = path.extname(req.file.originalname).toLowerCase();
 
+    // 立即检查上传的文件大小
+    const stats = fs.statSync(filePath);
+    console.log('[POST /rag/upload] 文件系统中的文件大小:', stats.size, 'bytes');
+
+    if (stats.size === 0) {
+      fs.unlinkSync(filePath);
+      return res.status(400).json({
+        success: false,
+        error: { code: 'EMPTY_FILE', message: '上传的文件为空，请检查文件是否有效并重新上传' }
+      });
+    }
+
     let content = '';
     let ocrUsed = false;
 
     if (ext === '.pdf') {
       // 解析 PDF
-      const pdfParse = require('pdf-parse');
-      const dataBuffer = fs.readFileSync(filePath);
-      const pdfData = await pdfParse(dataBuffer);
-      content = pdfData.text;
-      
+      try {
+        // 检查文件大小
+        const stats = fs.statSync(filePath);
+        if (stats.size === 0) {
+          fs.unlinkSync(filePath);
+          return res.status(400).json({
+            success: false,
+            error: { code: 'EMPTY_FILE', message: 'PDF 文件为空，请检查文件是否损坏或重新上传' }
+          });
+        }
+
+        console.log('[POST /rag/upload] 开始解析 PDF:', filePath, '文件大小:', stats.size, 'bytes');
+
+        // 使用动态导入 pdf-parse（ESM 模块）
+        const { PDFParse } = await import('pdf-parse');
+
+        const dataBuffer = fs.readFileSync(filePath);
+
+        // 创建 PDFParse 实例并解析
+        const parser = new PDFParse({ data: dataBuffer });
+        const textResult = await parser.getText();
+        content = textResult.text || '';
+
+        console.log('[POST /rag/upload] PDF 解析成功，文本长度:', content.length);
+      } catch (e: any) {
+        fs.unlinkSync(filePath);
+        console.error('[POST /rag/upload] PDF 解析失败:', e);
+        console.error('[POST /rag/upload] 错误堆栈:', e.stack);
+        // 提供更详细的错误信息
+        let errorMsg = e.message || '未知错误';
+        if (e.message?.includes('empty') || e.message?.includes('zero bytes')) {
+          errorMsg = 'PDF 文件为空或损坏，请重新上传';
+        } else if (e.code === 'MODULE_NOT_FOUND') {
+          errorMsg = 'pdf-parse 模块未安装，请运行: npm install pdf-parse';
+        } else if (e.message?.includes('InvalidPDFException')) {
+          errorMsg = 'PDF 文件格式无效或已损坏';
+        }
+        return res.status(500).json({
+          success: false,
+          error: { code: 'PDF_PARSE_ERROR', message: `PDF 解析失败: ${errorMsg}` }
+        });
+      }
+
       // 如果 PDF 文本内容很少，可能是扫描件，尝试 OCR
       if (content.trim().length < 100) {
         try {
           const { ocrService } = require('../../../services/ocrService');
           const isOcrAvailable = await ocrService.isAvailable();
-          
+
           if (isOcrAvailable) {
             console.log('PDF 文本内容较少，尝试 OCR 识别...');
             ocrUsed = true;
@@ -586,7 +700,7 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
       try {
         const { ocrService } = require('../../../services/ocrService');
         const isOcrAvailable = await ocrService.isAvailable();
-        
+
         if (isOcrAvailable) {
           const result = await ocrService.recognizeFile(filePath);
           if (result.success) {
@@ -617,8 +731,10 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
     }
 
     const docTitle = title || req.file.originalname.replace(/\.[^/.]+$/, '');
-    const doc = await aiQAService.addRAGDocument(docTitle, content, type, getUserId(req), tags, categoryId, datasourceId);
+    console.log('[POST /rag/upload] 准备添加到知识库:', { docTitle, contentLength: content.length, userId });
+    const doc = await aiQAService.addRAGDocument(docTitle, content, type, userId, tags, categoryId, datasourceId);
 
+    console.log('[POST /rag/upload] 文档添加成功:', { docId: doc.id, chunksCount: doc.chunks?.length || 0 });
     res.json({
       success: true,
       data: {
@@ -631,6 +747,16 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
       message: '文档已添加到知识库',
     });
   } catch (error: any) {
+    // 确保在出错时也删除临时文件
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {
+        // 忽略删除失败的错误
+      }
+    }
+    console.error('[POST /rag/upload] 上传文件失败:', error);
+    console.error('[POST /rag/upload] 错误堆栈:', error.stack);
     res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
   }
 });
@@ -638,16 +764,71 @@ router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Requ
 // RAG 问答
 router.post('/rag/ask', checkAuth, async (req: Request, res: Response) => {
   try {
-    const { question, datasourceId } = req.body;
+    const { question, datasourceId, categoryId, documentId } = req.body;
     if (!question) {
       return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供问题' } });
     }
 
-    const result = await aiQAService.ragAsk(question, getUserId(req), datasourceId);
+    const result = await aiQAService.ragAsk(question, getUserId(req), datasourceId, categoryId, documentId);
     res.json({ success: true, data: result });
   } catch (error: any) {
     res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
   }
+});
+
+// 生成大纲
+router.post('/rag/outline', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const { topic, categoryId } = req.body;
+    if (!topic) {
+      return res.status(400).json({ success: false, error: { message: '主题不能为空' } });
+    }
+    const outline = await aiQAService.generateOutline(getUserId(req), topic, categoryId);
+    res.json({ success: true, data: outline });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+// 生成章节内容
+router.post('/rag/section', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const { topic, sectionTitle, sectionDesc, categoryId } = req.body;
+    if (!topic || !sectionTitle) {
+      return res.status(400).json({ success: false, error: { message: '参数不完整' } });
+    }
+    const content = await aiQAService.generateSection(getUserId(req), topic, sectionTitle, sectionDesc, categoryId);
+    res.json({ success: true, data: content });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+// 提交长文生成任务 (异步)
+router.post('/rag/tasks/submit', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const { topic, outline, categoryId } = req.body;
+    if (!topic || !outline) {
+      return res.status(400).json({ success: false, error: { message: '参数不完整' } });
+    }
+    const taskId = await aiQAService.submitArticleTask(getUserId(req), topic, outline, categoryId);
+    res.json({ success: true, data: { taskId } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+// 查询任务状态
+router.get('/rag/tasks/:id', checkAuth, (req: Request, res: Response) => {
+  const task = aiQAService.getArticleTask(req.params.id);
+  if (!task) {
+    return res.status(404).json({ success: false, error: { message: '任务不存在' } });
+  }
+  // 简单权限校验
+  if (task.userId !== getUserId(req)) {
+    return res.status(403).json({ success: false, error: { message: '无权访问此任务' } });
+  }
+  res.json({ success: true, data: task });
 });
 
 // 获取知识图谱数据
@@ -676,8 +857,8 @@ router.post('/rag/import-schema', checkAuth, async (req: Request, res: Response)
     }
 
     const result = await aiQAService.importSchemaToRAG(datasourceId, getUserId(req));
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       data: result,
       message: `已将数据源 Schema 导入知识库，生成 ${result.chunksCount} 个知识块`
     });

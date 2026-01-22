@@ -55,6 +55,8 @@ export interface DataSourceConfig {
   // 可见性和审核相关
   visibility?: 'private' | 'public';
   approvalStatus?: 'pending' | 'approved' | 'rejected';
+  // 数据集ID（用于关联对话）
+  datasetId?: string;
 }
 
 // 数据源权限

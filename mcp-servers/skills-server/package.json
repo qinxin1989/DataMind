@@ -7,15 +7,19 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:secure": "tsx start-secure.ts",
     "dev": "ts-node --esm index.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "node-fetch": "^3.3.2"
+    "dotenv": "^17.2.3",
+    "node-fetch": "^3.3.2",
+    "sm-crypto": "^0.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "typescript": "^5.3.0",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.0"
   }
 }

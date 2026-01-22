@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import * as fs from 'fs';
 import { createDataSource, BaseDataSource } from './datasource';
-import { AIAgent, skillRegistry, mcpRegistry, AnalysisStep } from './agent';
+import { AIAgent, skillsRegistry, mcpRegistry, AnalysisStep } from './agent';
 import { DataSourceConfig, FileConfig } from './types';
 import { ConfigStore, ChatSession } from './store/configStore';
 import { AuthService } from './services/authService';
@@ -17,6 +17,7 @@ import { RAGEngine } from './rag';
 import { initAdminTables } from './admin/core/database';
 import { aiConfigService } from './admin/modules/ai/aiConfigService';
 import { approvalService } from './admin/modules/approval/approvalService';
+import { aiQAService } from './admin/modules/ai-qa/aiQAService';
 
 dotenv.config();
 
@@ -106,9 +107,11 @@ async function initDataSources() {
   await initAdminTables();
   // 初始化审批服务表
   await approvalService.init();
+  // 初始化 AI Q&A 服务（包括知识库分类表）
+  await aiQAService.init();
   // 初始化默认管理员账户
   await authService.initDefaultAdmin();
-  
+
   // 设置 AI Agent 从数据库获取配置（返回所有可用配置，支持自动故障转移）
   aiAgent.setConfigGetter(async () => {
     const configs = await aiConfigService.getActiveConfigsByPriority();
@@ -129,7 +132,7 @@ async function initDataSources() {
     }));
   });
   console.log('AI Agent 已配置为从数据库读取配置（支持自动故障转移）');
-  
+
   const configs = await configStore.getAll();
   for (const config of configs) {
     try {
@@ -176,7 +179,7 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
     if (!req.user) return res.status(401).json({ error: '未认证' });
-    
+
     await authService.changePassword(req.user.id, oldPassword, newPassword);
     res.json({ message: '密码修改成功' });
   } catch (error: any) {
@@ -274,7 +277,7 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
     const datasourceId = req.body.datasourceId;
     const datasourceName = req.body.name || '文件数据源';
     const datasourceType = req.body.type || 'structured'; // structured 或 document
-    
+
     const uploadedFiles: any[] = [];
     const errors: any[] = [];
 
@@ -283,7 +286,7 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
       try {
         const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
         const ext = path.extname(originalName).toLowerCase();
-        
+
         // 根据扩展名检测文件类型
         let detectedType = 'unknown';
         if (['.csv'].includes(ext)) detectedType = 'csv';
@@ -305,8 +308,8 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
           encrypted: true
         });
       } catch (err: any) {
-        try { fs.unlinkSync(file.path); } catch (e) {}
-        try { fs.unlinkSync(file.path + '.enc'); } catch (e) {}
+        try { fs.unlinkSync(file.path); } catch (e) { }
+        try { fs.unlinkSync(file.path + '.enc'); } catch (e) { }
         errors.push({
           file: Buffer.from(file.originalname, 'latin1').toString('utf8'),
           error: err.message
@@ -327,7 +330,7 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
       if (existing.config.userId !== req.user.id) {
         return res.status(403).json({ error: '无权修改此数据源' });
       }
-      
+
       const existingConfig = existing.config.config as FileConfig;
       // 合并文件列表
       const existingFiles = existingConfig.files || [{
@@ -336,7 +339,7 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
         originalName: existingConfig.originalName,
         encrypted: existingConfig.encrypted
       }];
-      
+
       const fileConfig: FileConfig = {
         path: existingFiles[0].path,
         fileType: existingFiles[0].fileType,
@@ -344,13 +347,13 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
         encrypted: existingFiles[0].encrypted,
         files: [...existingFiles, ...uploadedFiles]
       };
-      
+
       config = {
         ...existing.config,
         config: fileConfig
       };
       isNew = false;
-      
+
       // 断开旧连接
       await existing.instance.disconnect();
     } else {
@@ -362,7 +365,7 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
         encrypted: uploadedFiles[0].encrypted,
         files: uploadedFiles.length > 1 ? uploadedFiles : undefined
       };
-      
+
       config = {
         id: uuidv4(),
         userId: req.user.id,
@@ -387,15 +390,15 @@ app.post('/api/upload', authMiddleware, upload.array('file', 10), async (req, re
       filesAdded: uploadedFiles.length,
       totalFiles: (config.config as FileConfig).files?.length || 1,
       errors: errors.length > 0 ? errors : undefined,
-      message: isNew 
-        ? `创建数据源成功，包含 ${uploadedFiles.length} 个文件` 
+      message: isNew
+        ? `创建数据源成功，包含 ${uploadedFiles.length} 个文件`
         : `已添加 ${uploadedFiles.length} 个文件到数据源`
     });
   } catch (error: any) {
     const files = req.files as Express.Multer.File[];
     if (files) {
       for (const file of files) {
-        try { fs.unlinkSync(file.path); } catch (e) {}
+        try { fs.unlinkSync(file.path); } catch (e) { }
       }
     }
     console.error('文件上传失败:', error.message);
@@ -412,7 +415,7 @@ app.post('/api/datasource', authMiddleware, async (req, res) => {
 
     const config: DataSourceConfig = { ...req.body, id: uuidv4(), userId: req.user.id };
     const instance = createDataSource(config);
-    
+
     await instance.testConnection();
 
     // 保存到MySQL
@@ -442,7 +445,7 @@ app.get('/api/datasource', authMiddleware, (req, res) => {
         console.log('approvalStatus:', config.approvalStatus);
         console.log('当前用户ID:', req.user!.id);
       }
-      
+
       // 用户自己的数据源
       if (config.userId === req.user!.id) return true;
       // 公共且已审核通过的数据源
@@ -469,7 +472,7 @@ app.get('/api/datasource/:id/detail', authMiddleware, (req, res) => {
 
   const ds = dataSources.get(req.params.id);
   if (!ds) return res.status(404).json({ error: '数据源不存在' });
-  
+
   if (ds.config.userId !== req.user.id) {
     return res.status(403).json({ error: '无权访问此数据源' });
   }
@@ -497,11 +500,11 @@ app.get('/api/datasource/:id/test', authMiddleware, async (req, res) => {
 
   const ds = dataSources.get(req.params.id);
   if (!ds) return res.status(404).json({ success: false, error: '数据源不存在' });
-  
+
   if (!canAccessDataSource(ds.config, req.user.id)) {
     return res.status(403).json({ success: false, error: '无权访问此数据源' });
   }
-  
+
   try {
     await ds.instance.testConnection();
     res.json({ success: true });
@@ -531,16 +534,52 @@ app.put('/api/datasource/:id', authMiddleware, async (req, res) => {
 
     // 断开旧连接
     await ds.instance.disconnect();
-    
+
     // 更新存储
     await configStore.save(newConfig);
     dataSources.set(id, { config: newConfig, instance });
-    
+
     res.json({ message: '更新成功' });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 });
+
+// 格式化数据库连接错误信息
+function formatDatabaseError(error: any): string {
+  const message = error.message || '未知错误';
+  const code = error.code || '';
+
+  // PostgreSQL 错误代码
+  if (code === '28P01' || message.includes('password authentication failed')) {
+    return '数据库连接失败：用户名或密码错误';
+  }
+  if (code === '28000' || message.includes('authentication failed')) {
+    return '数据库连接失败：认证失败';
+  }
+  if (code === '3D000' || message.includes('does not exist')) {
+    return '数据库连接失败：数据库不存在';
+  }
+  if (message.includes('ECONNREFUSED')) {
+    return '数据库连接失败：无法连接到服务器，请检查主机和端口';
+  }
+  if (message.includes('ETIMEDOUT') || message.includes('timeout')) {
+    return '数据库连接失败：连接超时';
+  }
+  if (message.includes('ENOTFOUND')) {
+    return '数据库连接失败：无法解析主机名';
+  }
+
+  // MySQL 错误
+  if (code === 'ER_ACCESS_DENIED_ERROR' || message.includes('Access denied')) {
+    return '数据库连接失败：用户名或密码错误';
+  }
+  if (code === 'ER_BAD_DB_ERROR') {
+    return '数据库连接失败：数据库不存在';
+  }
+
+  return `数据库连接失败：${message}`;
+}
 
 // 获取数据源schema（带AI分析）
 app.get('/api/datasource/:id/schema', authMiddleware, async (req, res) => {
@@ -559,7 +598,9 @@ app.get('/api/datasource/:id/schema', authMiddleware, async (req, res) => {
     const schema = await ds.instance.getSchema();
     res.json(schema);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error(`获取数据源 ${ds.config.name} schema 失败:`, error.message);
+    const friendlyError = formatDatabaseError(error);
+    res.status(500).json({ error: friendlyError });
   }
 });
 
@@ -615,7 +656,9 @@ app.get('/api/datasource/:id/schema/analyze', authMiddleware, async (req, res) =
       analyzedAt: Date.now()
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error(`分析数据源 ${ds.config.name} schema 失败:`, error.message);
+    const friendlyError = formatDatabaseError(error);
+    res.status(500).json({ error: friendlyError });
   }
 });
 
@@ -724,10 +767,10 @@ app.post('/api/datasource/:id/schema/questions/refresh', authMiddleware, async (
 
     // 基于中文名生成新的推荐问题
     const questions = generateQuestionsFromAnalysis(cached.tables);
-    
+
     // 保存新问题
     await configStore.updateSuggestedQuestions(req.params.id, questions, req.user.id);
-    
+
     res.json({ suggestedQuestions: questions });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -737,34 +780,34 @@ app.post('/api/datasource/:id/schema/questions/refresh', authMiddleware, async (
 // 基于分析数据生成推荐问题
 function generateQuestionsFromAnalysis(tables: any[]): string[] {
   const questions: string[] = [];
-  
+
   for (const table of tables) {
     const tableCn = table.tableNameCn || table.tableName;
-    
+
     // 基础统计
     questions.push(`${tableCn}共有多少条记录？`);
-    
+
     // 找分类字段
-    const categoryFields = table.columns?.filter((c: any) => 
-      c.name.includes('代码') || c.name.includes('类型') || c.name.includes('性别') || 
+    const categoryFields = table.columns?.filter((c: any) =>
+      c.name.includes('代码') || c.name.includes('类型') || c.name.includes('性别') ||
       c.name.includes('状态') || c.nameCn?.includes('类型') || c.nameCn?.includes('性别')
     ) || [];
-    
+
     for (const field of categoryFields.slice(0, 2)) {
       const fieldCn = field.nameCn || field.name;
       questions.push(`按${fieldCn}统计${tableCn}的分布情况`);
     }
-    
+
     // 日期字段
-    const dateFields = table.columns?.filter((c: any) => 
+    const dateFields = table.columns?.filter((c: any) =>
       c.type?.toLowerCase().includes('date') || c.name.includes('日期') || c.nameCn?.includes('日期')
     ) || [];
     if (dateFields.length > 0) {
       questions.push(`按月份统计${tableCn}的时间趋势`);
     }
-    
+
     // 数值字段
-    const numericFields = table.columns?.filter((c: any) => 
+    const numericFields = table.columns?.filter((c: any) =>
       c.name.includes('年龄') || c.name.includes('金额') || c.nameCn?.includes('年龄') || c.nameCn?.includes('金额')
     ) || [];
     if (numericFields.length > 0) {
@@ -772,11 +815,11 @@ function generateQuestionsFromAnalysis(tables: any[]): string[] {
       questions.push(`${tableCn}中${fieldCn}的统计情况`);
     }
   }
-  
+
   // 综合分析
   const allTablesCn = tables.map(t => t.tableNameCn || t.tableName).join('和');
   questions.push(`对${allTablesCn}进行全面分析`);
-  
+
   // 随机打乱并限制数量
   return questions.sort(() => Math.random() - 0.5).slice(0, 15);
 }
@@ -803,12 +846,12 @@ app.put('/api/datasource/:id/visibility', authMiddleware, async (req, res) => {
 
   try {
     const oldVisibility = ds.config.visibility || 'private';
-    
+
     // 如果是设为公共
     if (visibility === 'public' && oldVisibility !== 'public') {
       // 检查用户是否是管理员
       const isAdmin = req.user.role === 'admin';
-      
+
       if (isAdmin) {
         // 管理员直接审核通过
         ds.config.visibility = 'public';
@@ -825,7 +868,7 @@ app.put('/api/datasource/:id/visibility', authMiddleware, async (req, res) => {
           newValue: visibility,
           reason: reason || '申请将数据源设为公共可见',
         });
-        
+
         // 更新状态为待审批
         ds.config.visibility = 'public';
         ds.config.approvalStatus = 'pending';
@@ -835,17 +878,17 @@ app.put('/api/datasource/:id/visibility', authMiddleware, async (req, res) => {
       ds.config.visibility = visibility;
       ds.config.approvalStatus = undefined;
     }
-    
+
     // 保存到数据库
     await configStore.save(ds.config);
-    
-    res.json({ 
-      success: true, 
-      data: { 
-        id: ds.config.id, 
-        visibility: ds.config.visibility, 
-        approvalStatus: ds.config.approvalStatus 
-      } 
+
+    res.json({
+      success: true,
+      data: {
+        id: ds.config.id,
+        visibility: ds.config.visibility,
+        approvalStatus: ds.config.approvalStatus
+      }
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -869,15 +912,15 @@ app.get('/api/datasource/pending-approvals', authMiddleware, requireAdmin, async
         approvalStatus: config.approvalStatus,
         createdAt: config.createdAt || Date.now(),
       }));
-    
-    res.json({ 
-      success: true, 
-      data: { 
-        list: pendingList, 
-        total: pendingList.length, 
-        page: 1, 
-        pageSize: 20 
-      } 
+
+    res.json({
+      success: true,
+      data: {
+        list: pendingList,
+        total: pendingList.length,
+        page: 1,
+        pageSize: 20
+      }
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -898,7 +941,7 @@ app.post('/api/datasource/:id/approve', authMiddleware, requireAdmin, async (req
   try {
     ds.config.approvalStatus = 'approved';
     await configStore.save(ds.config);
-    
+
     res.json({ success: true, data: { id: ds.config.id, approvalStatus: 'approved' } });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -924,7 +967,7 @@ app.post('/api/datasource/:id/reject', authMiddleware, requireAdmin, async (req,
   try {
     ds.config.approvalStatus = 'rejected';
     await configStore.save(ds.config);
-    
+
     res.json({ success: true, data: { id: ds.config.id, approvalStatus: 'rejected' } });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -979,7 +1022,7 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
   }
 
   const { datasourceId, question, sessionId } = req.body;
-  
+
   if (!question) {
     return res.status(400).json({ error: '请提供问题' });
   }
@@ -994,7 +1037,7 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
   }
 
   const startTime = Date.now();
-  
+
   try {
     // 获取或创建会话
     let session: ChatSession;
@@ -1007,16 +1050,16 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
 
     // 调用AI Agent（传入历史消息）
     const response = await aiAgent.answer(question, ds.instance, ds.config.type, session.messages);
-    
+
     console.log('=== AI Response ===');
     console.log('answer:', response.answer);
     console.log('sql:', response.sql);
     console.log('data length:', response.data?.length);
     console.log('tokensUsed:', response.tokensUsed);
     console.log('modelName:', response.modelName);
-    
+
     const responseTime = Date.now() - startTime;
-    
+
     // 对返回数据进行脱敏处理
     let maskedData = response.data;
     let maskedAnswer = response.answer;
@@ -1030,13 +1073,13 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
     } else {
       console.log('WARNING: response.answer is empty or undefined!');
     }
-    
+
     // 保存对话记录（包含响应时间和 token 信息）
     session.messages.push({ role: 'user', content: question, timestamp: Date.now() });
-    session.messages.push({ 
-      role: 'assistant', 
-      content: maskedAnswer, 
-      sql: response.sql, 
+    session.messages.push({
+      role: 'assistant',
+      content: maskedAnswer,
+      sql: response.sql,
       timestamp: Date.now(),
       responseTime,
       tokensUsed: response.tokensUsed || 0,
@@ -1044,7 +1087,7 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
     });
     await configStore.saveChatSession(session, req.user.id);
 
-    const responseData = { 
+    const responseData = {
       ...response,
       answer: maskedAnswer,
       data: maskedData,
@@ -1056,16 +1099,18 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
         visualization: response.visualization
       }
     };
-    
+
     console.log('=== Final Response to Frontend ===');
     console.log('Full response:', JSON.stringify(responseData).substring(0, 300));
     console.log('answer field:', responseData.answer?.substring(0, 100));
     console.log('sql field:', responseData.sql?.substring(0, 100));
     console.log('data field length:', responseData.data?.length);
-    
+
     res.json(responseData);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error(`问答失败 (数据源: ${ds.config.name}):`, error.message);
+    const friendlyError = formatDatabaseError(error);
+    res.status(500).json({ error: friendlyError });
   }
 });
 
@@ -1084,6 +1129,18 @@ app.get('/api/chat/sessions/:datasourceId', authMiddleware, async (req, res) => 
 
   try {
     const sessions = await configStore.getChatSessions(req.params.datasourceId, req.user.id);
+
+    // 如果没有会话，返回一个欢迎会话（仅前端展示，不存库）
+    if (sessions.length === 0) {
+      const welcomeSession = {
+        id: 'welcome-' + Date.now(),
+        preview: '欢迎使用智能数据分析助手！请问有什么可以帮您？',
+        messageCount: 1,
+        createdAt: Date.now()
+      };
+      return res.json([welcomeSession]);
+    }
+
     res.json(sessions.map(s => ({
       id: s.id,
       preview: s.messages[0]?.content?.slice(0, 50) || '新对话',
@@ -1102,6 +1159,19 @@ app.get('/api/chat/session/:id', authMiddleware, async (req, res) => {
   }
 
   try {
+    if (req.params.id.startsWith('welcome-')) {
+      return res.json({
+        id: req.params.id,
+        datasourceId: '',
+        messages: [{
+          role: 'assistant',
+          content: '欢迎使用智能数据分析助手！请问有什么可以帮您？',
+          timestamp: Date.now()
+        }],
+        createdAt: Date.now()
+      });
+    }
+
     const session = await configStore.getChatSession(req.params.id, req.user.id);
     if (!session) return res.status(404).json({ error: '会话不存在' });
     res.json(session);
@@ -1131,7 +1201,7 @@ app.post('/api/query', authMiddleware, async (req, res) => {
   }
 
   const { datasourceId, sql } = req.body;
-  
+
   const ds = dataSources.get(datasourceId);
   if (!ds) return res.status(404).json({ error: '数据源不存在' });
 
@@ -1155,7 +1225,7 @@ app.post('/api/query', authMiddleware, async (req, res) => {
 
 // 获取所有可用技能
 app.get('/api/agent/skills', authMiddleware, (req, res) => {
-  const skills = skillRegistry.getAll().map(s => ({
+  const skills = skillsRegistry.getAll().map(s => ({
     name: s.name,
     description: s.description,
     parameters: s.parameters
@@ -1171,8 +1241,8 @@ app.post('/api/agent/skills/:name/execute', authMiddleware, async (req, res) => 
 
   const { datasourceId, params } = req.body;
   const skillName = req.params.name;
-  
-  const skill = skillRegistry.get(skillName);
+
+  const skill = skillsRegistry.get(skillName);
   if (!skill) {
     return res.status(404).json({ error: '技能不存在' });
   }
@@ -1232,7 +1302,7 @@ app.post('/api/agent/mcp/:server/:tool', authMiddleware, async (req, res) => {
 // 获取Agent能力概览
 app.get('/api/agent/capabilities', authMiddleware, (req, res) => {
   res.json({
-    skills: skillRegistry.getAll().map(s => ({
+    skills: skillsRegistry.getAll().map(s => ({
       name: s.name,
       description: s.description
     })),
@@ -1390,9 +1460,9 @@ app.get('/api/agent/dashboard/preview', authMiddleware, async (req, res) => {
 
   try {
     const result = await aiAgent.generateDashboard(
-      topic, 
-      ds.instance, 
-      ds.config.type, 
+      topic,
+      ds.instance,
+      ds.config.type,
       (theme as 'light' | 'dark' | 'tech') || 'dark'
     );
     res.setHeader('Content-Type', 'text/html');
@@ -1426,9 +1496,9 @@ app.post('/api/agent/format', authMiddleware, async (req, res) => {
       return res.status(500).json({ error: result.content[0]?.text || '编排失败' });
     }
 
-    res.json({ 
+    res.json({
       formatted: result.content[0]?.text,
-      style 
+      style
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1473,7 +1543,7 @@ app.post('/api/agent/format-and-ppt', authMiddleware, async (req, res) => {
       return res.status(500).json({ error: pptResult.content[0]?.text || 'PPT生成失败' });
     }
 
-    res.json({ 
+    res.json({
       ppt: pptResult.content[0]?.text,
       formatted: formattedContent
     });
@@ -1512,7 +1582,7 @@ function getRAGEngine(userId: string): RAGEngine {
 // 获取知识库统计信息
 app.get('/api/rag/stats', authMiddleware, (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const ragEngine = getRAGEngine(req.user.id);
   res.json(ragEngine.getStats());
 });
@@ -1520,10 +1590,10 @@ app.get('/api/rag/stats', authMiddleware, (req, res) => {
 // 获取知识库文档列表
 app.get('/api/rag/documents', authMiddleware, (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const ragEngine = getRAGEngine(req.user.id);
   const docs = ragEngine.getKnowledgeBase().getAllDocuments();
-  
+
   res.json(docs.map((d: any) => ({
     id: d.id,
     title: d.title,
@@ -1537,13 +1607,13 @@ app.get('/api/rag/documents', authMiddleware, (req, res) => {
 // 添加文档到知识库
 app.post('/api/rag/documents', authMiddleware, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const { title, content, type = 'note', tags } = req.body;
-  
+
   if (!title || !content) {
     return res.status(400).json({ error: '请提供标题和内容' });
   }
-  
+
   try {
     const ragEngine = getRAGEngine(req.user.id);
     const doc = await ragEngine.addDocument(
@@ -1553,7 +1623,7 @@ app.post('/api/rag/documents', authMiddleware, async (req, res) => {
       req.user.id,
       { tags }
     );
-    
+
     res.json({
       id: doc.id,
       title: doc.title,
@@ -1568,19 +1638,19 @@ app.post('/api/rag/documents', authMiddleware, async (req, res) => {
 // 上传文件到知识库
 app.post('/api/rag/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const file = req.file;
   if (!file) {
     return res.status(400).json({ error: '请选择文件' });
   }
-  
+
   try {
     const ragEngine = getRAGEngine(req.user.id);
     const doc = await ragEngine.addFromFile(file.path, req.user.id);
-    
+
     // 删除临时文件
-    try { fs.unlinkSync(file.path); } catch (e) {}
-    
+    try { fs.unlinkSync(file.path); } catch (e) { }
+
     res.json({
       id: doc.id,
       title: doc.title,
@@ -1588,7 +1658,7 @@ app.post('/api/rag/upload', authMiddleware, upload.single('file'), async (req, r
       message: '文件已添加到知识库'
     });
   } catch (error: any) {
-    try { fs.unlinkSync(file.path); } catch (e) {}
+    try { fs.unlinkSync(file.path); } catch (e) { }
     res.status(500).json({ error: error.message });
   }
 });
@@ -1596,18 +1666,18 @@ app.post('/api/rag/upload', authMiddleware, upload.single('file'), async (req, r
 // 将数据源添加到知识库
 app.post('/api/rag/datasource/:id', authMiddleware, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const ds = dataSources.get(req.params.id);
   if (!ds) return res.status(404).json({ error: '数据源不存在' });
-  
+
   if (ds.config.userId !== req.user.id) {
     return res.status(403).json({ error: '无权访问此数据源' });
   }
-  
+
   try {
     const schema = await ds.instance.getSchema();
     const sampleData = schema[0]?.sampleData || [];
-    
+
     const ragEngine = getRAGEngine(req.user.id);
     const doc = await ragEngine.addFromDataSource(
       ds.config.id,
@@ -1616,7 +1686,7 @@ app.post('/api/rag/datasource/:id', authMiddleware, async (req, res) => {
       sampleData,
       req.user.id
     );
-    
+
     res.json({
       id: doc.id,
       title: doc.title,
@@ -1630,10 +1700,10 @@ app.post('/api/rag/datasource/:id', authMiddleware, async (req, res) => {
 // 删除知识库文档
 app.delete('/api/rag/documents/:id', authMiddleware, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const ragEngine = getRAGEngine(req.user.id);
   const success = await ragEngine.deleteDocument(req.params.id);
-  
+
   if (success) {
     res.json({ message: '文档已删除' });
   } else {
@@ -1644,16 +1714,16 @@ app.delete('/api/rag/documents/:id', authMiddleware, async (req, res) => {
 // RAG 问答
 app.post('/api/rag/ask', authMiddleware, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const { question, datasourceId } = req.body;
-  
+
   if (!question) {
     return res.status(400).json({ error: '请提供问题' });
   }
-  
+
   try {
     const ragEngine = getRAGEngine(req.user.id);
-    
+
     // 如果指定了数据源，先执行数据查询
     let dataContext;
     if (datasourceId) {
@@ -1670,10 +1740,10 @@ app.post('/api/rag/ask', authMiddleware, async (req, res) => {
         }
       }
     }
-    
+
     // RAG 问答
     const result = await ragEngine.hybridAnswer(question, dataContext);
-    
+
     res.json({
       answer: result.answer,
       confidence: result.confidence,
@@ -1691,11 +1761,11 @@ app.post('/api/rag/ask', authMiddleware, async (req, res) => {
 // 获取知识图谱数据
 app.get('/api/rag/graph', authMiddleware, (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const ragEngine = getRAGEngine(req.user.id);
   const graph = ragEngine.getKnowledgeGraph();
   const data = graph.export();
-  
+
   res.json({
     entities: data.entities.map((e: any) => ({
       id: e.id,
@@ -1718,17 +1788,17 @@ app.get('/api/rag/graph', authMiddleware, (req, res) => {
 // 图谱子图查询
 app.post('/api/rag/graph/query', authMiddleware, (req, res) => {
   if (!req.user) return res.status(401).json({ error: '未认证' });
-  
+
   const { keywords, maxEntities = 20 } = req.body;
-  
+
   if (!keywords || !Array.isArray(keywords)) {
     return res.status(400).json({ error: '请提供关键词数组' });
   }
-  
+
   const ragEngine = getRAGEngine(req.user.id);
   const graph = ragEngine.getKnowledgeGraph();
   const result = graph.querySubgraph(keywords, maxEntities);
-  
+
   res.json({
     entities: result.entities.map((e: any) => ({
       id: e.id,
@@ -1762,7 +1832,7 @@ app.post('/api/agent/extract-points', authMiddleware, async (req, res) => {
       maxPoints
     });
 
-    res.json({ 
+    res.json({
       points: result.content[0]?.text?.split('\n').filter((l: string) => l.trim()) || []
     });
   } catch (error: any) {
@@ -1821,10 +1891,10 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API not found' });
   }
-  
+
   const adminUiIndex = path.join(process.cwd(), 'admin-ui', 'dist', 'index.html');
   const publicIndex = path.join(process.cwd(), 'public', 'index.html');
-  
+
   if (fs.existsSync(adminUiIndex)) {
     res.sendFile(adminUiIndex);
   } else {

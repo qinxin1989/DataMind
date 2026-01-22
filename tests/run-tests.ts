@@ -15,28 +15,25 @@ let authToken: string = '';
 // 认证辅助函数
 async function authenticate(): Promise<boolean> {
   try {
-    // 尝试注册测试用户
-    const username = `testuser_${Date.now()}`;
-    const registerResponse = await axios.post(`${BASE_URL}/api/auth/register`, {
-      username,
-      password: 'testpass123',
-      email: 'test@example.com',
-      fullName: 'Test User'
-    }).catch(() => null);
-
-    if (registerResponse) {
-      authToken = registerResponse.data.token;
-      return true;
-    }
-
-    // 如果注册失败，尝试登录
+    // 直接使用登录接口，避免注册后需要审核的问题
     const loginResponse = await axios.post(`${BASE_URL}/api/auth/login`, {
-      username: 'testuser',
-      password: 'testpass123'
+      username: 'admin',
+      password: 'admin123'
     }).catch(() => null);
 
     if (loginResponse) {
       authToken = loginResponse.data.token;
+      return true;
+    }
+
+    // 如果管理员账号登录失败，尝试使用默认测试用户
+    const testUserLogin = await axios.post(`${BASE_URL}/api/auth/login`, {
+      username: 'testuser',
+      password: 'testpass123'
+    }).catch(() => null);
+
+    if (testUserLogin) {
+      authToken = testUserLogin.data.token;
       return true;
     }
 

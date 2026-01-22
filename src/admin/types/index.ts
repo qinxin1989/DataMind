@@ -260,7 +260,7 @@ export interface AIConfig {
   name: string;
   provider: AIProviderType;
   model: string;
-  apiKey: string;
+  apiKey?: string;
   baseUrl?: string;
   isDefault: boolean;
   status: 'active' | 'inactive';
@@ -274,7 +274,7 @@ export interface CreateAIConfigRequest {
   name: string;
   provider: AIProviderType;
   model: string;
-  apiKey: string;
+  apiKey?: string;
   baseUrl?: string;
   isDefault?: boolean;
   status?: 'active' | 'inactive';

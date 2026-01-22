@@ -50,6 +50,8 @@ request.interceptors.response.use(
     const { response } = error
     if (response) {
       const { status, data } = response
+      // 后端返回格式: { error: "错误信息" } 或 { error: { message: "错误信息" } }
+      const errorMsg = typeof data?.error === 'string' ? data.error : (data?.error?.message || '请求失败')
       switch (status) {
         case 401:
           message.error('登录已过期，请重新登录')
@@ -63,10 +65,10 @@ request.interceptors.response.use(
           message.error('请求的资源不存在')
           break
         case 500:
-          message.error(data?.error?.message || '服务器错误')
+          message.error(errorMsg || '服务器错误')
           break
         default:
-          message.error(data?.error?.message || '请求失败')
+          message.error(errorMsg || '请求失败')
       }
     } else if (error.code === 'ECONNABORTED') {
       message.error('请求超时，请稍后重试')
@@ -84,6 +86,8 @@ aiRequest.interceptors.response.use(
     const { response } = error
     if (response) {
       const { status, data } = response
+      // 后端返回格式: { error: "错误信息" } 或 { error: { message: "错误信息" } }
+      const errorMsg = typeof data?.error === 'string' ? data.error : (data?.error?.message || '请求失败')
       switch (status) {
         case 401:
           message.error('登录已过期，请重新登录')
@@ -97,10 +101,10 @@ aiRequest.interceptors.response.use(
           message.error('请求的资源不存在')
           break
         case 500:
-          message.error(data?.error?.message || '服务器错误')
+          message.error(errorMsg || '服务器错误')
           break
         default:
-          message.error(data?.error?.message || '请求失败')
+          message.error(errorMsg || '请求失败')
       }
     } else if (error.code === 'ECONNABORTED') {
       message.error('AI 请求超时，请稍后重试')

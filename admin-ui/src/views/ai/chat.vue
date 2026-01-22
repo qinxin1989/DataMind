@@ -22,15 +22,23 @@
           </template>
           <a-spin :spinning="loadingDatasources">
             <div class="ds-list">
-              <div
-                v-for="ds in datasources"
-                :key="ds.id"
-                :class="['ds-item', { active: selectedDatasource?.id === ds.id }]"
-                @click="selectDatasource(ds)"
-              >
-                <div class="name">{{ ds.name }}</div>
-                <div class="type">{{ ds.type.toUpperCase() }}</div>
-              </div>
+              <a-tooltip v-for="ds in datasources" :key="ds.id" :title="ds.connectionStatus === 'error' ? `无法使用: ${ds.errorMessage}` : ''">
+                <div
+                  :class="['ds-item', { 
+                    active: selectedDatasource?.id === ds.id, 
+                    disabled: ds.connectionStatus === 'error',
+                    testing: testingConnection === ds.id
+                  }]"
+                  @click="selectDatasource(ds)"
+                >
+                  <div class="name">
+                    <a-spin v-if="testingConnection === ds.id" size="small" style="margin-right: 6px;" />
+                    <span v-if="ds.connectionStatus === 'error'" style="color: #ff4d4f; margin-right: 4px;">⚠</span>
+                    {{ ds.name }}
+                  </div>
+                  <div class="type">{{ ds.type.toUpperCase() }}</div>
+                </div>
+              </a-tooltip>
               <a-empty v-if="datasources.length === 0" :image="Empty.PRESENTED_IMAGE_SIMPLE" description="暂无数据源" />
             </div>
           </a-spin>
@@ -217,7 +225,7 @@ import { get, post, del, aiPost, aiGet } from '@/api/request'
 import * as echarts from 'echarts'
 import { marked } from 'marked'
 
-interface Datasource { id: string; name: string; type: string }
+interface Datasource { id: string; name: string; type: string; connectionStatus?: 'unknown' | 'connected' | 'error'; errorMessage?: string }
 interface ChatMessage { role: 'user' | 'assistant'; content: string; sql?: string; chart?: any; data?: any[]; question?: string }
 interface Session { id: string; preview: string; messageCount: number; createdAt: number }
 interface TableSchema { tableName: string; columns: { name: string; type: string }[] }
@@ -232,6 +240,7 @@ const inputText = ref('')
 const loading = ref(false)
 const loadingDatasources = ref(false)
 const analyzing = ref(false)
+const testingConnection = ref<string | null>(null) // 正在测试连接的数据源ID
 const suggestedQuestions = ref<string[]>([])
 const schemaData = ref<TableSchema[]>([])
 const analysisData = ref<{ tables: TableAnalysis[]; suggestedQuestions: string[] } | null>(null)
@@ -327,15 +336,49 @@ async function refreshDatasources() {
 
 // 选择数据源
 async function selectDatasource(ds: Datasource) {
+  // 如果数据源已知连接失败，显示错误提示
+  if (ds.connectionStatus === 'error') {
+    message.warning(`数据源 "${ds.name}" 无法使用: ${ds.errorMessage || '连接失败'}`)
+    return
+  }
+  
+  // 如果连接状态未知，先测试连接
+  if (ds.connectionStatus === 'unknown' || !ds.connectionStatus) {
+    testingConnection.value = ds.id
+    try {
+      const testRes = await get<any>(`/datasource/${ds.id}/test`)
+      if (!testRes.success) {
+        ds.connectionStatus = 'error'
+        ds.errorMessage = testRes.error || '连接失败'
+        message.error(`数据源 "${ds.name}" 连接失败: ${ds.errorMessage}`)
+        testingConnection.value = null
+        return
+      }
+      ds.connectionStatus = 'connected'
+    } catch (e: any) {
+      ds.connectionStatus = 'error'
+      ds.errorMessage = e.response?.data?.error || e.message || '连接失败'
+      message.error(`数据源 "${ds.name}" 连接失败: ${ds.errorMessage}`)
+      testingConnection.value = null
+      return
+    }
+    testingConnection.value = null
+  }
+  
   selectedDatasource.value = ds
-  messages.value = []
   currentSessionId.value = ''
+  messages.value = []
   schemaData.value = []
   analysisData.value = null
   suggestedQuestions.value = []
   openTables.value = []
   
   await Promise.all([loadSchema(), loadCachedAnalysis(), loadSessions()])
+  
+  // 自动加载最近的对话历史（如果存在真实会话）
+  if (sessions.value.length > 0 && !sessions.value[0].id.startsWith('welcome-')) {
+    await loadSession(sessions.value[0].id)
+  }
 }
 
 // 加载 Schema
@@ -345,7 +388,20 @@ async function loadSchema() {
     const res = await get<TableSchema[]>(`/datasource/${selectedDatasource.value.id}/schema`)
     schemaData.value = Array.isArray(res) ? res : (res as any).data || []
     if (schemaData.value.length) openTables.value = [schemaData.value[0].tableName]
-  } catch (e) { console.error('加载Schema失败', e) }
+    // 标记连接成功
+    if (selectedDatasource.value) {
+      selectedDatasource.value.connectionStatus = 'connected'
+    }
+  } catch (e: any) { 
+    console.error('加载Schema失败', e)
+    const errorMsg = e.response?.data?.error || e.message || '加载失败'
+    message.error(`加载数据结构失败: ${errorMsg}`)
+    // 标记连接失败
+    if (selectedDatasource.value) {
+      selectedDatasource.value.connectionStatus = 'error'
+      selectedDatasource.value.errorMessage = errorMsg
+    }
+  }
 }
 
 // 加载缓存的分析结果
@@ -358,7 +414,14 @@ async function loadCachedAnalysis() {
       analysisData.value = data
       suggestedQuestions.value = data.suggestedQuestions || []
     }
-  } catch (e) { console.error('加载分析失败', e) }
+  } catch (e: any) { 
+    // 如果是数据库连接错误，显示提示
+    const errorMsg = e.response?.data?.error || ''
+    if (errorMsg.includes('数据库连接失败')) {
+      message.warning(errorMsg)
+    }
+    console.error('加载分析失败', e) 
+  }
 }
 
 // AI 分析 Schema
@@ -507,18 +570,712 @@ function renderChart(idx: number, chartData: any) {
   const dom = document.getElementById(`chart-${idx}`)
   if (!dom || !chartData) return
 
+  // 设置图表容器的最小高度和宽度，确保图表能够更大地显示
+  dom.style.minHeight = '500px'
+  dom.style.width = '100%'
+  dom.style.maxWidth = '900px'
+  dom.style.margin = '0 auto'
+
   const chart = echarts.init(dom)
   const { type, data, config, title } = chartData
-  let option: any = { title: { text: title, left: 'center', textStyle: { fontSize: 14 } }, tooltip: {} }
-
-  if (type === 'pie') {
-    option.series = [{ type: 'pie', radius: ['40%', '70%'], data: data.map((d: any) => ({ name: d[config.labelField || config.xField], value: d[config.valueField || config.yField] })) }]
-  } else {
-    option.xAxis = { type: 'category', data: data.map((d: any) => d[config.xField]), axisLabel: { rotate: data.length > 8 ? 45 : 0 } }
-    option.yAxis = { type: 'value' }
-    option.series = [{ type: type || 'bar', data: data.map((d: any) => d[config.yField]), smooth: type === 'line', areaStyle: type === 'area' ? {} : undefined, itemStyle: { color: '#667eea' } }]
+  
+  // 定义现代化配色方案（更专业的商务配色）
+  const colorPalette = [
+    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
+  ]
+  
+  // 智能单位格式化函数
+  function formatValue(value: number, fieldName?: string) {
+    // 检查字段名，判断数据类型
+    const isCurrency = fieldName && /(金额|货币|收入|支出|GNP|GDP|生产总值|产值|利润|薪资|工资)/i.test(fieldName)
+    const isPopulation = fieldName && /(人口|人数|居民|市民)/i.test(fieldName)
+    const isArea = fieldName && /(面积|国土|土地|区域)/i.test(fieldName)
+    const isPercentage = fieldName && /(百分比|占比|比例|率)/i.test(fieldName)
+    
+    // 百分比数据直接显示
+    if (isPercentage) {
+      return value.toFixed(2) + '%'
+    }
+    
+    // 人口数据
+    if (isPopulation) {
+      if (value >= 100000000) {
+        return (value / 100000000).toFixed(1) + '亿人'
+      } else if (value >= 10000) {
+        return (value / 10000).toFixed(1) + '万人'
+      } else if (value >= 1000) {
+        return (value / 1000).toFixed(1) + '千人'
+      } else {
+        return value.toLocaleString() + '人'
+      }
+    }
+    
+    // 面积数据
+    if (isArea) {
+      if (value >= 1000000) {
+        return (value / 1000000).toFixed(1) + '万平方公里'
+      } else if (value >= 1000) {
+        return (value / 1000).toFixed(1) + '千平方公里'
+      } else {
+        return value.toLocaleString() + '平方公里'
+      }
+    }
+    
+    // 货币/金额数据
+    if (isCurrency) {
+      // 检查是否需要转换单位（如果数据是百万美元）
+      let actualValue = value
+      if (fieldName && /(GNP|GDP)/i.test(fieldName) && value > 100) {
+        // GNP/GDP数据通常以百万美元为单位
+        actualValue = value / 100 // 转换为亿美元
+      }
+      
+      if (actualValue >= 10000) {
+        return (actualValue / 10000).toFixed(1) + '万亿元'
+      } else if (actualValue >= 1) {
+        return actualValue.toFixed(1) + '亿元'
+      } else if (actualValue >= 0.0001) {
+        return (actualValue * 10000).toFixed(1) + '万元'
+      } else {
+        return (actualValue * 100000000).toFixed(1) + '元'
+      }
+    }
+    
+    // 通用数据
+    if (value >= 100000000) {
+      return (value / 100000000).toFixed(1) + '亿'
+    } else if (value >= 10000) {
+      return (value / 10000).toFixed(1) + '万'
+    } else if (value >= 1000) {
+      return (value / 1000).toFixed(1) + '千'
+    } else {
+      return value.toLocaleString()
+    }
   }
+  
+  // 使用更合适的默认标题和图例，根据数据动态调整
+  const chartTitle = title || `${config.yField || '数据'}分布`
+  const legendName = config.yField || '数据值' // 使用y轴字段作为图例名称
+  
+  let option: any = {
+    title: {
+      text: chartTitle,
+      left: 'center',
+      textStyle: {
+        fontSize: 20, // 增大标题字体
+        fontWeight: 'bold',
+        color: '#2d3748',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      },
+      padding: [20, 0, 30, 0] // 增加标题边距
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'shadow',
+        shadowStyle: {
+          color: 'rgba(0, 0, 0, 0.05)',
+          blur: 8
+        }
+      },
+      backgroundColor: 'rgba(255, 255, 255, 0.98)',
+      borderColor: '#e2e8f0',
+      borderWidth: 1,
+      borderRadius: 8,
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+      textStyle: {
+        color: '#2d3748',
+        fontSize: 16, // 增大提示框字体
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      },
+      formatter: function(params: any) {
+        let result = `<div style="font-weight: 600; margin-bottom: 8px;">${params[0].name}</div>`
+        params.forEach((param: any) => {
+          // 使用智能单位格式化函数
+          const formattedValue = formatValue(param.value, config.yField)
+          result += `<div style="margin-bottom: 5px;">${param.marker} ${param.seriesName}: ${formattedValue}</div>`
+        })
+        return result
+      },
+      position: function(point: number[], params: any, dom: any, rect: any, size: any) {
+        // 优化tooltip位置，避免超出图表区域
+        const obj = { top: 80 }
+        obj[['left', 'right'][point[0] > size.viewSize[0] / 2 ? 1 : 0]] = 15
+        return obj
+      }
+    },
+    legend: {
+      type: 'scroll',
+      data: [legendName],
+      bottom: 15,
+      itemWidth: 16, // 增大图例标记
+      itemHeight: 16,
+      itemGap: 20,
+      textStyle: {
+        fontSize: 14, // 增大图例字体
+        color: '#4a5568',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      },
+      pageIconSize: 12,
+      pageTextStyle: {
+        color: '#718096',
+        fontSize: 12
+      }
+    },
+    grid: {
+      left: '8%',
+      right: '8%',
+      top: '18%', // 减少顶部边距，让图表区域更大
+      bottom: '20%', // 调整底部边距
+      containLabel: true
+    },
+    animation: true,
+    animationDuration: 1000,
+    animationEasing: 'cubicOut',
+    color: colorPalette
+  }
+
+  // 处理不同类型的图表
+  if (type === 'pie') {
+    option.series = [{ 
+      name: title || '数据',
+      type: 'pie', 
+      radius: ['45%', '75%'], 
+      center: ['50%', '55%'],
+      avoidLabelOverlap: true,
+      itemStyle: {
+        borderRadius: 8,
+        borderColor: '#fff',
+        borderWidth: 2
+      },
+      label: {
+        show: true,
+        position: 'outside',
+        formatter: '{b}: {d}%',
+        fontSize: 12,
+        color: '#666'
+      },
+      labelLine: {
+        length: 15,
+        length2: 20,
+        lineStyle: {
+          color: '#ddd'
+        }
+      },
+      emphasis: {
+        scale: true,
+        shadowBlur: 10,
+        shadowOffsetX: 0,
+        shadowColor: 'rgba(0, 0, 0, 0.3)',
+        label: {
+          fontSize: 14,
+          fontWeight: 'bold'
+        }
+      },
+      data: data.map((d: any, index: number) => ({
+        name: d[config.labelField || config.xField], 
+        value: d[config.valueField || config.yField],
+        itemStyle: {
+          color: colorPalette[index % colorPalette.length]
+        }
+      }))
+    }]
+  } else if (type === 'scatter') {
+    // 散点图
+    option.xAxis = {
+      type: 'value',
+      name: config.xField,
+      nameLocation: 'middle',
+      nameGap: 30,
+      nameTextStyle: {
+        fontSize: 12,
+        color: '#666'
+      },
+      axisLabel: {
+        fontSize: 11,
+        color: '#666'
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#ccc'
+        }
+      },
+      axisTick: {
+        show: false
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#f5f5f5',
+          type: 'dashed'
+        }
+      }
+    }
+    option.yAxis = {
+      type: 'value',
+      name: config.yField,
+      nameLocation: 'middle',
+      nameGap: 40,
+      nameTextStyle: {
+        fontSize: 12,
+        color: '#666'
+      },
+      axisLabel: {
+        fontSize: 11,
+        color: '#666'
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#ccc'
+        }
+      },
+      axisTick: {
+        show: false
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#f5f5f5',
+          type: 'dashed'
+        }
+      }
+    }
+    option.series = [{ 
+      name: title || '数据',
+      type: 'scatter',
+      symbolSize: 8,
+      data: data.map((d: any) => [d[config.xField], d[config.yField]]),
+      emphasis: {
+        itemStyle: {
+          borderWidth: 3,
+          borderColor: '#fff'
+        },
+        symbolSize: 12,
+        shadowBlur: 10,
+        shadowColor: 'rgba(0, 0, 0, 0.2)'
+      }
+    }]
+  } else if (type === 'radar') {
+    // 雷达图
+    const radarIndicator = Object.keys(data[0]).map(key => ({ name: key, max: Math.max(...data.map((d: any) => d[key])) }))
+    
+    option.radar = {
+      indicator: radarIndicator,
+      center: ['50%', '60%'],
+      radius: '65%',
+      shape: 'circle',
+      splitNumber: 4,
+      axisName: {
+        color: '#666',
+        fontSize: 11
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#f0f0f0'
+        }
+      },
+      splitArea: {
+        show: true,
+        areaStyle: {
+          color: ['rgba(255, 255, 255, 0.8)', 'rgba(240, 240, 240, 0.5)']
+        }
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#e0e0e0'
+        }
+      }
+    }
+    option.series = [{ 
+      name: title || '数据',
+      type: 'radar',
+      data: data.map((d: any, index: number) => ({
+        value: Object.values(d),
+        name: `数据${index + 1}`,
+        areaStyle: {
+          opacity: 0.3
+        },
+        lineStyle: {
+          width: 2
+        },
+        itemStyle: {
+          color: colorPalette[index % colorPalette.length]
+        }
+      }))
+    }]
+  } else if (type === 'funnel') {
+    // 漏斗图
+    option.title = {
+      ...option.title,
+      left: 'left'
+    }
+    option.tooltip = {
+      ...option.tooltip,
+      trigger: 'item',
+      formatter: '{a} <br/>{b} : {c} ({d}%)'
+    }
+    option.legend = {
+      ...option.legend,
+      left: 'right',
+      orient: 'vertical'
+    }
+    option.series = [{ 
+      name: title || '数据',
+      type: 'funnel',
+      left: '10%',
+      top: 100,
+      bottom: 60,
+      width: '80%',
+      min: 0,
+      max: 100,
+      minSize: '0%',
+      maxSize: '100%',
+      sort: 'descending',
+      gap: 2,
+      label: {
+        show: true,
+        position: 'inside',
+        formatter: '{b}: {c}',
+        fontSize: 12,
+        color: '#fff'
+      },
+      labelLine: {
+        length: 10,
+        lineStyle: {
+          width: 1,
+          type: 'solid'
+        }
+      },
+      itemStyle: {
+        borderColor: '#fff',
+        borderWidth: 1
+      },
+      emphasis: {
+        label: {
+          fontSize: 14,
+          fontWeight: 'bold'
+        },
+        itemStyle: {
+          shadowBlur: 10,
+          shadowOffsetX: 0,
+          shadowColor: 'rgba(0, 0, 0, 0.5)'
+        }
+      },
+      data: data.map((d: any, index: number) => ({
+        name: d[config.labelField || config.xField],
+        value: d[config.valueField || config.yField],
+        itemStyle: {
+          color: colorPalette[index % colorPalette.length]
+        }
+      }))
+    }]
+  } else if (type === 'gauge') {
+    // 仪表盘
+    option.title = {
+      ...option.title,
+      top: '10%'
+    }
+    option.series = [{ 
+      name: title || '指标',
+      type: 'gauge',
+      radius: '80%',
+      center: ['50%', '60%'],
+      startAngle: 180,
+      endAngle: 0,
+      min: 0,
+      max: Math.max(...data.map((d: any) => d[config.valueField || config.yField])) * 1.2,
+      splitNumber: 8,
+      axisLine: {
+        lineStyle: {
+          width: 20,
+          color: [
+            [0.3, '#667eea'],
+            [0.7, '#43e97b'],
+            [1, '#fa709a']
+          ]
+        }
+      },
+      pointer: {
+        icon: 'path://M12.8,0.7l12,40.1H0.7L12.8,0.7z',
+        length: '60%',
+        width: 12,
+        offsetCenter: [0, '-25%'],
+        itemStyle: {
+          color: '#333'
+        }
+      },
+      axisTick: {
+        length: 12,
+        lineStyle: {
+          color: 'auto',
+          width: 2
+        }
+      },
+      splitLine: {
+        length: 20,
+        lineStyle: {
+          color: 'auto',
+          width: 5
+        }
+      },
+      axisLabel: {
+        color: '#666',
+        fontSize: 12,
+        distance: -30
+      },
+      title: {
+        offsetCenter: [0, '30%'],
+        fontSize: 14,
+        color: '#666'
+      },
+      detail: {
+        fontSize: 28,
+        offsetCenter: [0, '55%'],
+        valueAnimation: true,
+        formatter: '{value}',
+        color: '#333'
+      },
+      data: [{
+        value: data[0][config.valueField || config.yField],
+        name: config.yField
+      }]
+    }]
+  } else {
+    // 柱状图、折线图、面积图
+    const isLineType = ['line', 'area'].includes(type || 'bar')
+    
+    // 优化横坐标标签显示，根据文字长度动态调整倾斜角度
+    const xLabels = data.map((d: any) => String(d[config.xField] || ''))
+    const maxLabelLength = Math.max(...xLabels.map((l: string) => l.length))
+    // 根据标签最大长度动态调整旋转角度
+    const rotateAngle = maxLabelLength > 8 ? 45 : maxLabelLength > 5 ? 30 : 0;
+    
+    option.grid = {
+      left: '12%',
+      right: '12%',
+      top: '22%',
+      bottom: '35%', // 大幅增加底部边距以确保标签完整显示
+      containLabel: true
+    }
+    
+    option.xAxis = {
+      type: 'category',
+      data: data.map((d: any) => d[config.xField]),
+      name: config.xField,
+      nameLocation: 'middle',
+      nameGap: rotateAngle > 0 ? 100 : 60, // 根据旋转角度调整名称间距
+      nameTextStyle: {
+        fontSize: 12,
+        color: '#4a5568',
+        padding: rotateAngle > 0 ? [40, 0, 0, 0] : [20, 0, 0, 0],
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      },
+      axisLabel: {
+        rotate: rotateAngle,
+        fontSize: rotateAngle > 0 ? 12 : 14, // 增大字体大小
+        color: '#718096',
+        overflow: 'truncate',
+        margin: rotateAngle > 0 ? 35 : 20, // 增加边距
+        // 智能标签间隔，确保标签不重叠
+        interval: function(index: number, value: string) {
+          // 根据数据量和容器宽度动态调整显示的标签数量
+          const maxLabels = Math.min(10, Math.floor(dom.clientWidth / (rotateAngle > 0 ? 50 : 70)));
+          const skipStep = Math.ceil(data.length / maxLabels);
+          return index % skipStep === 0;
+        },
+        formatter: function(value: string) {
+          // 根据旋转角度调整标签截断长度
+          const maxLength = rotateAngle > 0 ? 25 : 20;
+          return value.length > maxLength ? value.substring(0, maxLength) + '...' : value;
+        }
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#e2e8f0'
+        }
+      },
+      axisTick: {
+        show: false
+      },
+      boundaryGap: !isLineType
+    }
+    // 处理y轴配置，优化显示效果
+    const yValues = data.map((d: any) => d[config.yField])
+    const maxValue = Math.max(...yValues)
+    const minValue = Math.min(...yValues)
+    const valueRange = maxValue - minValue
+    
+    // 判断是否需要使用对数刻度（当最大值是最小值的100倍以上时）
+    const useLogScale = maxValue > 0 && minValue > 0 && (maxValue / minValue) > 100
+    
+    option.yAxis = {
+      type: 'value',
+      name: config.yField ? `单位：${config.yField}` : '',  // 单位显示在左上角
+      nameLocation: 'end',  // 名称放在轴的顶部
+      nameGap: 15,
+      nameTextStyle: {
+        fontSize: 12,
+        color: '#666',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        align: 'left'
+      },
+      axisLabel: {
+        fontSize: 14, // 增大字体大小
+        color: '#718096',
+        margin: 20, // 增加与轴线的间距
+        // 使用智能单位格式化函数
+        formatter: function(value: number) {
+          return formatValue(value, config.yField)
+        }
+      },
+      axisLine: {
+        show: false
+      },
+      axisTick: {
+        show: false
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#f1f5f9',
+          type: 'dashed'
+        }
+      },
+      // 使用对数刻度处理差异过大的数据
+      logBase: useLogScale ? 10 : undefined,
+      // 优化刻度显示
+      minInterval: 1,
+      splitNumber: 5, // 减少刻度数量，避免重叠
+      // 确保刻度从0开始
+      min: useLogScale ? undefined : 0
+    }
+    
+    option.series = []
+    
+    // 如果是多字段数据，先获取其他字段
+    const otherFields = Object.keys(data[0]).filter(key => key !== config.xField && key !== config.yField)
+    
+    // 处理多系列数据
+    const seriesCount = otherFields.length + 1; // 计算系列数量（包括默认系列）
+    
+    // 自动计算柱形宽度，根据数据数量和系列数量动态调整
+    let barWidth = 'auto';
+    if (type === 'bar') {
+      const dataCount = data.length;
+      const maxWidth = 100; // 增大最大宽度
+      const minWidth = 30; // 增大最小宽度
+      const spacing = 15;   // 柱形间距
+      
+      // 根据数据数量和系列数量计算合适的宽度
+      const calculatedWidth = Math.min(
+        maxWidth,
+        Math.max(
+          minWidth,
+          (dom.clientWidth * 0.8) / (dataCount * seriesCount) - spacing
+        )
+      );
+      
+      barWidth = calculatedWidth;
+    }
+    
+    // 数据标签配置 - 根据数据量決定是否显示
+    const showLabels = type === 'bar' && data.length <= 6;  // 减少显示标签的数据量阈值
+    const labelConfig = {
+      show: showLabels,
+      position: 'top' as const,
+      formatter: function(params: any) {
+        return formatValue(params.value, config.yField)
+      },
+      fontSize: 12,
+      color: '#4a5568',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      distance: 8  // 标签与柱子的距离
+    }
+    
+    const seriesConfig = {
+      name: legendName, // 使用图例名称，确保与legend保持一致
+      type: type || 'bar',
+      data: data.map((d: any) => d[config.yField]),
+      smooth: isLineType,
+      symbol: isLineType ? 'circle' : undefined,
+      symbolSize: isLineType ? 7 : undefined,
+      lineStyle: isLineType ? { 
+        width: 3,
+        cap: 'round',
+        join: 'round'
+      } : undefined,
+      areaStyle: type === 'area' ? {
+        opacity: 0.3,
+        // 添加渐变色
+        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: colorPalette[0] },
+          { offset: 1, color: colorPalette[0] + '20' }
+        ])
+      } : undefined,
+      itemStyle: {
+        borderRadius: type === 'bar' ? [8, 8, 0, 0] : undefined,
+        // 优化柱形效果
+        borderWidth: type === 'bar' ? 0 : undefined
+      },
+      emphasis: {
+        itemStyle: {
+          shadowBlur: 15,
+          shadowOffsetX: 0,
+          shadowColor: 'rgba(0, 0, 0, 0.2)'
+        },
+        scale: type === 'bar',
+        focus: 'series'
+      },
+      barWidth: barWidth,
+      label: labelConfig,
+      // 添加动画效果
+      animationDelay: function (idx: number) {
+        return idx * 50;
+      },
+      animationEasing: 'elasticOut'
+    }
+    
+    option.series.push(seriesConfig)
+    
+    // 如果是多字段数据，添加更多系列
+    if (otherFields.length > 0) {
+      otherFields.forEach((field, index) => {
+        option.series.push({
+          name: field,
+          type: type || 'bar',
+          data: data.map((d: any) => d[field]),
+          smooth: isLineType,
+          symbol: isLineType ? 'circle' : undefined,
+          symbolSize: isLineType ? 6 : undefined,
+          lineStyle: isLineType ? { width: 3 } : undefined,
+          areaStyle: type === 'area' ? {
+            opacity: 0.2
+          } : undefined,
+          itemStyle: {
+            borderRadius: type === 'bar' ? [8, 8, 0, 0] : undefined
+          },
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: 'rgba(0, 0, 0, 0.2)'
+            },
+            scale: type === 'bar'
+          }
+        })
+      })
+    }
+  }
+  
   chart.setOption(option)
+  
+  // 添加窗口大小变化的响应式
+  const resizeHandler = () => chart.resize()
+  window.addEventListener('resize', resizeHandler)
+  
+  // 清理函数
+  return () => {
+    window.removeEventListener('resize', resizeHandler)
+    chart.dispose()
+  }
 }
 
 // 获取表格列
@@ -671,6 +1428,27 @@ onMounted(() => { refreshDatasources() })
 .ds-item.active .type {
   background: rgba(255, 255, 255, 0.3);
 }
+.ds-item.disabled {
+  background: #f0f0f0;
+  color: #999;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.ds-item.disabled:hover {
+  background: #f0f0f0;
+  border-color: transparent;
+}
+.ds-item.disabled .name {
+  color: #999;
+}
+.ds-item.disabled .type {
+  background: rgba(0, 0, 0, 0.03);
+  color: #bbb;
+}
+.ds-item.testing {
+  background: #fff7e6;
+  border-color: #ffd591;
+}
 
 .source-card { max-height: 280px; }
 .source-card :deep(.ant-card-body) { overflow-y: auto; max-height: 220px; padding: 8px; }
@@ -814,7 +1592,7 @@ onMounted(() => { refreshDatasources() })
   overflow-x: auto;
 }
 
-.chart-container { width: 100%; height: 200px; margin: 10px 0; background: #fafbfc; border-radius: 6px; }
+.chart-container { width: 100%; height: 500px; margin: 15px 0; padding: 10px; background: #ffffff; border: 1px solid #f0f0f0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
 
 .data-table { margin-top: 10px; overflow-x: auto; }
 .data-table :deep(.ant-table) { font-size: 12px; }

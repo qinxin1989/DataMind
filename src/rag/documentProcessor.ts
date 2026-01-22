@@ -9,7 +9,7 @@ import { KnowledgeDocument, KnowledgeChunk, DocumentType } from './knowledgeBase
 import { v4 as uuidv4 } from 'uuid';
 
 // 支持的文件类型
-export type SupportedFileType = 'txt' | 'md' | 'json' | 'csv' | 'html';
+export type SupportedFileType = 'txt' | 'md' | 'json' | 'csv' | 'html' | 'pdf';
 
 export interface ProcessedDocument {
   title: string;
@@ -23,8 +23,14 @@ export class DocumentProcessor {
   // 处理文件
   async processFile(filePath: string): Promise<ProcessedDocument> {
     const ext = path.extname(filePath).toLowerCase().slice(1) as SupportedFileType;
-    const content = fs.readFileSync(filePath, 'utf-8');
     const fileName = path.basename(filePath);
+
+    // PDF 需要特殊处理（二进制文件）
+    if (ext === 'pdf') {
+      return this.processPdf(filePath, fileName);
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
 
     switch (ext) {
       case 'txt':
@@ -40,6 +46,38 @@ export class DocumentProcessor {
       default:
         // 默认当作纯文本处理
         return this.processTxt(content, fileName);
+    }
+  }
+
+  // 处理 PDF 文件
+  private async processPdf(filePath: string, fileName: string): Promise<ProcessedDocument> {
+    try {
+      // 动态加载 pdf-parse
+      const { PDFParse } = await import('pdf-parse');
+      
+      const dataBuffer = fs.readFileSync(filePath);
+      
+      // 创建 PDFParse 实例并解析
+      const parser = new PDFParse({ data: dataBuffer });
+      const textResult = await parser.getText();
+      const infoResult = await parser.getInfo();
+      
+      const content = textResult.text || '';
+      const title = fileName.replace(/\.pdf$/i, '');
+      
+      return {
+        title,
+        content: content.trim(),
+        metadata: {
+          fileType: 'pdf',
+          pageCount: textResult.pages?.length || 0,
+          charCount: content.length,
+          info: infoResult.info || {},
+        },
+      };
+    } catch (error: any) {
+      console.error('PDF 解析失败:', error.message);
+      throw new Error(`PDF 文件解析失败: ${error.message}`);
     }
   }
 

@@ -21,18 +21,33 @@ interface VectorEntry {
 
 export class VectorStore {
   private vectors: Map<string, VectorEntry> = new Map();
-  private dimension: number;
 
-  constructor(dimension: number = 1536) {
-    this.dimension = dimension;
+  constructor() {
+    // 不再限制单一维度，支持多维度向量共存
+  }
+
+  // 获取所有向量维度
+  getDimensions(): number[] {
+    const dimensions = new Set<number>();
+    for (const entry of this.vectors.values()) {
+      dimensions.add(entry.vector.length);
+    }
+    return Array.from(dimensions).sort((a, b) => a - b);
+  }
+
+  // 获取指定维度的向量数量
+  getVectorCountByDimension(dimension: number): number {
+    let count = 0;
+    for (const entry of this.vectors.values()) {
+      if (entry.vector.length === dimension) {
+        count++;
+      }
+    }
+    return count;
   }
 
   // 添加向量
   addVector(chunk: KnowledgeChunk, vector: number[]): void {
-    if (vector.length !== this.dimension) {
-      throw new Error(`向量维度不匹配: 期望 ${this.dimension}, 实际 ${vector.length}`);
-    }
-
     this.vectors.set(chunk.id, {
       id: chunk.id,
       documentId: chunk.documentId,
@@ -87,13 +102,14 @@ export class VectorStore {
 
   // 向量搜索
   search(queryVector: number[], topK: number = 5, threshold: number = 0.7): VectorSearchResult[] {
-    if (queryVector.length !== this.dimension) {
-      throw new Error(`查询向量维度不匹配: 期望 ${this.dimension}, 实际 ${queryVector.length}`);
-    }
-
     const results: VectorSearchResult[] = [];
 
     for (const entry of this.vectors.values()) {
+      // 只计算相同维度的向量
+      if (entry.vector.length !== queryVector.length) {
+        continue;
+      }
+      
       const score = this.cosineSimilarity(queryVector, entry.vector);
       if (score >= threshold) {
         results.push({
@@ -114,7 +130,7 @@ export class VectorStore {
     const results: VectorSearchResult[] = [];
 
     for (const entry of this.vectors.values()) {
-      if (entry.documentId === documentId) {
+      if (entry.documentId === documentId && entry.vector.length === queryVector.length) {
         const score = this.cosineSimilarity(queryVector, entry.vector);
         results.push({
           chunk: entry.chunk,
@@ -129,16 +145,19 @@ export class VectorStore {
   }
 
   // 获取统计信息
-  getStats(): { totalVectors: number; documents: number; dimension: number } {
+  getStats(): { totalVectors: number; documents: number; dimensions: number[] } {
     const documentIds = new Set<string>();
+    const dimensions = new Set<number>();
+    
     for (const entry of this.vectors.values()) {
       documentIds.add(entry.documentId);
+      dimensions.add(entry.vector.length);
     }
 
     return {
       totalVectors: this.vectors.size,
       documents: documentIds.size,
-      dimension: this.dimension,
+      dimensions: Array.from(dimensions).sort((a, b) => a - b),
     };
   }
 
@@ -148,19 +167,27 @@ export class VectorStore {
   }
 
   // 导出数据（用于持久化）
-  export(): { entries: VectorEntry[]; dimension: number } {
+  export(): { entries: VectorEntry[]; dimensions: number[] } {
+    const dimensions = new Set<number>();
+    for (const entry of this.vectors.values()) {
+      dimensions.add(entry.vector.length);
+    }
+    
     return {
       entries: Array.from(this.vectors.values()),
-      dimension: this.dimension,
+      dimensions: Array.from(dimensions).sort((a, b) => a - b),
     };
   }
 
   // 导入数据
-  import(data: { entries: VectorEntry[]; dimension: number }): void {
-    this.dimension = data.dimension;
+  import(data: { entries: VectorEntry[]; dimensions?: number[] }): void {
     this.vectors.clear();
     for (const entry of data.entries) {
       this.vectors.set(entry.id, entry);
+    }
+    
+    if (data.dimensions) {
+      console.log(`[VectorStore] 导入数据，包含维度: ${data.dimensions.join(', ')}`);
     }
   }
 }

@@ -75,13 +75,26 @@
           <a-col :span="12">
             <a-form-item label="提供商" name="provider">
               <a-select v-model:value="formState.provider" @change="onProviderChange">
-                <a-select-option value="siliconflow">SiliconFlow (硅基流动)</a-select-option>
-                <a-select-option value="qwen">通义千问 (阿里云)</a-select-option>
-                <a-select-option value="zhipu">智谱AI (GLM)</a-select-option>
-                <a-select-option value="openai">OpenAI</a-select-option>
-                <a-select-option value="azure">Azure OpenAI</a-select-option>
-                <a-select-option value="deepseek">DeepSeek</a-select-option>
-                <a-select-option value="custom">自定义</a-select-option>
+                <a-select-opt-group label="云服务">
+                  <a-select-option value="siliconflow">SiliconFlow (硅基流动)</a-select-option>
+                  <a-select-option value="qwen">通义千问 (阿里云)</a-select-option>
+                  <a-select-option value="zhipu">智谱AI (GLM)</a-select-option>
+                  <a-select-option value="openai">OpenAI</a-select-option>
+                  <a-select-option value="azure">Azure OpenAI</a-select-option>
+                  <a-select-option value="deepseek">DeepSeek</a-select-option>
+                </a-select-opt-group>
+                <a-select-opt-group label="本地部署">
+                  <a-select-option value="local-qwen">Qwen3-32B (本地)</a-select-option>
+                  <a-select-option value="ollama">Ollama (本地)</a-select-option>
+                  <a-select-option value="text-generation-webui">Text Generation WebUI</a-select-option>
+                  <a-select-option value="lm-studio">LM Studio</a-select-option>
+                  <a-select-option value="vllm">vLLM</a-select-option>
+                  <a-select-option value="xinference">Xinference</a-select-option>
+                  <a-select-option value="fastchat">FastChat</a-select-option>
+                </a-select-opt-group>
+                <a-select-opt-group label="其他">
+                  <a-select-option value="custom">自定义</a-select-option>
+                </a-select-opt-group>
               </a-select>
             </a-form-item>
           </a-col>
@@ -91,6 +104,42 @@
         </a-form-item>
         <a-form-item label="API Endpoint" name="apiEndpoint">
           <a-input v-model:value="formState.apiEndpoint" :placeholder="getEndpointPlaceholder()" />
+          <div v-if="isLocalProvider()" class="endpoint-tips">
+            <div class="tip-item">
+              <strong>{{ getProviderLabel(formState.provider) }} 配置说明：</strong>
+            </div>
+            <div v-if="formState.provider === 'local-qwen'" class="tip-item">
+              • 本地部署的 Qwen3-32B 模型服务<br>
+              • 地址：http://10.9.42.174:3000/v1<br>
+              • 模型ID：qwen3-32b<br>
+              • API Key 可以留空或填写任意值
+            </div>
+            <div v-else-if="formState.provider === 'ollama'" class="tip-item">
+              • 确保 Ollama 服务运行在 http://localhost:11434<br>
+              • 使用 <code>ollama pull llama3.2</code> 下载模型<br>
+              • API Key 可以留空或填写任意值
+            </div>
+            <div v-else-if="formState.provider === 'text-generation-webui'" class="tip-item">
+              • 启动时添加 <code>--api</code> 参数<br>
+              • 默认端口 5000，API Key 可留空
+            </div>
+            <div v-else-if="formState.provider === 'lm-studio'" class="tip-item">
+              • 在 LM Studio 中启动本地服务器<br>
+              • 默认端口 1234，API Key 可留空
+            </div>
+            <div v-else-if="formState.provider === 'vllm'" class="tip-item">
+              • 使用 <code>python -m vllm.entrypoints.openai.api_server</code> 启动<br>
+              • 默认端口 8000，API Key 可留空
+            </div>
+            <div v-else-if="formState.provider === 'xinference'" class="tip-item">
+              • 使用 <code>xinference-local --host 0.0.0.0 --port 9997</code> 启动<br>
+              • 支持多种开源模型，API Key 可留空
+            </div>
+            <div v-else-if="formState.provider === 'fastchat'" class="tip-item">
+              • 启动 FastChat 控制器和 API 服务器<br>
+              • 默认端口 8000，API Key 可留空
+            </div>
+          </div>
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12">
@@ -162,7 +211,7 @@ const providerConfigs: Record<string, { label: string; endpoint: string; models:
   openai: {
     label: 'OpenAI',
     endpoint: 'https://api.openai.com/v1',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'qwen3-32b'],
     defaultModel: 'gpt-4o',
   },
   azure: {
@@ -176,6 +225,48 @@ const providerConfigs: Record<string, { label: string; endpoint: string; models:
     endpoint: 'https://api.deepseek.com/v1',
     models: ['deepseek-chat', 'deepseek-reasoner'],
     defaultModel: 'deepseek-chat',
+  },
+  'local-qwen': {
+    label: 'Qwen3-32B (本地)',
+    endpoint: 'http://10.9.42.174:3000/v1',
+    models: ['qwen3-32b'],
+    defaultModel: 'qwen3-32b',
+  },
+  ollama: {
+    label: 'Ollama (本地)',
+    endpoint: 'http://localhost:11434/v1',
+    models: ['llama3.2', 'qwen2.5', 'gemma2', 'mistral', 'codellama', 'llama3.1'],
+    defaultModel: 'llama3.2',
+  },
+  'text-generation-webui': {
+    label: 'Text Generation WebUI',
+    endpoint: 'http://localhost:5000/v1',
+    models: ['text-generation-webui'],
+    defaultModel: 'text-generation-webui',
+  },
+  'lm-studio': {
+    label: 'LM Studio',
+    endpoint: 'http://localhost:1234/v1',
+    models: ['local-model'],
+    defaultModel: 'local-model',
+  },
+  'vllm': {
+    label: 'vLLM',
+    endpoint: 'http://localhost:8000/v1',
+    models: ['vllm-model'],
+    defaultModel: 'vllm-model',
+  },
+  'xinference': {
+    label: 'Xinference',
+    endpoint: 'http://localhost:9997/v1',
+    models: ['qwen2.5-instruct', 'llama-3.1-instruct', 'chatglm3'],
+    defaultModel: 'qwen2.5-instruct',
+  },
+  'fastchat': {
+    label: 'FastChat',
+    endpoint: 'http://localhost:8000/v1',
+    models: ['vicuna-7b-v1.5', 'vicuna-13b-v1.5'],
+    defaultModel: 'vicuna-7b-v1.5',
   },
   custom: {
     label: '自定义',
@@ -282,6 +373,10 @@ function getModelOptions() {
   return config.models.map(m => ({ label: m, value: m }))
 }
 
+function isLocalProvider(): boolean {
+  return ['local-qwen', 'ollama', 'text-generation-webui', 'lm-studio', 'vllm', 'xinference', 'fastchat'].includes(formState.provider)
+}
+
 function onProviderChange(provider: string) {
   const config = providerConfigs[provider]
   if (config) {
@@ -380,7 +475,7 @@ async function handleDelete(record: AIConfig) {
 
 async function handleValidate(record: AIConfig) {
   try {
-    const res = await aiApi.validateApiKey(record.provider, undefined, record.baseUrl, record.id)
+    const res = await aiApi.validateApiKey(record.provider, undefined, record.baseUrl, record.id, record.model)
     if (res.success && res.data?.valid) {
       message.success('API Key 验证成功')
     } else {
@@ -439,5 +534,29 @@ async function handleToggleStatus(record: AIConfig, checked: boolean) {
 
 :deep(.ant-table-row:hover) {
   background-color: #fafafa;
+}
+
+.endpoint-tips {
+  margin-top: 8px;
+  padding: 12px;
+  background: #f6f8fa;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tip-item {
+  margin-bottom: 4px;
+}
+
+.tip-item:last-child {
+  margin-bottom: 0;
+}
+
+.tip-item code {
+  background: #e7f3ff;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
 }
 </style>

@@ -24,6 +24,8 @@ export interface KnowledgeDocument {
     createdAt: number;
     updatedAt: number;
     tags?: string[];
+    categoryId?: string;       // 所属分类ID
+    datasourceId?: string;     // 关联的数据源ID
     customFields?: Record<string, any>;
   };
   chunks?: KnowledgeChunk[];   // 分块后的内容
@@ -141,6 +143,11 @@ export class KnowledgeBase {
   // 按类型获取文档
   getDocumentsByType(type: DocumentType): KnowledgeDocument[] {
     return Array.from(this.documents.values()).filter(d => d.type === type);
+  }
+
+  // 按分类获取文档
+  getDocumentsByCategory(categoryId: string): KnowledgeDocument[] {
+    return Array.from(this.documents.values()).filter(d => d.metadata.categoryId === categoryId);
   }
 
   // 搜索文档（简单文本匹配）

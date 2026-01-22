@@ -25,10 +25,16 @@ export const datasourceApi = {
 
   // 创建数据源
   create: (data: Partial<Datasource> & { password?: string; visibility?: DatasourceVisibility }) => {
+    // 转换类型名称：前端使用 postgresql，后端使用 postgres
+    let dbType = data.type
+    if (dbType === 'postgresql') {
+      dbType = 'postgres'
+    }
+    
     // 转换为原 API 格式
     const config = {
       name: data.name,
-      type: data.type,
+      type: dbType,
       visibility: data.visibility || 'private',
       config: {
         host: data.host,
@@ -50,9 +56,15 @@ export const datasourceApi = {
 
   // 更新数据源
   update: (id: string, data: Partial<Datasource> & { password?: string }) => {
+    // 转换类型名称：前端使用 postgresql，后端使用 postgres
+    let dbType = data.type
+    if (dbType === 'postgresql') {
+      dbType = 'postgres'
+    }
+    
     const config = {
       name: data.name,
-      type: data.type,
+      type: dbType,
       config: {
         host: data.host,
         port: data.port,

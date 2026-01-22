@@ -14,6 +14,33 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
+
+// 加载环境变量策略：
+// 1. 优先尝试根目录 .env
+// 2. 如果不存在，尝试根目录 .env.encrypted (读取其中的未加密字段)
+const rootDir = path.resolve(process.cwd(), '../../');
+const envFile = path.join(rootDir, '.env');
+const encryptedEnvFile = path.join(rootDir, '.env.encrypted');
+
+if (fs.existsSync(envFile)) {
+  dotenv.config({ path: envFile });
+} else if (fs.existsSync(encryptedEnvFile)) {
+  try {
+    const envConfig = dotenv.parse(fs.readFileSync(encryptedEnvFile));
+    for (const k in envConfig) {
+      // 忽略已加密的字段 (SM4ENC:...)，仅加载明文配置
+      if (!envConfig[k].startsWith('SM4ENC:')) {
+        process.env[k] = envConfig[k];
+      }
+    }
+    console.log('已从 .env.encrypted 加载未加密的配置');
+  } catch (error) {
+    console.warn('读取 .env.encrypted 失败:', error);
+  }
+}
 
 // 后端服务地址
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
@@ -355,20 +382,154 @@ const tools: Tool[] = [
       },
       required: ['skill', 'params']
     }
+  },
+  // ========== 迁移的数据技能 ==========
+  {
+    name: 'data_statistics',
+    description: '对指定表或字段进行统计分析',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        table: { type: 'string', description: '表名' },
+        field: { type: 'string', description: '统计字段（单个字段名）' },
+        groupBy: { type: 'string', description: '分组字段' }
+      },
+      required: ['datasourceId', 'table']
+    }
+  },
+  {
+    name: 'data_trend',
+    description: '分析数据随时间的变化趋势',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        table: { type: 'string', description: '表名' },
+        dateField: { type: 'string', description: '日期字段' },
+        valueField: { type: 'string', description: '数值字段' },
+        aggregation: { type: 'string', description: '聚合方式: sum/count/avg' }
+      },
+      required: ['datasourceId', 'table', 'dateField', 'valueField']
+    }
+  },
+  {
+    name: 'data_ranking',
+    description: '获取某个维度的Top N排名',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        table: { type: 'string', description: '表名' },
+        rankField: { type: 'string', description: '排名依据字段' },
+        labelField: { type: 'string', description: '标签字段' },
+        limit: { type: 'number', description: '返回数量' },
+        order: { type: 'string', description: '排序: desc/asc' }
+      },
+      required: ['datasourceId', 'table', 'rankField', 'labelField']
+    }
+  },
+  {
+    name: 'data_comparison',
+    description: '对比不同维度或时间段的数据',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        table: { type: 'string', description: '表名' },
+        compareField: { type: 'string', description: '对比维度字段' },
+        valueField: { type: 'string', description: '数值字段' }
+      },
+      required: ['datasourceId', 'table', 'compareField', 'valueField']
+    }
+  },
+  {
+    name: 'data_anomaly',
+    description: '检测数据中的异常值',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        table: { type: 'string', description: '表名' },
+        field: { type: 'string', description: '检测字段' },
+        threshold: { type: 'number', description: '标准差倍数阈值' }
+      },
+      required: ['datasourceId', 'table', 'field']
+    }
+  },
+  {
+    name: 'data_export',
+    description: '导出查询结果为指定格式',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        sql: { type: 'string', description: 'SQL查询语句' },
+        format: { type: 'string', description: '导出格式: json/csv' }
+      },
+      required: ['datasourceId', 'sql']
+    }
+  },
+  {
+    name: 'data_comprehensive_analysis',
+    description: '综合分析问题，基于多个指标',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        table: { type: 'string', description: '主表名' },
+        topic: { type: 'string', description: '分析主题' },
+        metrics: { type: 'array', items: { type: 'string' }, description: '分析指标列表' },
+        labelField: { type: 'string', description: '标签字段' }
+      },
+      required: ['datasourceId', 'table', 'topic', 'metrics', 'labelField']
+    }
+  },
+  {
+    name: 'data_compare_entities',
+    description: '对比特定对象的多个指标',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        datasourceId: { type: 'string', description: '数据源ID' },
+        table: { type: 'string', description: '表名' },
+        labelField: { type: 'string', description: '标签字段' },
+        entities: { type: 'array', items: { type: 'string' }, description: '对象列表' },
+        metrics: { type: 'array', items: { type: 'string' }, description: '指标列表' }
+      },
+      required: ['datasourceId', 'table', 'labelField', 'entities', 'metrics']
+    }
   }
 ];
 
 // 调用后端技能 API
-async function callSkillAPI(skill: string, params: Record<string, any>): Promise<any> {
+// 调用后端技能 API
+async function callSkillAPI(skill: string, args: Record<string, any>): Promise<any> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/skills/execute`, {
+    const { datasourceId, ...params } = args;
+
+    // 如果没有 API_TOKEN，可能无法访问受保护的接口
+    const token = process.env.MCP_API_KEY;
+
+    if (!token) {
+      console.warn('警告: 未配置 MCP_API_KEY，调用可能会失败');
+    }
+
+    const response = await fetch(`${BACKEND_URL}/api/agent/skills/${skill}/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skill, params })
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        datasourceId,
+        params
+      })
     });
 
     if (!response.ok) {
-      throw new Error(`API 调用失败: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`API 调用失败 (${response.status}): ${errorText}`);
     }
 
     return await response.json();

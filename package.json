@@ -6,10 +6,16 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "build:prod": "npm run build && cd admin-ui && npm run build",
     "start": "node dist/index.js",
     "start:secure": "tsx scripts/start-secure.ts",
     "encrypt-env": "tsx scripts/encrypt-env.ts",
-    "test": "tsx tests/run-tests.ts"
+    "test": "tsx tests/run-tests.ts",
+    "deploy": "./deploy.sh",
+    "docker:build": "docker build -t ai-data-platform .",
+    "docker:run": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "docker:logs": "docker-compose logs -f app"
   },
   "dependencies": {
     "@types/multer": "^2.0.0",
