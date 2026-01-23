@@ -1074,18 +1074,21 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
       console.log('WARNING: response.answer is empty or undefined!');
     }
 
-    // 保存对话记录（包含响应时间和 token 信息）
+    // 保存对话记录（包含响应时间、token 信息、图表数据）
     session.messages.push({ role: 'user', content: question, timestamp: Date.now() });
     session.messages.push({
       role: 'assistant',
       content: maskedAnswer,
       sql: response.sql,
+      chart: response.chart,  // 保存图表配置
+      data: maskedData,       // 保存数据（用于图表渲染）
       timestamp: Date.now(),
       responseTime,
       tokensUsed: response.tokensUsed || 0,
       modelName: response.modelName
     });
     await configStore.saveChatSession(session, req.user.id);
+
 
     const responseData = {
       ...response,
