@@ -1903,6 +1903,11 @@ app.use('/api/ocr', authMiddleware, ocrRoutes);
 import skillsRoutes from './admin/modules/skills/routes';
 app.use('/api/skills', authMiddleware, skillsRoutes);
 
+// 文件工具路由
+import fileToolRoutes from './admin/modules/tools/fileRoutes';
+app.use('/api/tools/file', authMiddleware, fileToolRoutes);
+
+
 // SPA 路由支持 - 所有非 API 请求返回 index.html
 app.get('*', (req, res) => {
   // 跳过 API 请求

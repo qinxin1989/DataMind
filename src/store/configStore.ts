@@ -11,11 +11,14 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   sql?: string;
+  chart?: any;
+  data?: any;
   timestamp: number;
   responseTime?: number;
   tokensUsed?: number;
   modelName?: string;
 }
+
 
 export interface ChatSession {
   id: string;
