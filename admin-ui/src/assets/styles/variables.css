@@ -1,0 +1,55 @@
+:root {
+  /* 品牌色 - 数据源选中项蓝紫渐变 */
+  --primary-color: #667eea;
+  --primary-color-hover: #5a6fd6;
+  --primary-color-active: #4e60c2;
+  --primary-bg-light: #e8ebf5;
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
+  /* 辅助色 */
+  --secondary-color: #6366f1;
+  /* 靛蓝 */
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --error-color: #ef4444;
+
+  /* 文字颜色 */
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --text-disabled: #cbd5e1;
+  --text-inverse: #ffffff;
+
+  /* 背景色 */
+  --bg-page: #f8fafc;
+  --bg-container: #ffffff;
+  --bg-sidebar: #ffffff;
+  /* 浅色侧边栏 */
+  --bg-sidebar-dark: #f1f5f9;
+
+  /* 边框 */
+  --border-color-base: #e2e8f0;
+  --border-color-light: #f1f5f9;
+  --border-radius-base: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-sm: 4px;
+
+  /* 阴影 - 紫色光晕 */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 20px rgba(110, 41, 246, 0.25);
+  /* 硅基流动紫色光晕 */
+
+  /* 动画 */
+  --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 深色模式适配（预留） */
+[data-theme='dark'] {
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --bg-page: #0f172a;
+  --bg-container: #1e293b;
+  --border-color-base: #334155;
+}

@@ -690,6 +690,7 @@ ${contextText}
 
     try {
       console.log('[RAG] 开始从数据库加载文档...');
+      console.log('[RAG] 安全模式: On');
 
       // 加载文档
       const [docRows] = await this.pool.execute(
@@ -707,7 +708,7 @@ ${contextText}
           type: docRow.type,
           title: docRow.title,
           content: docRow.content,
-          metadata: docRow.metadata ? JSON.parse(docRow.metadata) : {},
+          metadata: this.safeJsonParse(docRow.metadata, {}),
         });
 
         // 加载分块
@@ -728,8 +729,8 @@ ${contextText}
             content: chunkRow.content,
             startOffset: 0,
             endOffset: chunkRow.content.length,
-            embedding: chunkRow.embedding ? JSON.parse(chunkRow.embedding) : [],
-            metadata: chunkRow.metadata ? JSON.parse(chunkRow.metadata) : {},
+            embedding: this.safeJsonParse(chunkRow.embedding, []),
+            metadata: this.safeJsonParse(chunkRow.metadata, {}),
           };
 
           // 添加到向量存储
@@ -752,6 +753,18 @@ ${contextText}
     } catch (error: any) {
       console.error('[RAG] 从数据库加载文档失败:', error.message);
       console.error('[RAG] 错误堆栈:', error.stack);
+    }
+  }
+
+  // 安全解析 JSON
+  private safeJsonParse(jsonStr: any, defaultValue: any = {}): any {
+    if (!jsonStr) return defaultValue;
+    if (typeof jsonStr !== 'string') return jsonStr;
+    try {
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.warn(`[RAG] JSON解析失败: ${jsonStr.substring(0, 50)}...`, e);
+      return defaultValue;
     }
   }
 

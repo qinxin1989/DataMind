@@ -59,7 +59,34 @@ const routes: RouteRecordRaw[] = [
             path: '/ai/knowledge',
             name: 'AIKnowledge',
             component: () => import('@/views/ai/knowledge.vue'),
+            redirect: '/ai/knowledge/manage',
             meta: { title: '知识库' },
+            children: [
+              {
+                path: 'manage',
+                name: 'KnowledgeManage',
+                component: () => import('@/views/ai/knowledge/ManageView.vue'),
+                meta: { title: '知识管理' }
+              },
+              {
+                path: 'qa',
+                name: 'KnowledgeQA',
+                component: () => import('@/views/ai/knowledge/QAView.vue'),
+                meta: { title: '智能问答' }
+              },
+              {
+                path: 'writer',
+                name: 'KnowledgeWriter',
+                component: () => import('@/views/ai/knowledge/WriterView.vue'),
+                meta: { title: '长文写作' }
+              },
+              {
+                path: 'graph',
+                name: 'KnowledgeGraph',
+                component: () => import('@/views/ai/knowledge/GraphView.vue'),
+                meta: { title: '知识图谱' }
+              }
+            ]
           },
           {
             path: '/ai/config',
@@ -86,6 +113,37 @@ const routes: RouteRecordRaw[] = [
             meta: { title: 'OCR识别' },
           },
         ],
+      },
+      {
+        path: 'tools',
+        name: 'Tools',
+        meta: { title: '工具箱', icon: 'ToolOutlined' },
+        children: [
+          {
+            path: '/tools/file',
+            name: 'FileTools',
+            component: () => import('@/views/tools/file/index.vue'),
+            meta: { title: '文件工具' },
+          },
+          {
+            path: '/tools/efficiency',
+            name: 'EfficiencyTools',
+            component: () => import('@/views/tools/efficiency/index.vue'),
+            meta: { title: '效率工具' },
+          },
+          {
+            path: '/tools/official-doc',
+            name: 'OfficialDoc',
+            component: () => import('@/views/tools/official-doc/index.vue'),
+            meta: { title: '公文写作' },
+          },
+        ]
+      },
+      {
+        path: 'data-processing',
+        name: 'DataProcessing',
+        component: () => import('@/views/data-processing/index.vue'),
+        meta: { title: '数据处理', icon: 'BarChartOutlined' },
       },
       {
         path: 'datasource',

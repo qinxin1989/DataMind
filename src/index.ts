@@ -1106,7 +1106,10 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
     console.log('sql field:', responseData.sql?.substring(0, 100));
     console.log('data field length:', responseData.data?.length);
 
-    res.json(responseData);
+    res.json({
+      success: true,
+      data: responseData
+    });
   } catch (error: any) {
     console.error(`问答失败 (数据源: ${ds.config.name}):`, error.message);
     const friendlyError = formatDatabaseError(error);
@@ -1353,7 +1356,10 @@ app.post('/api/agent/analyze', authMiddleware, async (req, res) => {
 
   try {
     const report = await aiAgent.autoAnalyze(topic, ds.instance, ds.config.type);
-    res.json(report);
+    res.json({
+      success: true,
+      data: report
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1430,7 +1436,10 @@ app.post('/api/agent/dashboard', authMiddleware, async (req, res) => {
 
   try {
     const result = await aiAgent.generateDashboard(topic, ds.instance, ds.config.type, theme);
-    res.json(result);
+    res.json({
+      success: true,
+      data: result
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1745,13 +1754,16 @@ app.post('/api/rag/ask', authMiddleware, async (req, res) => {
     const result = await ragEngine.hybridAnswer(question, dataContext);
 
     res.json({
-      answer: result.answer,
-      confidence: result.confidence,
-      sources: result.sources,
-      dataContext: dataContext ? {
-        sql: dataContext.sql,
-        rowCount: dataContext.data?.length || 0,
-      } : undefined,
+      success: true,
+      data: {
+        answer: result.answer,
+        confidence: result.confidence,
+        sources: result.sources,
+        dataContext: dataContext ? {
+          sql: dataContext.sql,
+          rowCount: dataContext.data?.length || 0,
+        } : undefined,
+      }
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1767,21 +1779,24 @@ app.get('/api/rag/graph', authMiddleware, (req, res) => {
   const data = graph.export();
 
   res.json({
-    entities: data.entities.map((e: any) => ({
-      id: e.id,
-      name: e.name,
-      nameCn: e.nameCn,
-      type: e.type,
-      description: e.description,
-    })),
-    relations: data.relations.map((r: any) => ({
-      id: r.id,
-      source: r.sourceId,
-      target: r.targetId,
-      type: r.type,
-      weight: r.weight,
-    })),
-    stats: graph.getStats(),
+    success: true,
+    data: {
+      entities: data.entities.map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        nameCn: e.nameCn,
+        type: e.type,
+        description: e.description,
+      })),
+      relations: data.relations.map((r: any) => ({
+        id: r.id,
+        source: r.sourceId,
+        target: r.targetId,
+        type: r.type,
+        weight: r.weight,
+      })),
+      stats: graph.getStats(),
+    }
   });
 });
 

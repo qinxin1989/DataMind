@@ -30,8 +30,9 @@ export function createAuthMiddleware(authService: AuthService) {
       req.user = {
         id: 'mcp-server',
         username: 'mcp-server',
-        name: 'MCP Server',
+        fullName: 'MCP Server',
         role: 'admin',
+        status: 'active',
         email: 'mcp@local',
         createdAt: Date.now(),
         updatedAt: Date.now()

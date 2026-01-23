@@ -48,6 +48,66 @@ const MYSQL_RESERVED_WORDS = new Set([
   'while', 'with', 'write', 'xor', 'year_month', 'zerofill', 'rank', 'row', 'rows', 'name', 'type', 'status'
 ]);
 
+// 字段名映射（英文 -> 中文）
+const FIELD_NAME_MAP: Record<string, string> = {
+  'language': '语言',
+  'population': '人口',
+  'gnp': '国民生产总值',
+  'continent': '大洲',
+  'region': '地区',
+  'name': '名称',
+  'country': '国家',
+  'city': '城市',
+  'district': '区县',
+  'surfacearea': '面积',
+  'indepyear': '独立年份',
+  'lifeexpectancy': '预期寿命',
+  'gnpold': '旧国民生产总值',
+  'localname': '本地名称',
+  'governmentform': '政府形式',
+  'headofstate': '国家元首',
+  'capital': '首都',
+  'code': '代码',
+  'code2': '代码2',
+  'count': '数量',
+  'total': '总计',
+  'sum': '总和',
+  'avg': '平均',
+  'max': '最大',
+  'min': '最小',
+  'percentage': '占比',
+  'ratio': '比例',
+  'date': '日期',
+  'year': '年份',
+  'month': '月份',
+  'day': '日期',
+  'amount': '额度',
+  'price': '价格',
+  'status': '状态',
+  'type': '类型',
+  'category': '分类',
+  'user': '用户',
+  'order': '订单',
+  'product': '产品',
+  'goods': '商品',
+  'score': '分数',
+  'grade': '等级',
+  'level': '级别',
+  'department': '部门',
+  'address': '地址',
+  'phone': '电话',
+  'mobile': '手机',
+  'email': '邮箱',
+  'gender': '性别',
+  'sex': '性别',
+  'birthday': '生日',
+  'time': '时间',
+  'created_at': '创建时间',
+  'updated_at': '更新时间',
+  'creator': '创建者',
+  'modifier': '修改者',
+};
+
 // 清理 SQL（移除 <think> 标签、Markdown 代码块等）
 function cleanSQL(sql: string): string {
   if (!sql) return '';
@@ -407,7 +467,7 @@ export class AIAgent {
     question: string,
     schemas: TableSchema[],
     history: ChatMessage[]
-  ): Promise<{ sql: string; chartType?: string; explanation?: string }> {
+  ): Promise<{ sql: string; chartType?: string; chartTitle?: string; explanation?: string }> {
     await this.ensureInitialized();
 
     // 结构化 schema：精简格式，包含所有表
@@ -443,15 +503,13 @@ export class AIAgent {
       messages: [
         {
           role: 'system',
-          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none"}
-
+          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"简短标题"}
 **重要规则**:
-1. 数据源包含 ${tableNames.length} 个表: ${tableNames.join(', ')}
-2. 如果问题涉及多个表的数据，必须使用 JOIN 关联查询
-3. JOIN语法: SELECT ... FROM 表1 JOIN 表2 ON 表1.字段 = 表2.字段
-4. 支持 INNER JOIN, LEFT JOIN, RIGHT JOIN
-5. 聚合查询按值DESC排序，LIMIT 20
-6. 地址字段用SUBSTR提取省份
+1. 如果问题是“哪些[类目][属性]超过[值]”，默认应理解为聚合总和超过该值(HAVING SUM(...) > 值)，除非指明是单个项。
+2. 数据源包含 ${tableNames.length} 个表: ${tableNames.join(', ')}
+3. 如果问题涉及多个表的数据，必须使用 JOIN 关联查询
+4. 聚合查询按值DESC排序，LIMIT 20
+5. 地址字段用SUBSTR提取省份
 ${joinHint}
 
 表结构:
@@ -532,7 +590,7 @@ ${schemaDesc}
   "tool": "sql" | "data.analyze" | "chitchat", 
   "reason": "原因",
   "chartType": "bar" | "line" | "pie" | "area" | "scatter" | "none",
-  "chartTitle": "简短的图表标题，例如'各国GNP排名'",
+  "chartTitle": "简短且具业务意义的图表标题，务必简洁（如'语言分布'而非'各表语言占比统计'）",
   "chartConfig": {
     "xField": "X轴字段名（分类/标签字段，如Name、Date）",
     "yField": "Y轴字段名（数值字段，如GNP、Count）",
@@ -810,7 +868,7 @@ ${schemaDesc}
         {
           role: 'system',
           content: `SQL生成器(${dbType})。只返回SQL，无解释。
-规则:SELECT only,LIMIT 20,聚合按值DESC排序
+规则:SELECT only,LIMIT 20,对于类别特征的筛选优先使用聚合分析(SUM/COUNT + HAVING),聚合按值DESC排序
 表结构:
 ${schemaCompact}`
         },
@@ -1024,7 +1082,11 @@ ${schemaCompact}`
         messages: [
           {
             role: 'system',
-            content: `数据分析助手。用中文简洁回答，大数用中国习惯单位（万、亿、万亿），如8510700百万美元应说8.5万亿美元，英文地名翻译成中文。不要输出思考过程，直接给出结论。`
+            content: `数据分析助手。用中文简洁回答，严禁幻觉，**大数换算必须精确**：
+- 1,000,000 = 100万
+- 10,000,000 = 1000万 (1千万)，绝对不是1亿
+- 100,000,000 = 1亿
+大数用中国习惯单位（万、亿、万亿）。英文地名翻译成中文。直接给出结论，不要输出思考过程。`
           },
           {
             role: 'user',
@@ -1171,7 +1233,7 @@ ${schemaCompact}`
 
         // 生成图表（至少2条数据才有意义）
         if (queryPlan.chartType && queryPlan.chartType !== 'none' && result && result.length > 1) {
-          chart = this.generateChartData(result, queryPlan.chartType as any, question);
+          chart = this.generateChartData(result, queryPlan.chartType as any, queryPlan.chartTitle || question, schemas);
           console.log('Generated chart:', chart ? 'yes' : 'no', 'data rows:', result.length);
         }
 
@@ -1260,7 +1322,7 @@ ${schemaCompact}`
 
         // 根据结果生成图表
         if (result && result.length > 1) {
-          chart = this.generateChartData(result, 'bar', question);
+          chart = this.generateChartData(result, 'bar', plan.chartTitle || question, schemas);
         }
       }
 
@@ -1323,7 +1385,7 @@ ${schemaCompact}`
 
       // 3. 生成图表（如果技能没有生成且需要图表）
       if (!chart && plan.needChart && Array.isArray(result) && result.length > 1) {
-        chart = this.generateChartData(result, plan.chartType || 'bar', plan.chartTitle || question);
+        chart = this.generateChartData(result, plan.chartType || 'bar', plan.chartTitle || question, schemas);
       }
 
       // 4. 解读结果
@@ -1429,7 +1491,7 @@ ${schemaCompact}`
         result = queryResult.data;
 
         if (queryPlan.chartType && queryPlan.chartType !== 'none' && result && result.length > 1) {
-          chart = this.generateChartData(result, queryPlan.chartType as any, question);
+          chart = this.generateChartData(result, queryPlan.chartType as any, queryPlan.chartTitle || question, schemas);
         }
 
         const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext);
@@ -1445,7 +1507,8 @@ ${schemaCompact}`
 
       // 数据库类型：使用优化的 SQL 生成
       console.log('=== Using optimized SQL generation with context');
-      sql = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition);
+      const sqlPlan = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition);
+      sql = sqlPlan.sql;
       console.log('AI generated SQL:', sql);
 
       // 转义 MySQL 保留字
@@ -1462,7 +1525,7 @@ ${schemaCompact}`
 
       // 根据结果生成图表
       if (result && result.length > 1) {
-        chart = this.generateChartData(result, 'bar', question);
+        chart = this.generateChartData(result, (sqlPlan.chartType || 'bar') as any, sqlPlan.chartTitle || question, schemas);
       }
 
       // 解读结果（带 RAG 上下文）
@@ -1489,7 +1552,7 @@ ${schemaCompact}`
     history: ChatMessage[],
     schemaContext: string,
     additionalContext: string
-  ): Promise<{ sql: string; chartType?: string }> {
+  ): Promise<{ sql: string; chartType?: string; chartTitle?: string }> {
     await this.ensureInitialized();
 
     const response = await this.callWithRetry(() => this.openai.chat.completions.create({
@@ -1497,8 +1560,8 @@ ${schemaCompact}`
       messages: [
         {
           role: 'system',
-          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none"}
-规则:聚合查询按值DESC排序，LIMIT 20
+          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"简短标题"}
+规则:聚合查询优先(HAVING SUM > X)，按值DESC排序，LIMIT 20
 表结构:
 ${schemaContext}${additionalContext}`
         },
@@ -1528,7 +1591,7 @@ ${schemaContext}${additionalContext}`
     history: ChatMessage[],
     schemaContext: string,
     additionalContext: string
-  ): Promise<string> {
+  ): Promise<{ sql: string, chartTitle?: string, chartType?: string }> {
     await this.ensureInitialized();
 
     const recentContext = history.slice(-2).map(m => m.content.slice(0, 100)).join(';');
@@ -1538,8 +1601,8 @@ ${schemaContext}${additionalContext}`
       messages: [
         {
           role: 'system',
-          content: `SQL生成器(${dbType})。只返回SQL，无解释。
-规则:SELECT only,LIMIT 20,聚合按值DESC排序
+          content: `SQL生成器(${dbType})。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"业务标题"}
+规则:SELECT only,LIMIT 20,聚合按值DESC排序。业务标题应简洁且严禁包含横杠(-)。
 表结构:
 ${schemaContext}${additionalContext}`
         },
@@ -1548,8 +1611,22 @@ ${schemaContext}${additionalContext}`
       temperature: 0,
     }));
 
-    const sql = response.choices[0].message.content?.trim() || '';
-    return cleanSQL(sql);
+    const content = response.choices[0].message.content?.trim() || '{}';
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const json = JSON.parse(jsonMatch[0]);
+        return {
+          sql: cleanSQL(json.sql),
+          chartTitle: json.chartTitle,
+          chartType: json.chartType
+        };
+      }
+    } catch (e) {
+      console.error('Failed to parse AI SQL plan:', e);
+    }
+
+    return { sql: cleanSQL(content) };
   }
 
   // 带上下文的结果解读
@@ -1568,7 +1645,7 @@ ${schemaContext}${additionalContext}`
     const limitedResult = Array.isArray(result) ? result.slice(0, 10) : result;
     const resultStr = JSON.stringify(limitedResult);
 
-    let systemPrompt = `数据分析助手。用中文简洁回答，大数用中国习惯单位（万、亿、万亿），如8510700百万美元应说8.5万亿美元，英文地名翻译成中文。不要输出思考过程，直接给出结论。`;
+    let systemPrompt = `数据分析助手。用中文简洁回答，**严禁单位换算幻觉**：1000万是1千万，不是1亿。大数用习惯单位（万、亿）。直接给出结论。`;
     if (ragContext) {
       systemPrompt += `\n\n参考知识:\n${ragContext.slice(0, 300)}`;
     }
@@ -1594,7 +1671,39 @@ ${schemaContext}${additionalContext}`
   }
 
   // 生成图表数据
-  private generateChartData(data: any[], chartType: 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'none', title: string): ChartData | undefined {
+  // 获取中文字段名（从 schema 或映射）
+  private getChineseFieldName(fieldName: string, schemas?: TableSchema[]): string {
+    const lowerName = fieldName.toLowerCase();
+    // 处理带表名前缀的情况 (例如 country.Name -> Name)
+    const pureName = lowerName.includes('.') ? lowerName.split('.').pop()! : lowerName;
+
+    // 1. 尝试从 schema 中查找注释
+    if (schemas) {
+      for (const table of schemas) {
+        // 先尝试完整匹配，再尝试纯名称匹配
+        let col = table.columns.find(c => c.name.toLowerCase() === lowerName);
+        if (!col) col = table.columns.find(c => c.name.toLowerCase() === pureName);
+
+        if (col && col.comment) {
+          // 清理注释，移除 "(中文名)" 这种括号或特殊符号
+          return col.comment.replace(/\(.*\)/, '').replace(/（.*）/, '').trim();
+        }
+      }
+    }
+
+    // 2. 尝试从通用映射中查找
+    if (FIELD_NAME_MAP[pureName]) {
+      return FIELD_NAME_MAP[pureName];
+    }
+    if (FIELD_NAME_MAP[lowerName]) {
+      return FIELD_NAME_MAP[lowerName];
+    }
+
+    // 3. 返回原名（如果是英文且包含下划线，尝试美化一下）
+    return fieldName;
+  }
+
+  private generateChartData(data: any[], chartType: 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'none', title: string, schemas?: TableSchema[]): ChartData | undefined {
     if (!data || data.length === 0 || chartType === 'none') return undefined;
 
     const keys = Object.keys(data[0]);
@@ -1637,18 +1746,22 @@ ${schemaContext}${additionalContext}`
       }
     }
 
-    // 自动优化标题：如果标题包含疑问词或太长，尝试使用字段名生成标题
+    // 自动优化标题：如果标题包含疑问词、太长，或者看起来是原始问题，尝试使用字段名生成标题
     let finalTitle = title;
     const isQuestion = /[?？吗什么怎么如何]/.test(title);
-    if (isQuestion || title.length > 10) {
+    const isTooLong = title.length > 12;
+
+    if (isQuestion || isTooLong) {
       if (xField && yField) {
+        const cleanX = this.getChineseFieldName(xField, schemas);
         // 尝试移除字段名中的聚合函数包装
-        const cleanY = yField.replace(/^(sum|count|avg|max|min)\((.*)\)$/i, '$2').trim() || yField;
+        const rawY = yField.replace(/^(sum|count|avg|max|min)\((.*)\)$/i, '$2').trim() || yField;
+        const cleanY = this.getChineseFieldName(rawY, schemas);
 
         if (yField.toLowerCase().includes('count') || yField === 'total' || yField === 'count') {
-          finalTitle = `${xField} 分布统计`;
+          finalTitle = `${cleanX}分布`;
         } else {
-          finalTitle = `${xField} - ${cleanY} 统计`;
+          finalTitle = `${cleanX}${cleanY}统计`; // 去掉中间的横杠，更像中文标题
         }
       }
     }
