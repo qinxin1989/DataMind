@@ -326,6 +326,12 @@ export class AIAgent {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
+        // 关键修复：如果 openai 实例丢失，强制重新初始化
+        if (!this.openai) {
+          console.warn(`>>> AIAgent: openai 实例未定义，尝试执行 ensureInitialized...`);
+          await this.ensureInitialized();
+        }
+
         const result = await fn();
         // 记录 token 使用量（如果响应中包含 usage 信息）
         if (result && typeof result === 'object' && 'usage' in result) {
@@ -413,7 +419,13 @@ export class AIAgent {
       const cols = table.columns.map(c =>
         `  - ${c.name} (${c.type}${c.isPrimaryKey ? ', PK' : ''}${c.comment ? `, ${c.comment}` : ''})`
       ).join('\n');
-      return `表名: ${table.tableName}\n字段:\n${cols}`;
+
+      let sampleText = '';
+      if (table.sampleData && table.sampleData.length > 0) {
+        sampleText = `\n样例数据:\n${JSON.stringify(table.sampleData.slice(0, 3), null, 2)}`;
+      }
+
+      return `表名: ${table.tableName}\n字段:\n${cols}${sampleText}`;
     }).join('\n\n');
   }
 
@@ -462,79 +474,6 @@ export class AIAgent {
     }));
   }
 
-  // 使用 AI 来规划文件数据源的查询 - 支持多表JOIN
-  private async planFileQuery(
-    question: string,
-    schemas: TableSchema[],
-    history: ChatMessage[]
-  ): Promise<{ sql: string; chartType?: string; chartTitle?: string; explanation?: string }> {
-    await this.ensureInitialized();
-
-    // 结构化 schema：精简格式，包含所有表
-    const schemaCompact = schemas.map(t => {
-      const cols = t.columns.slice(0, 15).map(c => c.name).join(',');
-      return `${t.tableName}:${cols}`;
-    }).join('\n');
-
-    // 分析可能的关联字段
-    const tableNames = schemas.map(s => s.tableName);
-    const allColumns = schemas.flatMap(s => s.columns.map(c => ({ table: s.tableName, col: c.name })));
-
-    // 查找可能的关联字段（相同名称的字段）
-    const potentialJoinFields: string[] = [];
-    const colNameCount = new Map<string, string[]>();
-    for (const { table, col } of allColumns) {
-      const key = col.toLowerCase();
-      if (!colNameCount.has(key)) colNameCount.set(key, []);
-      colNameCount.get(key)!.push(table);
-    }
-    for (const [col, tables] of colNameCount) {
-      if (tables.length > 1) {
-        potentialJoinFields.push(`${col} 字段在 ${tables.join(', ')} 表中都存在，可用于JOIN`);
-      }
-    }
-
-    const joinHint = potentialJoinFields.length > 0
-      ? `\n可能的关联字段:\n${potentialJoinFields.slice(0, 5).join('\n')}`
-      : '';
-
-    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"简短标题"}
-**重要规则**:
-1. 如果问题是“哪些[类目][属性]超过[值]”，默认应理解为聚合总和超过该值(HAVING SUM(...) > 值)，除非指明是单个项。
-2. 数据源包含 ${tableNames.length} 个表: ${tableNames.join(', ')}
-3. 如果问题涉及多个表的数据，必须使用 JOIN 关联查询
-4. 聚合查询按值DESC排序，LIMIT 20
-5. 地址字段用SUBSTR提取省份
-${joinHint}
-
-表结构:
-${schemaCompact}`
-        },
-        { role: 'user', content: question }
-      ],
-      temperature: 0.1,
-    }));
-
-    const content = response.choices[0].message.content || '{}';
-    console.log('AI file query plan:', content);
-
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('Failed to parse AI query plan:', e);
-    }
-
-    // 默认返回统计总数
-    return { sql: `SELECT COUNT(*) as total FROM ${schemas[0]?.tableName || 'data'}`, chartType: 'none' };
-  }
 
   // 意图识别 - 使用 AI 规划 SQL 查询
   private async planAction(
@@ -844,42 +783,6 @@ ${schemaDesc}
     };
   }
 
-  // 生成SQL - 精简版，结构化提示词
-  private async generateSQL(
-    question: string,
-    schemas: TableSchema[],
-    dbType: string,
-    history: ChatMessage[]
-  ): Promise<string> {
-    await this.ensureInitialized();
-
-    // 结构化 schema：表名→字段列表（精简格式）
-    const schemaCompact = schemas.map(t => {
-      const cols = t.columns.slice(0, 15).map(c => `${c.name}:${c.type.split('(')[0]}`).join(',');
-      return `${t.tableName}(${cols})`;
-    }).join('\n');
-
-    // 只传递增量上下文（最近2轮的关键信息）
-    const recentContext = history.slice(-2).map(m => m.content.slice(0, 100)).join(';');
-
-    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content: `SQL生成器(${dbType})。只返回SQL，无解释。
-规则:SELECT only,LIMIT 20,对于类别特征的筛选优先使用聚合分析(SUM/COUNT + HAVING),聚合按值DESC排序
-表结构:
-${schemaCompact}`
-        },
-        { role: 'user', content: recentContext ? `上文:${recentContext}\n问:${question}` : question }
-      ],
-      temperature: 0,
-    }));
-
-    const sql = response.choices[0].message.content?.trim() || '';
-    return cleanSQL(sql);
-  }
 
   // 检测地址类字段
   private detectAddressFields(schemas: TableSchema[]): string {
@@ -998,7 +901,8 @@ ${schemaCompact}`
     dbType: string,
     history: ChatMessage[],
     previousSql: string,
-    errorReason: string
+    errorReason: string,
+    noChart?: boolean
   ): Promise<string> {
     await this.ensureInitialized();
 
@@ -1056,25 +960,19 @@ ${schemaCompact}`
     return '你好！我是数据分析助手。请问有什么数据相关的问题需要帮忙吗？';
   }
 
-  private async explainResult(
-    question: string,
-    result: any,
-    history: ChatMessage[]
-  ): Promise<string> {
+  /**
+   * AI 翻译功能：将图表中的标签批量翻译为中文
+   */
+  async translate(texts: string[]): Promise<Record<string, string>> {
     await this.ensureInitialized();
 
-    // 如果结果为空或没有数据
-    if (!result || (Array.isArray(result) && result.length === 0)) {
-      console.log('explainResult: No data in result');
-      return '数据库中没有相关数据';
-    }
+    if (!texts || texts.length === 0) return {};
 
-    // 限制结果大小，避免 token 过多
-    const limitedResult = Array.isArray(result) ? result.slice(0, 10) : result;
-    const resultStr = JSON.stringify(limitedResult);
+    // 过滤掉纯数字或已存在的中文（简单判断）
+    const toTranslate = Array.from(new Set(texts.filter(t => /[a-zA-Z]/.test(t))));
+    if (toTranslate.length === 0) return {};
 
-    console.log('explainResult: Calling AI to explain result...');
-    console.log('explainResult: Result data:', resultStr.substring(0, 200));
+    console.log(`>>> AI 翻译请求: ${toTranslate.length} 个文本`);
 
     try {
       const response = await this.callWithRetry(() => this.openai.chat.completions.create({
@@ -1082,39 +980,36 @@ ${schemaCompact}`
         messages: [
           {
             role: 'system',
-            content: `数据分析助手。用中文简洁回答，严禁幻觉，**大数换算必须精确**：
-- 1,000,000 = 100万
-- 10,000,000 = 1000万 (1千万)，绝对不是1亿
-- 100,000,000 = 1亿
-大数用中国习惯单位（万、亿、万亿）。英文地名翻译成中文。直接给出结论，不要输出思考过程。`
+            content: `你是一个数据翻译专家。输入一系列数据标签（JSON数组），将其翻译为简洁、准确的中文。保留专有名词（如ID或特殊缩写），地名转换成常用中文名。
+只返回JSON对象，Key为原词，Value为翻译词。`
           },
           {
             role: 'user',
-            content: `问题:${question}\n结果:${resultStr}`
+            content: JSON.stringify(toTranslate)
           }
         ],
-        temperature: 0.3,
+        temperature: 0,
+        response_format: { type: 'json_object' }
       }));
 
-      const explanation = response.choices[0].message.content || '无法解读结果';
-      console.log('explainResult: AI explanation:', explanation);
-      return explanation;
+      const content = response.choices[0].message.content || '{}';
+      const mapping = JSON.parse(content);
+      console.log(`>>> AI 翻译成功: 获得 ${Object.keys(mapping).length} 个映射`);
+      return mapping;
     } catch (error: any) {
-      console.error('explainResult: AI call failed:', error.message);
-      // 如果AI调用失败，返回原始数据的简单描述
-      if (Array.isArray(result) && result.length > 0) {
-        return `查询成功，共返回 ${result.length} 条数据。`;
-      }
-      return '查询成功，但无法生成详细说明。';
+      console.error('AI 翻译失败:', error.message);
+      return {};
     }
   }
+
 
   // 主入口：智能问答
   async answer(
     question: string,
     dataSource: BaseDataSource,
     dbType: string,
-    history: ChatMessage[] = []
+    history: ChatMessage[] = [],
+    noChart?: boolean
   ): Promise<AgentResponse> {
     // 重置 token 计数
     this.lastRequestTokens = 0;
@@ -1187,7 +1082,7 @@ ${schemaCompact}`
         }
 
         // 返回图表数据
-        const charts = report.charts?.map(c => ({
+        const charts = (!noChart && report.charts) ? report.charts.map(c => ({
           type: c.type,
           title: c.title,
           data: c.data,
@@ -1197,7 +1092,7 @@ ${schemaCompact}`
             xField: c.labelField,
             yField: c.valueField
           }
-        })) || [];
+        })) : [];
 
         return {
           answer,
@@ -1217,7 +1112,7 @@ ${schemaCompact}`
       // 对于文件类型，使用 AI 来规划查询
       if (dbType === 'file') {
         console.log('=== Using AI planning for file datasource');
-        const queryPlan = await this.planFileQuery(question, schemas, history);
+        const queryPlan = await this.planFileQuery(question, schemas, history, noChart);
         const internalSql = queryPlan.sql;
         console.log('AI generated query:', internalSql);
 
@@ -1232,13 +1127,13 @@ ${schemaCompact}`
         result = queryResult.data;
 
         // 生成图表（至少2条数据才有意义）
-        if (queryPlan.chartType && queryPlan.chartType !== 'none' && result && result.length > 1) {
+        if (queryPlan.chartType && queryPlan.chartType !== 'none' && result && result.length > 1 && !noChart) {
           chart = this.generateChartData(result, queryPlan.chartType as any, queryPlan.chartTitle || question, schemas);
           console.log('Generated chart:', chart ? 'yes' : 'no', 'data rows:', result.length);
         }
 
         // 解读结果
-        const explanation = await this.explainResult(question, result, history);
+        const explanation = await this.explainResult(question, result, history, noChart);
 
         // 文件类型不返回 SQL
         return {
@@ -1287,7 +1182,7 @@ ${schemaCompact}`
       if (plan.type === 'sql') {
         // 使用 AI 生成 SQL 查询
         console.log('=== Using AI to generate SQL');
-        sql = await this.generateSQL(question, schemas, dbType, history);
+        sql = await this.generateSQL(question, schemas, dbType, history, noChart);
         console.log('AI generated SQL:', sql);
 
         // 转义 MySQL 保留字
@@ -1309,7 +1204,7 @@ ${schemaCompact}`
           console.log('Regenerating SQL with correction...');
 
           // 重新生成 SQL，带上错误提示
-          sql = await this.regenerateSQL(question, schemas, dbType, history, sql, validation.reason);
+          sql = await this.regenerateSQL(question, schemas, dbType, history, sql || '', validation.reason, noChart);
           console.log('Corrected SQL:', sql);
 
           // 转义保留字
@@ -1321,7 +1216,7 @@ ${schemaCompact}`
         }
 
         // 根据结果生成图表
-        if (result && result.length > 1) {
+        if (result && result.length > 1 && !noChart) {
           chart = this.generateChartData(result, 'bar', plan.chartTitle || question, schemas);
         }
       }
@@ -1341,7 +1236,7 @@ ${schemaCompact}`
             skillUsed = plan.name;
 
             // 如果技能返回了可视化配置，生成图表
-            if (skillResult.visualization) {
+            if (skillResult.visualization && !noChart) {
               chart = {
                 type: skillResult.visualization.type as any,
                 title: skillResult.visualization.title || question.slice(0, 30),
@@ -1365,7 +1260,7 @@ ${schemaCompact}`
         } else {
           // 技能不存在，回退到简单SQL
           console.log('Skill not found, falling back to SQL');
-          sql = await this.generateSQL(question, schemas, dbType, history);
+          sql = await this.generateSQL(question, schemas, dbType, history, noChart);
           const escapedSql = escapeReservedWords(sql, dbType);
           const queryResult = await dataSource.executeQuery(escapedSql);
           if (!queryResult.success) {
@@ -1384,12 +1279,12 @@ ${schemaCompact}`
       }
 
       // 3. 生成图表（如果技能没有生成且需要图表）
-      if (!chart && plan.needChart && Array.isArray(result) && result.length > 1) {
+      if (!chart && plan.needChart && Array.isArray(result) && result.length > 1 && !noChart) {
         chart = this.generateChartData(result, plan.chartType || 'bar', plan.chartTitle || question, schemas);
       }
 
       // 4. 解读结果
-      const explanation = await this.explainResult(question, result, history);
+      const explanation = await this.explainResult(question, result, history, noChart);
 
       return {
         answer: prefixNote + explanation,
@@ -1415,6 +1310,7 @@ ${schemaCompact}`
     context?: {
       schemaContext?: string;  // 预处理的 schema 上下文（中文名称）
       ragContext?: string;     // RAG 知识库上下文
+      noChart?: boolean;       // 是否禁用图表
     }
   ): Promise<AgentResponse> {
     // 重置 token 计数
@@ -1456,7 +1352,7 @@ ${schemaCompact}`
 
       if (needComprehensiveAnalysis) {
         // 综合分析使用原有逻辑
-        return this.answer(question, dataSource, dbType, history);
+        return this.answer(question, dataSource, dbType, history, context?.noChart);
       }
 
       let result: any;
@@ -1477,7 +1373,7 @@ ${schemaCompact}`
       // 对于文件类型，使用 AI 来规划查询
       if (dbType === 'file') {
         console.log('=== Using AI planning for file datasource (with context)');
-        const queryPlan = await this.planFileQueryWithContext(question, schemas, history, schemaForAI, systemPromptAddition);
+        const queryPlan = await this.planFileQueryWithContext(question, schemas, history, schemaForAI, systemPromptAddition, context?.noChart);
         const internalSql = queryPlan.sql;
         console.log('AI generated query:', internalSql);
 
@@ -1490,11 +1386,11 @@ ${schemaCompact}`
 
         result = queryResult.data;
 
-        if (queryPlan.chartType && queryPlan.chartType !== 'none' && result && result.length > 1) {
+        if (queryPlan.chartType && queryPlan.chartType !== 'none' && result && result.length > 1 && !context?.noChart) {
           chart = this.generateChartData(result, queryPlan.chartType as any, queryPlan.chartTitle || question, schemas);
         }
 
-        const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext);
+        const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext, context?.noChart);
 
         return {
           answer: explanation,
@@ -1507,12 +1403,12 @@ ${schemaCompact}`
 
       // 数据库类型：使用优化的 SQL 生成
       console.log('=== Using optimized SQL generation with context');
-      const sqlPlan = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition);
+      const sqlPlan = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition, context?.noChart);
       sql = sqlPlan.sql;
       console.log('AI generated SQL:', sql);
 
       // 转义 MySQL 保留字
-      const escapedSql = escapeReservedWords(sql, dbType);
+      const escapedSql = escapeReservedWords(sql || '', dbType);
       if (escapedSql !== sql) {
         console.log('Escaped SQL:', escapedSql);
       }
@@ -1524,12 +1420,12 @@ ${schemaCompact}`
       result = queryResult.data;
 
       // 根据结果生成图表
-      if (result && result.length > 1) {
+      if (result && result.length > 1 && !context?.noChart) {
         chart = this.generateChartData(result, (sqlPlan.chartType || 'bar') as any, sqlPlan.chartTitle || question, schemas);
       }
 
       // 解读结果（带 RAG 上下文）
-      const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext);
+      const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext, context?.noChart);
 
       return {
         answer: explanation,
@@ -1545,44 +1441,6 @@ ${schemaCompact}`
     }
   }
 
-  // 带上下文的文件查询规划
-  private async planFileQueryWithContext(
-    question: string,
-    schemas: TableSchema[],
-    history: ChatMessage[],
-    schemaContext: string,
-    additionalContext: string
-  ): Promise<{ sql: string; chartType?: string; chartTitle?: string }> {
-    await this.ensureInitialized();
-
-    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"简短标题"}
-规则:聚合查询优先(HAVING SUM > X)，按值DESC排序，LIMIT 20
-表结构:
-${schemaContext}${additionalContext}`
-        },
-        { role: 'user', content: question }
-      ],
-      temperature: 0.1,
-    }));
-
-    const content = response.choices[0].message.content || '{}';
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('Failed to parse AI query plan:', e);
-    }
-
-    return { sql: `SELECT COUNT(*) as total FROM ${schemas[0]?.tableName || 'data'}`, chartType: 'none' };
-  }
-
   // 带上下文的 SQL 生成
   private async generateSQLWithContext(
     question: string,
@@ -1590,7 +1448,8 @@ ${schemaContext}${additionalContext}`
     dbType: string,
     history: ChatMessage[],
     schemaContext: string,
-    additionalContext: string
+    additionalContext: string,
+    noChart?: boolean
   ): Promise<{ sql: string, chartTitle?: string, chartType?: string }> {
     await this.ensureInitialized();
 
@@ -1602,7 +1461,9 @@ ${schemaContext}${additionalContext}`
         {
           role: 'system',
           content: `SQL生成器(${dbType})。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"业务标题"}
-规则:SELECT only,LIMIT 20,聚合按值DESC排序。业务标题应简洁且严禁包含横杠(-)。
+规则:SELECT only,LIMIT 20,聚合按值DESC排序。业务标题简洁禁止横杠。
+规则:必须仔细观察表结构中每个表的sampleRows/sampleData，根据样例确定字段值(比如IsOfficial是'T'还是'Official')，不要猜！
+${noChart ? '注意:当前处于无图模式，请务必将"chartType"设置为"none"，不要生成图表。' : ''}
 表结构:
 ${schemaContext}${additionalContext}`
         },
@@ -1634,7 +1495,8 @@ ${schemaContext}${additionalContext}`
     question: string,
     result: any,
     history: ChatMessage[],
-    ragContext?: string
+    ragContext?: string,
+    noChart?: boolean
   ): Promise<string> {
     await this.ensureInitialized();
 
@@ -1644,10 +1506,12 @@ ${schemaContext}${additionalContext}`
 
     const limitedResult = Array.isArray(result) ? result.slice(0, 10) : result;
     const resultStr = JSON.stringify(limitedResult);
-
     let systemPrompt = `数据分析助手。用中文简洁回答，**严禁单位换算幻觉**：1000万是1千万，不是1亿。大数用习惯单位（万、亿）。直接给出结论。`;
     if (ragContext) {
       systemPrompt += `\n\n参考知识:\n${ragContext.slice(0, 300)}`;
+    }
+    if (noChart) {
+      systemPrompt += `\n注意:当前为无图模式，请不要在回复中提及任何图表、图形或可视化内容。`;
     }
 
     try {
@@ -1668,6 +1532,81 @@ ${schemaContext}${additionalContext}`
       }
       return '查询成功，但无法生成详细说明。';
     }
+  }
+
+  // 带上下文的文件查询规划
+  private async planFileQueryWithContext(
+    question: string,
+    schemas: TableSchema[],
+    history: ChatMessage[],
+    schemaContext: string,
+    additionalContext: string,
+    noChart?: boolean
+  ): Promise<{ sql: string; chartType?: string; chartTitle?: string }> {
+    await this.ensureInitialized();
+
+    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"简短标题"}
+规则:聚合查询优先(HAVING SUM > X)，按值DESC排序，LIMIT 20
+注意:必须检查表结构中的sampleData以确定字段真实取值(如'T'/'F'与'Official')，严禁猜测。
+${noChart ? '注意:用户开启了无图模式，请将"chartType"设置为"none"且不要生成图表标题。' : ''}
+表结构:
+${schemaContext}${additionalContext}`
+        },
+        { role: 'user', content: question }
+      ],
+      temperature: 0.1,
+    }));
+
+    const content = response.choices[0].message.content || '{}';
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error('Failed to parse AI query plan:', e);
+    }
+
+    return { sql: `SELECT COUNT(*) as total FROM ${schemas[0]?.tableName || 'data'}`, chartType: 'none' };
+  }
+
+  // 不带上下文的文件查询规划 (调用带上下文的版本)
+  private async planFileQuery(
+    question: string,
+    schemas: TableSchema[],
+    history: ChatMessage[],
+    noChart?: boolean
+  ): Promise<{ sql: string; chartType?: string; chartTitle?: string }> {
+    const schemaContext = this.formatSchemaForAI(schemas);
+    return this.planFileQueryWithContext(question, schemas, history, schemaContext, '', noChart);
+  }
+
+  // 不带上下文的 SQL 生成 (调用带上下文的版本)
+  private async generateSQL(
+    question: string,
+    schemas: TableSchema[],
+    dbType: string,
+    history: ChatMessage[],
+    noChart?: boolean
+  ): Promise<string> {
+    const schemaContext = this.formatSchemaForAI(schemas);
+    const result = await this.generateSQLWithContext(question, schemas, dbType, history, schemaContext, '', noChart);
+    return result.sql;
+  }
+
+  // 不带上下文的结果解读 (调用带上下文的版本)
+  private async explainResult(
+    question: string,
+    result: any,
+    history: ChatMessage[],
+    noChart?: boolean
+  ): Promise<string> {
+    return this.explainResultWithContext(question, result, history, undefined, noChart);
   }
 
   // 生成图表数据
@@ -1784,10 +1723,16 @@ ${schemaContext}${additionalContext}`
       const topItems = sortedData.slice(0, maxItems - 1);
       const otherItems = sortedData.slice(maxItems - 1);
 
-      // 判断是否是平均值类的数据（通过字段名或标题判断）
+      // 判断是否是平均值或比例类的数据（通过字段名或标题判断），这类数据聚合时应使用平均值而非求和
       const isAverage = yField.toLowerCase().includes('avg') ||
+        yField.toLowerCase().includes('rate') ||
+        yField.toLowerCase().includes('percentage') ||
+        yField.toLowerCase().includes('ratio') ||
         title.includes('平均') ||
-        title.includes('均值');
+        title.includes('均值') ||
+        title.includes('比例') ||
+        title.includes('占比') ||
+        title.includes('率');
 
       let otherValue: number;
       if (isAverage) {

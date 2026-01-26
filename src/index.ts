@@ -1015,13 +1015,27 @@ app.delete('/api/datasource/:id', authMiddleware, async (req, res) => {
   res.json({ message: '已删除' });
 });
 
+// AI 翻译 API
+app.post('/api/ai/translate', authMiddleware, async (req, res) => {
+  try {
+    const { texts } = req.body;
+    if (!texts || !Array.isArray(texts)) {
+      return res.status(400).json({ error: 'texts must be an array' });
+    }
+    const mapping = await aiAgent.translate(texts);
+    res.json(mapping);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 自然语言问答（带会话上下文）
 app.post('/api/ask', authMiddleware, async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: '未认证' });
   }
 
-  const { datasourceId, question, sessionId } = req.body;
+  const { datasourceId, question, sessionId, noChart } = req.body;
 
   if (!question) {
     return res.status(400).json({ error: '请提供问题' });
@@ -1049,7 +1063,7 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
     }
 
     // 调用AI Agent（传入历史消息）
-    const response = await aiAgent.answer(question, ds.instance, ds.config.type, session.messages);
+    const response = await aiAgent.answer(question, ds.instance, ds.config.type, session.messages, noChart);
 
     console.log('=== AI Response ===');
     console.log('answer:', response.answer);

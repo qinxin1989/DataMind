@@ -47,6 +47,7 @@
               <a-col :span="12">
                 <a-form-item label="目标格式">
                   <a-select v-model:value="targetFormat" placeholder="选择目标格式">
+                    <a-select-option v-if="sourceFormat === 'pdf'" value="txt">纯文本 (.txt)</a-select-option>
                     <a-select-option v-if="sourceFormat !== 'pdf'" value="pdf">PDF</a-select-option>
                     <a-select-option v-if="sourceFormat === 'pdf'" value="word">Word</a-select-option>
                     <a-select-option v-if="sourceFormat === 'pdf'" value="excel">Excel</a-select-option>
@@ -54,6 +55,7 @@
                     <a-select-option v-if="sourceFormat === 'word'" value="txt">纯文本</a-select-option>
                   </a-select>
                 </a-form-item>
+
               </a-col>
             </a-row>
           </a-form>
@@ -102,7 +104,7 @@
         <div v-if="resultUrl" class="result" style="margin-top: 16px;">
           <a-alert type="success" message="处理完成！" show-icon>
             <template #description>
-              <a :href="resultUrl" download>点击下载结果文件</a>
+              <a :href="resultUrl" :download="resultFileName">点击下载结果文件</a>
             </template>
           </a-alert>
         </div>
@@ -125,6 +127,7 @@ const selectedToolName = ref('')
 const fileList = ref<any[]>([])
 const processing = ref(false)
 const resultUrl = ref('')
+const resultFileName = ref('')
 
 // 格式转换相关
 const sourceFormat = ref('word')
@@ -133,11 +136,12 @@ const targetFormat = ref('pdf')
 // 监听源格式变化，自动调整目标格式
 watch(sourceFormat, (newVal) => {
   if (newVal === 'pdf') {
-    targetFormat.value = 'word'
+    targetFormat.value = 'txt'
   } else {
     targetFormat.value = 'pdf'
   }
 })
+
 
 function handleToolClick(tool: string) {
   selectedTool.value = tool
@@ -209,22 +213,29 @@ async function processFiles() {
       body: formData
     })
 
-    if (!response.ok) throw new Error('转换失败')
+    const data = await response.json()
+    if (!data.success) throw new Error(data.error || '转换失败')
 
-    const blob = await response.blob()
-    const url = window.URL.createObjectURL(blob)
-    resultUrl.value = url
+    // 重构 2.0：使用伪静态路径，将文件名直接作为 URL 的一部分
+    // 这样即使 Header 失效，浏览器也会根据 URL 结尾识别出正确的文件名和扩展名
+    const downloadUrl = `/api/tools/file/download/${data.fileId}/${encodeURIComponent(data.safeName)}?token=${localStorage.getItem('token')}`
+
     
-    // 自动触发下载
+    // 手动触发下载链接，确保浏览器识别
     const link = document.createElement('a')
-    link.href = url
-    const timestamp = new Date().getTime()
-    link.download = `converted_${timestamp}.${targetFormat.value === 'word' ? 'docx' : (targetFormat.value === 'excel' ? 'xlsx' : targetFormat.value)}`
+    link.href = downloadUrl
+    // 尽管后端有 Content-Disposition，前端设置 download 作为双保险
+    link.download = data.safeName
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     
-    message.success('处理完成并已启动下载！')
+    // 更新状态，允许手动下载
+    resultUrl.value = downloadUrl
+    resultFileName.value = data.safeName
+    
+    message.success('处理完成并已启动原生下载！')
+
   } catch (error: any) {
     message.error(error.message || '处理过程中出现错误')
   } finally {

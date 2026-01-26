@@ -50,6 +50,9 @@
             <a-button type="link" size="small" @click="handleEdit(record)">
               编辑
             </a-button>
+            <a-button type="link" size="small" @click="handleManageFields(record)">
+              字段管理
+            </a-button>
             <a-dropdown>
               <a-button type="link" size="small">
                 更多 <DownOutlined />
@@ -163,16 +166,76 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 字段管理弹窗 -->
+    <a-modal
+      v-model:open="fieldModalVisible"
+      title="字段映射管理"
+      width="900px"
+      @ok="handleFieldModalOk"
+      :confirmLoading="fieldModalLoading"
+    >
+      <div style="margin-bottom: 16px;">
+        <a-space>
+          <a-button type="primary" ghost @click="suggestFieldsWithAI" :loading="suggestLoading">
+            <template #icon><RobotOutlined /></template>
+            AI 自动匹配映射
+          </a-button>
+          <a-button @click="showImportModal = true">批量导入 (文本)</a-button>
+        </a-space>
+        <div style="margin-top: 8px;">
+          <a-alert message="提示：AI 生成的建议会标记为蓝色背景，点击保存后生效。" type="info" show-icon />
+        </div>
+      </div>
+
+      <a-table 
+        :columns="fieldColumns" 
+        :data-source="flattenedColumns" 
+        size="small"
+        :pagination="false"
+        :scroll="{ y: 400 }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'nameCn'">
+            <a-input 
+              v-model:value="record.nameCn" 
+              placeholder="显示名称" 
+              :class="{ 'ai-suggested': record.isSuggested }"
+            />
+          </template>
+          <template v-else-if="column.key === 'description'">
+            <a-input v-model:value="record.description" placeholder="字段描述" />
+          </template>
+          <template v-else-if="column.key === 'tableName'">
+             <a-tag color="cyan">{{ record.tableName }}</a-tag>
+          </template>
+        </template>
+      </a-table>
+    </a-modal>
+
+    <!-- 批量导入弹窗 -->
+    <a-modal
+      v-model:open="showImportModal"
+      title="批量导入字段映射"
+      @ok="handleImport"
+    >
+      <div style="margin-bottom: 8px; color: #666;">格式：字段名,中文名称 (每行一个)</div>
+      <a-textarea 
+        v-model:value="importText" 
+        :rows="10" 
+        placeholder="例如:&#10;user_id,用户ID&#10;create_time,创建时间" 
+      />
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, DownOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, DownOutlined, InboxOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { datasourceApi } from '@/api/datasource'
+import { get, post } from '@/api/request'
 import type { DatasourceVisibility, ApprovalStatus } from '@/types'
-import type { UploadProps } from 'ant-design-vue'
 
 interface DatasourceItem {
   id: string
@@ -192,6 +255,23 @@ const editingDs = ref<DatasourceItem | null>(null)
 const formRef = ref()
 const filterVisibility = ref<DatasourceVisibility | undefined>(undefined)
 const fileList = ref<any[]>([])
+
+// 字段管理相关
+const fieldModalVisible = ref(false)
+const fieldModalLoading = ref(false)
+const suggestLoading = ref(false)
+const currentAnalysis = ref<any>(null)
+const flattenedColumns = ref<any[]>([])
+const fieldColumns = [
+  { title: '所属表', key: 'tableName', width: 120 },
+  { title: '字段原名', dataIndex: 'name', width: 150 },
+  { title: '类型', dataIndex: 'type', width: 100 },
+  { title: '显示中文名', key: 'nameCn', width: 220 },
+  { title: '详细描述', key: 'description' },
+]
+
+const showImportModal = ref(false)
+const importText = ref('')
 
 // 文件类型判断
 const structuredFileTypes = ['structured']
@@ -342,10 +422,9 @@ async function handleEdit(record: DatasourceItem) {
   
   // 获取完整的数据源信息（包括密码）
   try {
-    const detail = await datasourceApi.getById(record.id)
-    console.log('=== 数据源详情 ===', detail)
-    console.log('config:', detail.config)
-    console.log('password:', detail.config?.password)
+    const res = await datasourceApi.getById(record.id)
+    const detail = res.data as any
+    if (!detail) return
     
     Object.assign(formState, { 
       name: detail.name, 
@@ -448,7 +527,7 @@ async function handleTest(record: DatasourceItem) {
     if (res.data?.success) {
       message.success('连接成功')
     } else {
-      message.error(res.data?.error || '连接失败')
+      message.error(String(res.data?.error || '连接失败'))
     }
   } catch (error: any) {
     message.error(error.message || '连接测试失败')
@@ -479,6 +558,120 @@ async function handleToggleVisibility(record: DatasourceItem) {
     }
   })
 }
+async function handleManageFields(record: DatasourceItem) {
+  loading.value = true
+  editingDs.value = record
+  try {
+    // 获取当前分析结果
+    const res = await get<any>(`/datasource/${record.id}/schema/analyze`)
+    currentAnalysis.value = res.data || res
+    
+    // 展平列以便在表格中展示
+    prepareFlattenedColumns()
+    
+    fieldModalVisible.value = true
+  } catch (error) {
+    message.error('加载字段映射失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+function prepareFlattenedColumns() {
+  const result: any[] = []
+  if (currentAnalysis.value?.tables) {
+    currentAnalysis.value.tables.forEach((t: any) => {
+      t.columns.forEach((c: any) => {
+        result.push({
+          ...c,
+          tableName: t.tableName,
+          key: `${t.tableName}.${c.name}`
+        })
+      })
+    })
+  }
+  flattenedColumns.value = result
+}
+
+async function suggestFieldsWithAI() {
+  if (!editingDs.value) return
+  suggestLoading.value = true
+  try {
+    const res = await post<any>(`/datasource/${editingDs.value.id}/schema/analysis/suggest`, {})
+    const analysis = res.data || res
+    
+    // 将建议更新到现有的展开列中，并标记为已建议
+    flattenedColumns.value.forEach(col => {
+      const table = analysis.tables?.find((t: any) => t.tableName === col.tableName)
+      const field = table?.columns?.find((f: any) => f.name === col.name)
+      if (field) {
+        col.nameCn = field.nameCn
+        col.description = field.description
+        col.isSuggested = true
+      }
+    })
+    message.success('AI 建议已生成，请核对并保存')
+  } catch (error) {
+    message.error('AI 分析失败')
+  } finally {
+    suggestLoading.value = false
+  }
+}
+
+function handleImport() {
+  if (!importText.value) return
+  const lines = importText.value.split('\n')
+  let count = 0
+  lines.forEach(line => {
+    const [name, nameCn] = line.split(',').map(s => s.trim())
+    if (name && nameCn) {
+      // 在当前展示的列中寻找匹配点（模糊匹配，可以匹配多个表中的同名字段）
+      flattenedColumns.value.forEach(col => {
+        if (col.name === name) {
+          col.nameCn = nameCn
+          count++
+        }
+      })
+    }
+  })
+  message.success(`成功导入 ${count} 个映射项`)
+  showImportModal.value = false
+  importText.value = ''
+}
+
+async function handleFieldModalOk() {
+  if (!editingDs.value) return
+  fieldModalLoading.value = true
+  try {
+    // 重新构建 tables 结构以满足后端 API
+    const tables: any[] = []
+    const analysis = currentAnalysis.value
+    
+    analysis.tables.forEach((t: any) => {
+      const tableColumns = flattenedColumns.value.filter(c => c.tableName === t.tableName)
+      tables.push({
+        ...t,
+        columns: tableColumns.map(c => ({
+          name: c.name,
+          type: c.type,
+          nameCn: c.nameCn,
+          description: c.description
+        }))
+      })
+    })
+
+    await post(`/datasource/${editingDs.value.id}/schema/analysis/save`, {
+      tables,
+      suggestedQuestions: currentAnalysis.value.suggestedQuestions
+    })
+    message.success('字段映射保存成功')
+    fieldModalVisible.value = false
+  } catch (error) {
+    message.error('保存失败')
+  } finally {
+    fieldModalLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -504,5 +697,14 @@ async function handleToggleVisibility(record: DatasourceItem) {
   margin-top: 8px;
   color: #888;
   font-size: 12px;
+}
+
+:deep(.ai-suggested) {
+  background-color: #e6f7ff !important;
+  border-color: #91d5ff !important;
+}
+
+:deep(.ai-suggested input) {
+  background-color: #e6f7ff !important;
 }
 </style>
