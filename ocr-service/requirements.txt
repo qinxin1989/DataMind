@@ -1,4 +1,4 @@
-paddlepaddle-gpu==2.6.0
+paddlepaddle==2.6.2
 paddleocr==2.7.3
 flask==3.0.0
 flask-cors==4.0.0

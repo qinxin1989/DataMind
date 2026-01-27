@@ -27,8 +27,8 @@ export class AIConfigService {
     await pool.execute(
       `INSERT INTO sys_ai_configs (id, name, provider, model, api_key, base_url, is_default, status, priority)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, data.name, data.provider, data.model, encryptedApiKey, data.baseUrl || null, 
-       data.isDefault || false, data.status || 'active', nextPriority]
+      [id, data.name, data.provider, data.model, encryptedApiKey, data.baseUrl || null,
+        data.isDefault || false, data.status || 'active', nextPriority]
     );
 
     return this.getConfigById(id) as Promise<AIConfig>;
@@ -50,11 +50,13 @@ export class AIConfigService {
     if (data.provider !== undefined) { updates.push('provider = ?'); values.push(data.provider); }
     if (data.model !== undefined) { updates.push('model = ?'); values.push(data.model); }
     // API Key 只有在非空时才更新（空字符串表示不修改），并加密
-    if (data.apiKey !== undefined && data.apiKey !== '') { 
-      updates.push('api_key = ?'); 
-      values.push(encrypt(data.apiKey)); 
+    if (data.apiKey !== undefined && data.apiKey !== '') {
+      updates.push('api_key = ?');
+      values.push(encrypt(data.apiKey));
     }
-    if (data.baseUrl !== undefined) { updates.push('base_url = ?'); values.push(data.baseUrl); }
+    // 兼容前端发送的 apiEndpoint 和后端的 baseUrl
+    const finalBaseUrl = data.baseUrl !== undefined ? data.baseUrl : data.apiEndpoint;
+    if (finalBaseUrl !== undefined) { updates.push('base_url = ?'); values.push(finalBaseUrl); }
     if (data.isDefault !== undefined) { updates.push('is_default = ?'); values.push(data.isDefault); }
     if (data.status !== undefined) { updates.push('status = ?'); values.push(data.status); }
 
@@ -178,7 +180,7 @@ export const aiConfigService = {
   setDefaultConfig: service.setDefaultConfig.bind(service),
   getActiveConfigsByPriority: service.getActiveConfigsByPriority.bind(service),
   updatePriorities: service.updatePriorities.bind(service),
-  
+
   // AI QA 服务使用的方法
   getDefaultProvider: async () => {
     const config = await service.getDefaultConfig();
@@ -193,7 +195,7 @@ export const aiConfigService = {
       status: config.status,
     };
   },
-  
+
   // 路由使用的别名方法
   getProviderConfigs: service.getAllConfigs.bind(service),
   getProviderConfigById: service.getConfigById.bind(service),
@@ -211,7 +213,7 @@ export const aiConfigService = {
   updateProviderConfig: service.updateConfig.bind(service),
   deleteProviderConfig: service.deleteConfig.bind(service),
   setDefaultProvider: service.setDefaultConfig.bind(service),
-  
+
   // 验证 API Key - 真正调用 API 测试
   validateApiKey: async (provider: string, apiKey: string, apiEndpoint?: string, model?: string) => {
     // 基本格式验证
@@ -229,7 +231,7 @@ export const aiConfigService = {
     };
 
     const baseURL = apiEndpoint || endpoints[provider];
-    
+
     // 默认模型
     const defaultModels: Record<string, string> = {
       qwen: 'qwen-plus',
@@ -249,7 +251,7 @@ export const aiConfigService = {
 
       // 使用用户指定的模型，如果没有则使用默认模型
       const modelToUse = model || defaultModels[provider] || 'gpt-3.5-turbo';
-      
+
       await openai.chat.completions.create({
         model: modelToUse,
         messages: [{ role: 'user', content: 'Hi' }],
@@ -259,7 +261,7 @@ export const aiConfigService = {
       return { valid: true, message: '验证成功' };
     } catch (error: any) {
       const msg = error.message || String(error);
-      
+
       if (msg.includes('401')) {
         return { valid: false, message: 'API Key 无效' };
       } else if (msg.includes('429')) {
@@ -270,7 +272,7 @@ export const aiConfigService = {
         // 模型不存在但 Key 有效
         return { valid: true, message: '验证成功（API Key 有效）' };
       }
-      
+
       return { valid: false, message: `验证失败: ${msg.substring(0, 100)}` };
     }
   },

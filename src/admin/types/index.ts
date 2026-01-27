@@ -287,6 +287,7 @@ export interface UpdateAIConfigRequest {
   model?: string;
   apiKey?: string;
   baseUrl?: string;
+  apiEndpoint?: string;
   isDefault?: boolean;
   status?: 'active' | 'inactive';
 }
@@ -402,8 +403,8 @@ export interface LogQueryParams {
 // ==================== 审计日志类型 ====================
 
 /** 审计操作类型 */
-export type AuditAction = 
-  | 'login' | 'logout' 
+export type AuditAction =
+  | 'login' | 'logout'
   | 'create' | 'read' | 'update' | 'delete'
   | 'export' | 'import'
   | 'grant_permission' | 'revoke_permission'
@@ -528,25 +529,25 @@ export const ErrorCodes = {
   AUTH_TOKEN_MISSING: 'AUTH_TOKEN_MISSING',
   AUTH_TOKEN_INVALID: 'AUTH_TOKEN_INVALID',
   AUTH_TOKEN_EXPIRED: 'AUTH_TOKEN_EXPIRED',
-  
+
   // 授权错误
   PERM_ACCESS_DENIED: 'PERM_ACCESS_DENIED',
-  
+
   // 验证错误
   VALID_PARAM_MISSING: 'VALID_PARAM_MISSING',
   VALID_PARAM_INVALID: 'VALID_PARAM_INVALID',
   VALID_PASSWORD_WEAK: 'VALID_PASSWORD_WEAK',
-  
+
   // 资源错误
   RES_NOT_FOUND: 'RES_NOT_FOUND',
   RES_ALREADY_EXISTS: 'RES_ALREADY_EXISTS',
-  
+
   // 业务错误
   BIZ_USERNAME_EXISTS: 'BIZ_USERNAME_EXISTS',
   BIZ_MODULE_DEPENDENCY_MISSING: 'BIZ_MODULE_DEPENDENCY_MISSING',
   BIZ_AI_KEY_INVALID: 'BIZ_AI_KEY_INVALID',
   BIZ_OPERATION_FAILED: 'BIZ_OPERATION_FAILED',
-  
+
   // 系统错误
   SYS_INTERNAL_ERROR: 'SYS_INTERNAL_ERROR',
   SYS_DATABASE_ERROR: 'SYS_DATABASE_ERROR',

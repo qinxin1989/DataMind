@@ -1461,7 +1461,8 @@ ${schemaDesc}
         {
           role: 'system',
           content: `SQL生成器(${dbType})。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"业务标题"}
-规则:SELECT only,LIMIT 20,聚合按值DESC排序。业务标题简洁禁止横杠。
+规则:SELECT only,默认LIMIT 20(除非是时间序列趋势分析,可根据需要增加LIMIT到100),聚合按值DESC排序。
+轴设计规则:X轴(xField)必须是维度/时间(如年份,名称),Y轴(yField)必须是数值(如数量,金额)。禁止反转!
 规则:必须仔细观察表结构中每个表的sampleRows/sampleData，根据样例确定字段值(比如IsOfficial是'T'还是'Official')，不要猜！
 ${noChart ? '注意:当前处于无图模式，请务必将"chartType"设置为"none"，不要生成图表。' : ''}
 表结构:
@@ -1651,11 +1652,27 @@ ${schemaContext}${additionalContext}`
     let xField = keys[0];
     let yField = keys[1];
 
+    // 常用维度/时间类关键词
+    const dimensionKeywords = ['year', 'month', 'date', 'day', 'time', '年份', '月份', '日期', '时间', 'indepyear', 'continent', 'region', 'name', 'type', 'category', '级别', '状态', '类型', '分类', '国家', '地区', '城市'];
+
     // 扫描前5行以确定字段类型
     const sampleRows = data.slice(0, 5);
 
-    // 找数值字段作为y轴
+    // 1. 尝试寻找明确的维度字段作为 X 轴 (即使它是数值型的，如年份)
+    let foundX = false;
     for (const key of keys) {
+      if (dimensionKeywords.some(k => key.toLowerCase().includes(k))) {
+        xField = key;
+        foundX = true;
+        break;
+      }
+    }
+
+    // 2. 找真正的数值字段作为 Y 轴
+    let foundY = false;
+    for (const key of keys) {
+      if (foundX && key === xField) continue;
+
       // 检查该字段在样本中是否大部分为数字
       const isNumeric = sampleRows.every(row => {
         const val = row[key];
@@ -1663,27 +1680,27 @@ ${schemaContext}${additionalContext}`
       });
 
       if (isNumeric) {
-        // 还要确认不是所有都是空的
         const hasValue = sampleRows.some(row => row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== '');
         if (hasValue) {
           yField = key;
-          break;
+          foundY = true;
+          // 如果这不是时间类字段，且没找到 X 轴，或者已经找到了 X 轴且它不是这个字段，那这就是好的 Y 轴
+          if (!dimensionKeywords.some(k => key.toLowerCase().includes(k))) {
+            break;
+          }
         }
       }
     }
 
-    // 如果没找到数值字段，尝试使用最后一列（通常是聚合结果）
-    if (!yField && keys.length > 0) {
-      yField = keys[keys.length - 1];
-    }
-
-    // 找非数值字段作为x轴
-    for (const key of keys) {
-      if (key !== yField) {
+    // 如果还没有合适的 X 轴（排除掉 Y 轴后找第一个非数值或者是第一个字段）
+    if (!foundX) {
+      for (const key of keys) {
+        if (key === yField) continue;
         xField = key;
         break;
       }
     }
+
 
     // 自动优化标题：如果标题包含疑问词、太长，或者看起来是原始问题，尝试使用字段名生成标题
     let finalTitle = title;
@@ -1706,8 +1723,14 @@ ${schemaContext}${additionalContext}`
     }
 
     // 按数值字段降序排序（除了折线图保持原顺序用于时间趋势）
+    // 按数值字段降序排序（除了折线图保持原顺序用于时间趋势，或者 X 轴本身就是维度/时间）
     let sortedData = [...data];
-    if (chartType !== 'line') {
+    // 判断 X 轴是否是时间/维度字段（已在前面 dimensionKeywords 定义）
+    const isDimensionX = dimensionKeywords.some(k => xField.toLowerCase().includes(k));
+
+    // 如果不是折线图，且 X 轴看起来不是时间维度，才按 Y 轴数值排序
+    // (因为如果是时间/年份字段，我们通常希望保持时间顺序，而不是按数值大小乱序)
+    if (chartType !== 'line' && !isDimensionX) {
       sortedData = sortedData.sort((a, b) => {
         const aVal = Number(a[yField]) || 0;
         const bVal = Number(b[yField]) || 0;

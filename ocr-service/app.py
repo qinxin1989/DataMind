@@ -18,7 +18,7 @@ app = Flask(__name__)
 CORS(app)
 
 # 初始化 PaddleOCR 3.x
-ocr = PaddleOCR(lang='ch')
+ocr = PaddleOCR(lang='ch', use_gpu=False)
 print("PaddleOCR 初始化完成")
 
 

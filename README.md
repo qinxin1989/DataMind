@@ -58,19 +58,40 @@ AI 自动设计并生成可视化大屏，支持多种图表类型和主题风�
 
 ## 快速开始
 
+### 1. 核心服务 (Backend)
+
 ```bash
 # 安装依赖
 npm install
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env 填入 OpenAI API Key
+# 编辑 .env 填入 OpenAI API Key 和数据库配置
 
-# 开发模式
+# 启动服务 (同时启动后端 API 和 Agent)
 npm run dev
+```
 
-# 生产构建
-npm run build && npm start
+### 2. 前端管理后台 (Admin UI)
+
+详见 [admin-ui/README.md](./admin-ui/README.md)
+
+```bash
+cd admin-ui
+npm install
+npm run dev
+```
+
+### 3. OCR 服务 (可选)
+
+详见 [ocr-service/README.md](./ocr-service/README.md)
+
+提供图片文字识别能力，支持 GPU/CPU 模式。
+
+```bash
+cd ocr-service
+pip install -r requirements.txt
+python app.py
 ```
 
 ## API接口
