@@ -1,6 +1,6 @@
 {
   "name": "ai-data-platform",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "AI数据问答平台 - 支持多数据源连接和自然语言查询",
   "main": "dist/index.js",
   "scripts": {
