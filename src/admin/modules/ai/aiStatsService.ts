@@ -121,14 +121,14 @@ export class AIStatsService {
     // 首先获取所有会话
     const [sessionsResult] = await pool.execute(
       `SELECT ch.*, u.username 
-       FROM chat_history ch
-       LEFT JOIN users u ON ch.user_id = u.id
+       FROM sys_chat_history ch
+       LEFT JOIN sys_users u ON ch.user_id = u.id
        WHERE ch.created_at >= ? AND ch.created_at <= ?`,
       [startDate, endDate]
     );
-    
+
     const sessions = sessionsResult as any[];
-    
+
     // 解析所有消息，提取统计数据
     let totalRequests = 0;
     let totalTokens = 0;
@@ -138,14 +138,14 @@ export class AIStatsService {
     const modelStatsMap = new Map<string, { requests: number; tokens: number }>();
     const userModelStatsMap = new Map<string, { userId: string; username: string; modelName: string; requests: number; tokens: number }>();
     const dayModelStatsMap = new Map<string, { date: string; modelName: string; requests: number; tokens: number }>();
-    
+
     for (const session of sessions) {
       try {
         const messages = typeof session.messages === 'string' ? JSON.parse(session.messages) : session.messages;
         const sessionDate = new Date(session.created_at).toISOString().split('T')[0];
         const username = session.username || session.user_id || 'unknown';
         const userId = session.user_id;
-        
+
         // 遍历消息对
         for (let i = 0; i < messages.length; i += 2) {
           const assistantMsg = messages[i + 1];
@@ -154,30 +154,30 @@ export class AIStatsService {
             const tokens = assistantMsg.tokensUsed || 0;
             const modelName = assistantMsg.modelName || 'unknown';
             totalTokens += tokens;
-            
+
             // 按天统计
             requestsByDayMap.set(sessionDate, (requestsByDayMap.get(sessionDate) || 0) + 1);
             tokensByDayMap.set(sessionDate, (tokensByDayMap.get(sessionDate) || 0) + tokens);
-            
+
             // 按用户统计
             const userStats = userStatsMap.get(userId) || { username, requests: 0, tokens: 0 };
             userStats.requests++;
             userStats.tokens += tokens;
             userStatsMap.set(userId, userStats);
-            
+
             // 按模型统计
             const modelStats = modelStatsMap.get(modelName) || { requests: 0, tokens: 0 };
             modelStats.requests++;
             modelStats.tokens += tokens;
             modelStatsMap.set(modelName, modelStats);
-            
+
             // 按用户+模型统计
             const userModelKey = `${userId}-${modelName}`;
             const userModelStats = userModelStatsMap.get(userModelKey) || { userId, username, modelName, requests: 0, tokens: 0 };
             userModelStats.requests++;
             userModelStats.tokens += tokens;
             userModelStatsMap.set(userModelKey, userModelStats);
-            
+
             // 按天+模型统计
             const dayModelKey = `${sessionDate}-${modelName}`;
             const dayModelStats = dayModelStatsMap.get(dayModelKey) || { date: sessionDate, modelName, requests: 0, tokens: 0 };
@@ -190,29 +190,29 @@ export class AIStatsService {
         // 解析失败，跳过
       }
     }
-    
+
     // 转换为数组
     const requestsByDay = Array.from(requestsByDayMap.entries())
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date));
-    
+
     const tokensByDay = Array.from(tokensByDayMap.entries())
       .map(([date, tokens]) => ({ date, tokens }))
       .sort((a, b) => a.date.localeCompare(b.date));
-    
+
     const topUsers = Array.from(userStatsMap.entries())
       .map(([userId, stats]) => ({ userId, ...stats }))
       .sort((a, b) => b.requests - a.requests)
       .slice(0, 10);
-    
+
     const byModel = Array.from(modelStatsMap.entries())
       .map(([modelName, stats]) => ({ modelName, ...stats }))
       .sort((a, b) => b.requests - a.requests);
-    
+
     const byUserModel = Array.from(userModelStatsMap.values())
       .sort((a, b) => b.requests - a.requests)
       .slice(0, 50);
-    
+
     const byDayModel = Array.from(dayModelStatsMap.values())
       .sort((a, b) => a.date.localeCompare(b.date) || a.modelName.localeCompare(b.modelName));
 
