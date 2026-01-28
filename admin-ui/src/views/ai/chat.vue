@@ -216,10 +216,18 @@
                       </a-dropdown>
                     </a-tooltip>
 
-                    <a-tooltip title="一键翻译（AI）">
-                      <a-button size="small" type="text" @click="translateChart(idx)" :loading="(msg as any).translating">
-                        <TranslationOutlined />
-                      </a-button>
+                    <a-tooltip title="一键翻译">
+                      <a-dropdown>
+                        <a-button size="small" type="text" :loading="(msg as any).translating">
+                          <TranslationOutlined />
+                        </a-button>
+                        <template #overlay>
+                          <a-menu @click="(e: any) => translateChartByType(idx, e.key as 'ai' | 'direct')">
+                            <a-menu-item key="direct">直接翻译 (Python)</a-menu-item>
+                            <a-menu-item key="ai">AI 翻译 (大模型)</a-menu-item>
+                          </a-menu>
+                        </template>
+                      </a-dropdown>
                     </a-tooltip>
                   </a-space>
                 </div>
@@ -1239,7 +1247,10 @@ function updateChartConfig(idx: number, config: Partial<ChartConfig>) {
 /**
  * 一键图表标签翻译
  */
-async function translateChart(idx: number) {
+/**
+ * 一键图表标签翻译 (支持多种模式)
+ */
+async function translateChartByType(idx: number, mode: 'ai' | 'direct' = 'ai') {
   const msg = messages.value[idx]
   if (!msg.chart || !msg.chart.data) return
 
@@ -1258,17 +1269,24 @@ async function translateChart(idx: number) {
 
   ;(msg as any).translating = true
   try {
-    const res = await aiPost<any>('/ai/translate', { texts: textsToTranslate })
+    const endpoint = mode === 'direct' ? '/ai/translate/direct' : '/ai/translate'
+    const res = await aiPost<any>(endpoint, { texts: textsToTranslate })
     const mapping = res.data || res
     if (mapping) {
       updateChartConfig(idx, { translations: mapping })
-      message.success('翻译完成')
+      message.success(mode === 'direct' ? '直接翻译完成' : 'AI 翻译完成')
     }
-  } catch (e) {
-    message.error('翻译失败，请检查网路')
+  } catch (e: any) {
+    // 拦截器已经处理了大部分通用错误提示，这里仅做兜底日志或特定处理
+    console.error('Translation failed:', e)
   } finally {
     ;(msg as any).translating = false
   }
+}
+
+// 保留原函数名以防止其他地方调用，但跳转到新函数
+async function translateChart(idx: number) {
+  return translateChartByType(idx, 'ai')
 }
 
 // 历史记录过滤 (仅显示最近 2 天)

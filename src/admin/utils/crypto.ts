@@ -11,7 +11,7 @@ const SM4_PREFIX = 'SM4:';  // SM4 加密标识前缀
 
 // 从环境变量获取加密密钥，确保是16字节（128位）
 function getEncryptionKey(): string {
-  const key = process.env.FILE_ENCRYPTION_KEY || 'default-key-change';
+  const key = (process.env.FILE_ENCRYPTION_KEY || 'default-key-change').trim();
   // SM4 需要 16 字节密钥，使用 MD5 哈希生成
   return crypto.createHash('md5').update(key).digest('hex').substring(0, 32);
 }
@@ -21,10 +21,10 @@ function getEncryptionKey(): string {
  */
 export function encrypt(text: string): string {
   if (!text) return text;
-  
+
   const key = getEncryptionKey();
   const encrypted = sm4.encrypt(text, key);
-  
+
   // 添加前缀标识这是 SM4 加密的数据
   return `${SM4_PREFIX}${encrypted}`;
 }
@@ -34,7 +34,7 @@ export function encrypt(text: string): string {
  */
 export function decrypt(encryptedText: string): string {
   if (!encryptedText) return encryptedText;
-  
+
   // 检查是否是 SM4 加密格式
   if (encryptedText.startsWith(SM4_PREFIX)) {
     try {
@@ -53,7 +53,7 @@ export function decrypt(encryptedText: string): string {
       return '[解密失败-请重新配置]';
     }
   }
-  
+
   // 检查是否是旧的 AES-GCM 格式 (iv:authTag:data)
   if (encryptedText.includes(':')) {
     try {
@@ -63,7 +63,7 @@ export function decrypt(encryptedText: string): string {
       return '[解密失败-请重新配置]';
     }
   }
-  
+
   // 未加密的明文，直接返回
   return encryptedText;
 }
@@ -74,22 +74,22 @@ export function decrypt(encryptedText: string): string {
 function decryptLegacyAES(encryptedText: string): string {
   const ALGORITHM = 'aes-256-gcm';
   const key = crypto.createHash('sha256').update(process.env.FILE_ENCRYPTION_KEY || '').digest();
-  
+
   const parts = encryptedText.split(':');
   if (parts.length !== 3) {
     return encryptedText;
   }
-  
+
   const iv = Buffer.from(parts[0], 'hex');
   const authTag = Buffer.from(parts[1], 'hex');
   const encrypted = parts[2];
-  
+
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
-  
+
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
-  
+
   return decrypted;
 }
 

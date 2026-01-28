@@ -15,10 +15,10 @@ export class AIEngine {
   // 生成schema描述供AI理解
   private formatSchemaForAI(schemas: TableSchema[]): string {
     return schemas.map(table => {
-      const cols = table.columns.map(c => 
+      const cols = table.columns.map(c =>
         `  - ${c.name} (${c.type}${c.isPrimaryKey ? ', PK' : ''}${c.comment ? `, ${c.comment}` : ''})`
       ).join('\n');
-      const sample = table.sampleData?.length 
+      const sample = table.sampleData?.length
         ? `\n  样例数据: ${JSON.stringify(table.sampleData[0])}`
         : '';
       return `表名: ${table.tableName}\n字段:\n${cols}${sample}`;
@@ -35,7 +35,7 @@ export class AIEngine {
     suggestedQuestions: string[];
   }> {
     const schemaDesc = this.formatSchemaForAI(schemas);
-    
+
     const response = await this.openai.chat.completions.create({
       model: this.model,
       messages: [
@@ -89,14 +89,14 @@ export class AIEngine {
 
   // 自然语言转SQL（带上下文）
   async generateSQL(
-    question: string, 
-    schemas: TableSchema[], 
+    question: string,
+    schemas: TableSchema[],
     dbType: string,
     history: ChatMessage[] = []
   ): Promise<string> {
     const schemaDesc = this.formatSchemaForAI(schemas);
     const contextMessages = this.buildContextMessages(history);
-    
+
     const response = await this.openai.chat.completions.create({
       model: this.model,
       messages: [
@@ -116,42 +116,42 @@ ${schemaDesc}`
     });
 
     const sql = response.choices[0].message.content?.trim() || '';
-    
+
     // 移除 <think> 标签和其内部内容（Qwen3-32B 模型可能返回）
     let cleanedSql = sql.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    
+
     // 移除 Markdown 代码块
     cleanedSql = cleanedSql.replace(/```sql\n?/gi, '').replace(/```\n?/g, '').trim();
-    
+
     // 如果有多个 SQL 语句，只取第一个
     const firstStatement = cleanedSql.split(';')[0].trim();
-    
+
     return firstStatement;
   }
 
   // 智能问答（带上下文）
   async answer(
-    question: string, 
-    dataSource: BaseDataSource, 
+    question: string,
+    dataSource: BaseDataSource,
     dbType: string,
     history: ChatMessage[] = []
   ): Promise<AIResponse> {
     try {
       const schemas = await dataSource.getSchema();
       const sql = await this.generateSQL(question, schemas, dbType, history);
-      
+
       if (!sql.toLowerCase().trim().startsWith('select')) {
         return { answer: '抱歉，只支持查询操作', sql };
       }
 
       const result = await dataSource.executeQuery(sql);
-      
+
       if (!result.success) {
         return { answer: `查询执行失败: ${result.error}`, sql };
       }
 
       const explanation = await this.explainResult(question, sql, result, history);
-      
+
       return {
         answer: explanation,
         sql,
@@ -164,14 +164,15 @@ ${schemaDesc}`
 
   // 解读查询结果（带上下文）
   private async explainResult(
-    question: string, 
-    sql: string, 
+    question: string,
+    sql: string,
     result: QueryResult,
     history: ChatMessage[] = []
   ): Promise<string> {
-    const dataPreview = result.data?.slice(0, 10);
+    const dataPreview = result.data?.slice(0, 100);
+    // Eleanor: 提升到100条以获得更完整上下文
     const contextMessages = this.buildContextMessages(history);
-    
+
     const response = await this.openai.chat.completions.create({
       model: this.model,
       messages: [

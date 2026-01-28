@@ -631,7 +631,7 @@ ${contextText}
         additionalContext += `执行的SQL: ${dataSourceContext.sql}\n`;
       }
       if (dataSourceContext.data && dataSourceContext.data.length > 0) {
-        additionalContext += `查询结果(${dataSourceContext.data.length}条):\n${JSON.stringify(dataSourceContext.data.slice(0, 10), null, 2)}\n`;
+        additionalContext += `查询结果(${dataSourceContext.data.length}条):\n${JSON.stringify(dataSourceContext.data.slice(0, 100), null, 2)}\n`;
       }
     }
 

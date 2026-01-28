@@ -1015,14 +1015,32 @@ app.delete('/api/datasource/:id', authMiddleware, async (req, res) => {
   res.json({ message: '已删除' });
 });
 
-// AI 翻译 API
+// AI 翻译 API (大模型模式)
 app.post('/api/ai/translate', authMiddleware, async (req, res) => {
   try {
     const { texts } = req.body;
     if (!texts || !Array.isArray(texts)) {
       return res.status(400).json({ error: 'texts must be an array' });
     }
+    console.log(`>>> 收到 AI 翻译请求: ${texts.length} 条文本`);
     const mapping = await aiAgent.translate(texts);
+    console.log(`>>> AI 翻译完成，映射数量: ${Object.keys(mapping).length}`);
+    res.json(mapping);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 直接翻译 API (Python 包模式)
+app.post('/api/ai/translate/direct', authMiddleware, async (req, res) => {
+  try {
+    const { texts } = req.body;
+    if (!texts || !Array.isArray(texts)) {
+      return res.status(400).json({ error: 'texts must be an array' });
+    }
+    console.log(`>>> 收到直接翻译请求: ${texts.length} 条文本`);
+    const mapping = await aiAgent.directTranslate(texts);
+    console.log(`>>> 直接翻译完成，映射数量: ${Object.keys(mapping).length}`);
     res.json(mapping);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1036,6 +1054,7 @@ app.post('/api/ask', authMiddleware, async (req, res) => {
   }
 
   const { datasourceId, question, sessionId, noChart } = req.body;
+  console.log(`\n[${new Date().toLocaleTimeString()}] >>> 收到问答请求: "${question?.substring(0, 50)}" (数据源: ${datasourceId})`);
 
   if (!question) {
     return res.status(400).json({ error: '请提供问题' });
@@ -1934,8 +1953,10 @@ app.get('*', (req, res) => {
 
   if (fs.existsSync(adminUiIndex)) {
     res.sendFile(adminUiIndex);
-  } else {
+  } else if (fs.existsSync(publicIndex)) {
     res.sendFile(publicIndex);
+  } else {
+    res.status(404).send('前端页面未找到。请运行构建或启动开发服务器。');
   }
 });
 

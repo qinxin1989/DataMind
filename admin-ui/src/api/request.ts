@@ -13,7 +13,7 @@ const request = axios.create({
 // AI 请求专用实例，超时时间更长（3分钟）
 const aiRequest = axios.create({
   baseURL: '/api',
-  timeout: 180000, // 3分钟
+  timeout: 600000, // 10分钟
   headers: {
     'Content-Type': 'application/json',
   },

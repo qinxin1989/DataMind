@@ -8,6 +8,7 @@ os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from paddleocr import PaddleOCR
+from translate import Translator
 import base64
 import io
 from PIL import Image
@@ -77,6 +78,140 @@ def ocr_recognize():
         
         return jsonify({'success': False, 'error': '请提供图片数据'}), 400
     
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 离线翻译字典（针对数据库常见字段）
+OFFLINE_DICT = {
+    "name": "名称",
+    "population": "人口",
+    "gnp": "国民生产总值",
+    "continent": "大洲",
+    "region": "地区",
+    "country": "国家",
+    "city": "城市",
+    "language": "语言",
+    "percentage": "百分比",
+    "lifeexpectancy": "预期寿命",
+    "indepyear": "独立年份",
+    "surfacearea": "表面积",
+    "governmentform": "政体",
+    "headofstate": "国家元首",
+    "capital": "首都",
+    "code": "编码",
+    "district": "地区",
+    "id": "ID",
+    "total": "总计",
+    "count": "数量",
+    "sum": "总和",
+    "avg": "平均值",
+    "min": "最小值",
+    "max": "最大值",
+    "year": "年份",
+    "month": "月份",
+    "day": "日期",
+    "date": "时间",
+    "created_at": "创建时间",
+    "updated_at": "更新时间",
+    "status": "状态",
+    "type": "类型",
+    "category": "类别",
+    "user": "用户",
+    "order": "订单",
+    "price": "价格",
+    "amount": "金额",
+    "is_official": "是否官方",
+    "序号": "序号",
+    "参赛编号": "参赛编号",
+    "作品名称": "作品名称",
+    "作品组别": "作品组别",
+    "作品分类": "作品分类",
+    "设计理念": "设计理念",
+    "用户名": "用户名",
+    "联系人姓名": "联系人姓名",
+    "联系人邮箱": "联系人邮箱",
+    "联系手机": "联系手机",
+    "联系人": "联系人",
+    "手机": "手机",
+    "邮箱": "邮箱",
+    "手机号": "手机号",
+    "单位类型": "单位类型",
+    "单位名称": "单位名称",
+    "主设计师联系手机": "主设计师联系手机",
+    "主设计师": "主设计师",
+    "参赛国家": "参赛国家",
+    "参赛地区": "参赛地区",
+    "参赛地市": "参赛地市",
+    "联系人通讯住址": "联系人通讯住址",
+    "通讯住址": "通讯住址",
+    "住址": "住址",
+    "团队成员": "团队成员",
+    "学历": "学历",
+    "专业": "专业",
+    "职务": "职务",
+    "职称": "职称",
+    "备注": "备注",
+}
+
+@app.route('/translate', methods=['POST'])
+def translate():
+    try:
+        if not request.is_json:
+            return jsonify({'success': False, 'error': '请提供 JSON 数据'}), 400
+        
+        data = request.get_json()
+        texts = data.get('texts', [])
+        target = data.get('target', 'zh-CN')
+        
+        if not texts:
+            return jsonify({'success': False, 'error': '请提供需翻译的文本'}), 400
+        
+        mapping = {}
+        unique_texts = list(set(texts))
+
+        # 离线优先：先查本地字典
+        remaining_texts = []
+        for text in unique_texts:
+            lower_text = text.lower().strip()
+            # 1. 字典完全匹配
+            if lower_text in OFFLINE_DICT:
+                mapping[text] = OFFLINE_DICT[lower_text]
+            # 2. 数字/特殊字符处理
+            elif text.isdigit() or len(text) <= 1:
+                mapping[text] = text
+            else:
+                remaining_texts.append(text)
+
+        # 3. 剩余文本使用 translate 库处理（尝试离线可用模式）
+        if remaining_texts:
+            # 注意：translate 库某些模式下仍会尝试联网，这里作为最大努力
+            try:
+                # 尝试初始化一个简单的翻译器
+                translator = Translator(to_lang=target)
+                for text in remaining_texts:
+                    try:
+                        # 只有当文本不包含中意文时翻译
+                        if any(c.isalpha() for c in text):
+                            trans = translator.translate(text)
+                            # 如果翻译结果和原词相同，可能是翻译器不可用或未找到
+                            mapping[text] = trans if trans != text else text
+                        else:
+                            mapping[text] = text
+                    except:
+                        mapping[text] = text
+            except Exception as e:
+                print(f"离线翻译库执行异常: {str(e)}")
+                for text in remaining_texts:
+                    mapping[text] = text
+        
+        return jsonify({
+            'success': True,
+            'data': mapping
+        })
+        
     except Exception as e:
         import traceback
         traceback.print_exc()

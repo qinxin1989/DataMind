@@ -83,8 +83,9 @@ router.post('/configs', requirePermission('ai:config'), async (req: Request, res
       status: 'active',
     });
 
-    // AI 配置更新后，重新加载 RAGEngine
+    // AI 配置更新后，重新加载 RAGEngine 和 AIAgent
     await aiQAService.reloadRAGEngine();
+    await aiQAService.reloadAIAgent();
 
     res.status(201).json(success(config));
   } catch (err: any) {
@@ -103,10 +104,11 @@ router.put('/configs/priorities', requirePermission('ai:config'), async (req: Re
       return res.status(400).json(error('VALID_PARAM_MISSING', '缺少 priorities 数组'));
     }
     await aiConfigService.updatePriorities(priorities);
-    
-    // 优先级更新后，重新加载 RAGEngine
+
+    // 优先级更新后，重新加载 RAGEngine 和 AIAgent
     await aiQAService.reloadRAGEngine();
-    
+    await aiQAService.reloadAIAgent();
+
     res.json(success({ message: '优先级更新成功' }));
   } catch (err: any) {
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -119,10 +121,11 @@ router.put('/configs/priorities', requirePermission('ai:config'), async (req: Re
 router.put('/configs/:id', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
     const config = await aiConfigService.updateProviderConfig(req.params.id, req.body);
-    
-    // AI 配置更新后，重新加载 RAGEngine
+
+    // AI 配置更新后，重新加载 RAGEngine 和 AIAgent
     await aiQAService.reloadRAGEngine();
-    
+    await aiQAService.reloadAIAgent();
+
     res.json(success(config));
   } catch (err: any) {
     if (err.message.includes('不存在')) {
@@ -138,10 +141,11 @@ router.put('/configs/:id', requirePermission('ai:config'), async (req: Request, 
 router.delete('/configs/:id', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
     await aiConfigService.deleteProviderConfig(req.params.id);
-    
-    // AI 配置删除后，重新加载 RAGEngine
+
+    // AI 配置删除后，重新加载 RAGEngine 和 AIAgent
     await aiQAService.reloadRAGEngine();
-    
+    await aiQAService.reloadAIAgent();
+
     res.json(success({ message: '删除成功' }));
   } catch (err: any) {
     if (err.message.includes('不存在')) {
@@ -160,6 +164,10 @@ router.delete('/configs/:id', requirePermission('ai:config'), async (req: Reques
 router.put('/configs/:id/default', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
     const config = await aiConfigService.setDefaultProvider(req.params.id);
+
+    // 设置默认配置后，重新加载 AIAgent
+    await aiQAService.reloadAIAgent();
+
     res.json(success(config));
   } catch (err: any) {
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -172,12 +180,12 @@ router.put('/configs/:id/default', requirePermission('ai:config'), async (req: R
 router.post('/configs/validate', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
     const { provider, apiKey, apiEndpoint, configId, model } = req.body;
-    
+
     let keyToValidate = apiKey;
     let endpointToValidate = apiEndpoint;
     let providerToValidate = provider;
     let modelToValidate = model;
-    
+
     // 如果提供了 configId，从数据库获取真实的配置信息
     if (configId) {
       const config = await aiConfigService.getConfigById(configId);
@@ -190,7 +198,7 @@ router.post('/configs/validate', requirePermission('ai:config'), async (req: Req
         return res.status(404).json(error('RES_NOT_FOUND', '配置不存在'));
       }
     }
-    
+
     if (!providerToValidate || !keyToValidate) {
       return res.status(400).json(error('VALID_PARAM_MISSING', '缺少必要参数'));
     }
@@ -209,11 +217,11 @@ router.post('/configs/validate', requirePermission('ai:config'), async (req: Req
  */
 router.get('/stats', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
-    const startTime = req.query.startTime 
-      ? parseInt(req.query.startTime as string) 
+    const startTime = req.query.startTime
+      ? parseInt(req.query.startTime as string)
       : Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const endTime = req.query.endTime 
-      ? parseInt(req.query.endTime as string) 
+    const endTime = req.query.endTime
+      ? parseInt(req.query.endTime as string)
       : Date.now();
 
     const stats = await aiStatsService.getUsageStats(startTime, endTime);
@@ -228,11 +236,11 @@ router.get('/stats', requirePermission('ai:view'), async (req: Request, res: Res
  */
 router.get('/stats/user/:userId', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
-    const startTime = req.query.startTime 
-      ? parseInt(req.query.startTime as string) 
+    const startTime = req.query.startTime
+      ? parseInt(req.query.startTime as string)
       : Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const endTime = req.query.endTime 
-      ? parseInt(req.query.endTime as string) 
+    const endTime = req.query.endTime
+      ? parseInt(req.query.endTime as string)
       : Date.now();
 
     const stats = await aiStatsService.getUserStats(req.params.userId, startTime, endTime);

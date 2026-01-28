@@ -639,7 +639,7 @@ export class AIQAService {
     for (const table of analysis.tables) {
       const tableName = table.tableNameCn || table.tableName;
       const cols = table.columns
-        .slice(0, 10) // 只取前10个字段
+        .slice(0, 1000) // 支持超宽表解析
         .map(c => `${c.nameCn || c.name}(${c.name})`)
         .join(',');
       lines.push(`${tableName}(${table.tableName}):${cols}`);

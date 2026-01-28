@@ -424,23 +424,25 @@ async function handleEdit(record: DatasourceItem) {
   try {
     const res = await datasourceApi.getById(record.id)
     const detail = res.data as any
-    if (!detail) return
-    
-    Object.assign(formState, { 
-      name: detail.name, 
-      type: detail.type, 
-      host: detail.config?.host || 'localhost', 
-      port: detail.config?.port || 3306, 
-      database: detail.config?.database || '', 
-      username: detail.config?.user || detail.config?.username || 'root', 
-      password: detail.config?.password || '',
-      visibility: detail.visibility || 'private'
-    })
-    
-    console.log('=== formState ===', formState)
-  } catch (error) {
+    if (detail) {
+      Object.assign(formState, { 
+        name: detail.name, 
+        type: detail.type, 
+        host: detail.config?.host || 'localhost', 
+        port: detail.config?.port || 3306, 
+        database: detail.config?.database || '', 
+        username: detail.config?.user || detail.config?.username || 'root', 
+        password: detail.config?.password || '',
+        visibility: detail.visibility || 'private'
+      })
+    } else {
+      throw new Error(res.error?.message || '未获取到数据源详情')
+    }
+  } catch (error: any) {
     console.error('获取数据源详情失败:', error)
-    // 如果获取详情失败，使用列表数据
+    message.warning('获取详情失败，将使用列表基本数据: ' + (error.message || ''))
+    
+    // 如果获取详情失败，使用列表数据作为后备
     Object.assign(formState, { 
       name: record.name, 
       type: record.type, 

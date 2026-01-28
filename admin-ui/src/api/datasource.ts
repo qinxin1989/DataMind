@@ -20,8 +20,14 @@ export const datasourceApi = {
   },
 
   // 获取数据源详情
-  getById: (id: string) =>
-    get<Datasource>(`/datasource/${id}/detail`),
+  getById: async (id: string) => {
+    const res = await get<Datasource>(`/datasource/${id}/detail`)
+    // 原 API 可能直接返回对象，增加兼容性处理
+    if (res && (res as any).id && !(res as any).success) {
+      return { success: true, data: res as any as Datasource }
+    }
+    return res
+  },
 
   // 创建数据源
   create: (data: Partial<Datasource> & { password?: string; visibility?: DatasourceVisibility }) => {
@@ -30,7 +36,7 @@ export const datasourceApi = {
     if (dbType === 'postgresql') {
       dbType = 'postgres'
     }
-    
+
     // 转换为原 API 格式
     const config = {
       name: data.name,
@@ -61,7 +67,7 @@ export const datasourceApi = {
     if (dbType === 'postgresql') {
       dbType = 'postgres'
     }
-    
+
     const config = {
       name: data.name,
       type: dbType,

@@ -277,7 +277,7 @@ const dataClean: SkillDefinition = {
       const issues: any[] = [];
 
       // 检测空值
-      for (const col of schema.columns.slice(0, 10)) {
+      for (const col of schema.columns.slice(0, 1000)) {
         const nullResult = await context.dataSource.executeQuery(
           `SELECT COUNT(*) as cnt FROM ${table} WHERE ${col.name} IS NULL`
         );
@@ -573,7 +573,7 @@ const dataComparison: SkillDefinition = {
           title: `${fieldLabel} 分布对比`,
           xField: compareField,
           yField: 'value',
-          data: chartData.slice(0, 10)
+          data: chartData.slice(0, 1000)
         } : undefined
       };
     } catch (error: any) {

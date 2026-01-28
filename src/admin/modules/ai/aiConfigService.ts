@@ -7,6 +7,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../../core/database';
 import { encrypt, decrypt } from '../../utils/crypto';
 import type { AIConfig, CreateAIConfigRequest, UpdateAIConfigRequest } from '../../types';
+import { AIAgent } from '../../../agent';
+
+// 全局配置版本，用于通知所有 AIAgent 实例刷新配置
+export function bumpConfigVersion() {
+  AIAgent.globalConfigVersion++;
+}
 
 export class AIConfigService {
   async createConfig(data: CreateAIConfigRequest): Promise<AIConfig> {
@@ -31,6 +37,7 @@ export class AIConfigService {
         data.isDefault || false, data.status || 'active', nextPriority]
     );
 
+    bumpConfigVersion(); // 标记配置已更改
     return this.getConfigById(id) as Promise<AIConfig>;
   }
 
@@ -63,6 +70,7 @@ export class AIConfigService {
     if (updates.length > 0) {
       values.push(id);
       await pool.execute(`UPDATE sys_ai_configs SET ${updates.join(', ')} WHERE id = ?`, values);
+      bumpConfigVersion(); // 标记配置已更改
     }
 
     return this.getConfigById(id) as Promise<AIConfig>;
@@ -72,6 +80,7 @@ export class AIConfigService {
     const config = await this.getConfigById(id);
     if (!config) throw new Error('AI配置不存在');
     await pool.execute('DELETE FROM sys_ai_configs WHERE id = ?', [id]);
+    bumpConfigVersion(); // 标记配置已更改
   }
 
   async getConfigById(id: string): Promise<AIConfig | null> {
@@ -133,7 +142,7 @@ export class AIConfigService {
   }
 
   async getDefaultConfig(): Promise<AIConfig | null> {
-    const [rows] = await pool.execute('SELECT * FROM sys_ai_configs WHERE is_default = TRUE LIMIT 1');
+    const [rows] = await pool.execute('SELECT * FROM sys_ai_configs WHERE is_default = TRUE AND status = "active" LIMIT 1');
     const configs = rows as any[];
     if (configs.length === 0) return null;
 
@@ -156,6 +165,7 @@ export class AIConfigService {
   async setDefaultConfig(id: string): Promise<AIConfig> {
     await pool.execute('UPDATE sys_ai_configs SET is_default = FALSE');
     await pool.execute('UPDATE sys_ai_configs SET is_default = TRUE WHERE id = ?', [id]);
+    bumpConfigVersion(); // 标记配置已更改
     return this.getConfigById(id) as Promise<AIConfig>;
   }
 
@@ -184,7 +194,7 @@ export const aiConfigService = {
   // AI QA 服务使用的方法
   getDefaultProvider: async () => {
     const config = await service.getDefaultConfig();
-    if (!config) return null;
+    if (!config || config.status !== 'active') return null;
     return {
       name: config.name,
       provider: config.provider,

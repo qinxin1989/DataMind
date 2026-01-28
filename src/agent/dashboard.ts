@@ -60,7 +60,7 @@ export class DashboardGenerator {
 
   private formatSchema(schemas: TableSchema[]): string {
     return schemas.map(table => {
-      const cols = table.columns.map(c => 
+      const cols = table.columns.map(c =>
         `  - ${c.name} (${c.type}${c.comment ? `, ${c.comment}` : ''})`
       ).join('\n');
       return `表: ${table.tableName}\n${cols}`;
@@ -167,7 +167,7 @@ gridPosition说明：
 
       try {
         const result = await dataSource.executeQuery(chart.sql);
-        
+
         if (result.success && result.data) {
           // 对于卡片类型，提取单个值
           if (chart.type === 'card' && result.data[0]) {
@@ -206,9 +206,9 @@ gridPosition说明：
     const chartHtmls = dashboard.charts.map(chart => {
       const { gridPosition, type, title, data, config } = chart;
       const style = `grid-column: ${gridPosition.x + 1} / span ${gridPosition.w}; grid-row: ${gridPosition.y + 1} / span ${gridPosition.h};`;
-      
+
       let content = '';
-      
+
       if (type === 'card') {
         const value = config.value ?? '-';
         const trend = config.trend === 'up' ? '↑' : config.trend === 'down' ? '↓' : '';
@@ -334,13 +334,13 @@ gridPosition说明：
   // 生成 ECharts 配置
   private generateEChartsOption(chart: ChartConfig & { gridPosition: any }): string {
     const { id, type, data, config } = chart;
-    
+
     if (!data || data.length === 0) {
       return `// ${id}: 无数据`;
     }
 
     let option = '';
-    
+
     switch (type) {
       case 'bar':
         option = `{
@@ -386,7 +386,7 @@ gridPosition说明：
         return `
           (function() {
             var container = document.getElementById('${id}');
-            var data = ${JSON.stringify(data.slice(0, 10))};
+            var data = ${JSON.stringify(data.slice(0, 1000))};
             if (!data.length) return;
             var keys = Object.keys(data[0]);
             var html = '<table style="width:100%;font-size:12px;border-collapse:collapse;">';

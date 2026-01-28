@@ -75,7 +75,7 @@ export async function encryptEnvFile(masterPassword: string): Promise<void> {
     }
 
     const keyName = line.substring(0, eqIndex).trim();
-    const value = line.substring(eqIndex + 1);
+    const value = line.substring(eqIndex + 1).trim(); // 明确使用 .trim() 去除 \r
 
     // 检查是否是敏感配置
     if (SENSITIVE_KEYS.includes(keyName) && value) {
@@ -118,13 +118,13 @@ export function loadEncryptedEnv(masterPassword: string): void {
     if (eqIndex === -1) continue;
 
     const keyName = line.substring(0, eqIndex).trim();
-    let value = line.substring(eqIndex + 1);
+    let value = line.substring(eqIndex + 1).trim(); // 明确使用 .trim() 去除 \r
 
     // 检查是否是加密值
     if (value.startsWith(SM4_PREFIX)) {
       const cipherText = value.substring(SM4_PREFIX.length);
       try {
-        value = decrypt(cipherText, key);
+        value = decrypt(cipherText, key).trim(); // 解密后的值也进行 trim
       } catch (error) {
         throw new Error(`解密失败: ${keyName}，请检查主密码是否正确`);
       }

@@ -68,9 +68,20 @@ npm install
 cp .env.example .env
 # 编辑 .env 填入 OpenAI API Key 和数据库配置
 
-# 启动服务 (同时启动后端 API 和 Agent)
+# 启动服务 (基础模式，直接读取 .env)
 npm run dev
+
+# --- 生产模式 (推荐) ---
+
+# 1. 加密敏感配置 (生成 .env.encrypted)
+npm run encrypt-env
+
+# 2. 安全模式启动 (从 .env.encrypted 加密文件读取配置)
+npm run start:secure
 ```
+
+> [!TIP]
+> 安全模式启动时会提示输入主密码，这样可以避免敏感密钥（如 `FILE_ENCRYPTION_KEY`）以明文形式存在于磁盘上。
 
 ### 2. 前端管理后台 (Admin UI)
 

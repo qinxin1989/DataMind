@@ -26,36 +26,36 @@ const reportPpt: SkillDefinition = {
   ],
   execute: async (params, context): Promise<SkillResult> => {
     const { datasourceId, topic, template, slides = 10, style = 'business' } = params;
-    
+
     try {
       // 获取数据源信息
       const slideContents: SlideContent[] = [];
-      
+
       // 封面
       slideContents.push({
         type: 'title',
         title: topic,
         subtitle: new Date().toLocaleDateString('zh-CN') + ' 数据分析报告'
       });
-      
+
       // 如果有数据源，生成数据概览
       if (context.dataSource) {
         const schemas = await context.dataSource.getSchema();
-        
+
         // 数据概览页
         slideContents.push({
           type: 'bullets',
           title: '数据概览',
           bullets: schemas.slice(0, 5).map(s => `${s.tableName}: ${s.columns.length} 个字段`)
         });
-        
+
         // 为每个表生成统计页
         for (const schema of schemas.slice(0, Math.min(slides - 3, 5))) {
           const countResult = await context.dataSource.executeQuery(
             `SELECT COUNT(*) as total FROM ${schema.tableName}`
           );
           const total = countResult.data?.[0]?.total || 0;
-          
+
           slideContents.push({
             type: 'content',
             title: schema.tableName,
@@ -63,7 +63,7 @@ const reportPpt: SkillDefinition = {
           });
         }
       }
-      
+
       // 总结页
       slideContents.push({
         type: 'bullets',
@@ -74,33 +74,33 @@ const reportPpt: SkillDefinition = {
           '如有问题请联系数据团队'
         ]
       });
-      
+
       // 结束页
       slideContents.push({
         type: 'title',
         title: '谢谢',
         subtitle: 'AI Data Platform 自动生成'
       });
-      
+
       // 生成 PPT
       const config: PPTConfig = {
         title: topic,
         theme: style === 'tech' ? 'dark' : style === 'simple' ? 'minimal' : 'corporate',
         slides: slideContents
       };
-      
+
       const buffer = await pptGenerator.generate(config);
-      
+
       // 保存文件
       const outputDir = path.join(process.cwd(), context.workDir || 'public/downloads');
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }
-      
+
       const filename = `report_${Date.now()}.pptx`;
       const filepath = path.join(outputDir, filename);
       fs.writeFileSync(filepath, buffer);
-      
+
       return {
         success: true,
         data: {
@@ -133,20 +133,20 @@ const reportDashboard: SkillDefinition = {
   ],
   execute: async (params, context): Promise<SkillResult> => {
     const { datasourceId, topic, theme = 'dark', layout = 'auto', charts } = params;
-    
+
     try {
       // 获取数据并生成图表配置
       const dashboardCharts: any[] = [];
-      
+
       if (context.dataSource) {
         const schemas = await context.dataSource.getSchema();
-        
+
         // 为每个表生成一个图表
         for (const schema of schemas.slice(0, 6)) {
           const countResult = await context.dataSource.executeQuery(
             `SELECT COUNT(*) as total FROM ${schema.tableName}`
           );
-          
+
           dashboardCharts.push({
             type: 'stat',
             title: schema.tableName,
@@ -156,7 +156,7 @@ const reportDashboard: SkillDefinition = {
       }
 
       const previewId = `dashboard_${Date.now()}`;
-      
+
       return {
         success: true,
         data: {
@@ -190,46 +190,46 @@ const reportSummary: SkillDefinition = {
   ],
   execute: async (params, context): Promise<SkillResult> => {
     const { datasourceId, topic, format = 'markdown', sections } = params;
-    
+
     try {
       let content = `# ${topic || '数据摘要报告'}\n\n`;
       content += `生成时间: ${new Date().toLocaleString()}\n\n`;
-      
+
       if (context.dataSource) {
         const schemas = await context.dataSource.getSchema();
-        
+
         content += `## 数据概览\n\n`;
         content += `数据源包含 ${schemas.length} 个表：\n\n`;
-        
+
         for (const schema of schemas) {
           const countResult = await context.dataSource.executeQuery(
             `SELECT COUNT(*) as total FROM ${schema.tableName}`
           );
           const total = countResult.data?.[0]?.total || 0;
-          
+
           content += `- **${schema.tableName}**: ${total} 条记录, ${schema.columns.length} 个字段\n`;
         }
-        
+
         content += `\n## 字段说明\n\n`;
         for (const schema of schemas.slice(0, 3)) {
           content += `### ${schema.tableName}\n\n`;
           content += `| 字段名 | 类型 | 说明 |\n`;
           content += `|--------|------|------|\n`;
-          for (const col of schema.columns.slice(0, 10)) {
+          for (const col of schema.columns.slice(0, 1000)) {
             content += `| ${col.name} | ${col.type} | ${col.comment || '-'} |\n`;
           }
           content += `\n`;
         }
       }
-      
+
       content += `## 总结\n\n`;
       content += `本报告对数据源进行了基础分析，详细内容请参考各章节。\n`;
-      
+
       const outputPath = path.join(
         context.workDir || 'public/downloads',
         `summary_${Date.now()}.${format === 'markdown' ? 'md' : format}`
       );
-      
+
       return {
         success: true,
         data: {
@@ -260,7 +260,7 @@ const reportExcel: SkillDefinition = {
   ],
   execute: async (params, context): Promise<SkillResult> => {
     const { datasourceId, queries, template, charts = true } = params;
-    
+
     if (!queries || queries.length === 0) {
       return { success: false, message: '请提供查询配置' };
     }
@@ -269,12 +269,12 @@ const reportExcel: SkillDefinition = {
       // TODO: 实际实现需要使用 exceljs 库
       const sheets: string[] = [];
       let totalRows = 0;
-      
+
       if (context.dataSource) {
         for (const query of queries) {
           const sql = typeof query === 'string' ? query : query.sql;
           const sheetName = typeof query === 'object' ? query.name : `Sheet${sheets.length + 1}`;
-          
+
           try {
             const result = await context.dataSource.executeQuery(sql);
             if (result.success) {
@@ -286,9 +286,9 @@ const reportExcel: SkillDefinition = {
           }
         }
       }
-      
+
       const outputPath = path.join(context.workDir || 'public/downloads', `report_${Date.now()}.xlsx`);
-      
+
       return {
         success: true,
         data: {
@@ -319,24 +319,24 @@ const reportInsight: SkillDefinition = {
   ],
   execute: async (params, context): Promise<SkillResult> => {
     const { datasourceId, focus, depth = 'quick' } = params;
-    
+
     try {
       const insights: any[] = [];
       const recommendations: string[] = [];
-      
+
       if (context.dataSource) {
         const schemas = await context.dataSource.getSchema();
-        
+
         // 分析各表数据量
         let maxTable = { name: '', count: 0 };
         let minTable = { name: '', count: Infinity };
-        
+
         for (const schema of schemas) {
           const countResult = await context.dataSource.executeQuery(
             `SELECT COUNT(*) as total FROM ${schema.tableName}`
           );
           const count = countResult.data?.[0]?.total || 0;
-          
+
           if (count > maxTable.count) {
             maxTable = { name: schema.tableName, count };
           }
@@ -344,7 +344,7 @@ const reportInsight: SkillDefinition = {
             minTable = { name: schema.tableName, count };
           }
         }
-        
+
         if (maxTable.name) {
           insights.push({
             type: 'volume',
@@ -352,7 +352,7 @@ const reportInsight: SkillDefinition = {
             confidence: 0.95
           });
         }
-        
+
         if (minTable.name && minTable.count < Infinity) {
           insights.push({
             type: 'volume',
@@ -360,7 +360,7 @@ const reportInsight: SkillDefinition = {
             confidence: 0.9
           });
         }
-        
+
         // 添加建议
         recommendations.push('建议定期备份重要数据');
         recommendations.push('建议对大表进行索引优化');
@@ -368,7 +368,7 @@ const reportInsight: SkillDefinition = {
           recommendations.push('建议整理表结构，合并相似表');
         }
       }
-      
+
       return {
         success: true,
         data: {
@@ -397,7 +397,7 @@ const reportCompare: SkillDefinition = {
   ],
   execute: async (params, context): Promise<SkillResult> => {
     const { datasourceId, dimensions, metrics, format = 'markdown' } = params;
-    
+
     if (!dimensions || dimensions.length === 0) {
       return { success: false, message: '请提供对比维度' };
     }
@@ -407,7 +407,7 @@ const reportCompare: SkillDefinition = {
 
     try {
       const comparisons: any[] = [];
-      
+
       // TODO: 实际实现需要根据维度和指标生成对比数据
       for (const dim of dimensions) {
         for (const metric of metrics) {
@@ -421,14 +421,14 @@ const reportCompare: SkillDefinition = {
           });
         }
       }
-      
+
       let summary = `对比分析完成，共分析 ${dimensions.length} 个维度，${metrics.length} 个指标。`;
-      
+
       const outputPath = path.join(
         context.workDir || 'public/downloads',
         `compare_${Date.now()}.${format === 'markdown' ? 'md' : format}`
       );
-      
+
       return {
         success: true,
         data: {
