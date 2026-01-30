@@ -716,6 +716,39 @@ app.put('/api/datasource/:id/schema/table/:tableName/column/:columnName', authMi
   }
 });
 
+// 批量保存字段映射分析结果（用户编辑）
+app.post('/api/datasource/:id/schema/analysis/save', authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: '未认证' });
+  }
+
+  const { tables, suggestedQuestions } = req.body;
+
+  // 检查权限
+  const ds = dataSources.get(req.params.id);
+  if (!ds) return res.status(404).json({ error: '数据源不存在' });
+  if (ds.config.userId !== req.user.id) {
+    return res.status(403).json({ error: '无权修改此数据源' });
+  }
+
+  try {
+    // 保存完整的分析结果
+    await configStore.saveSchemaAnalysis({
+      datasourceId: req.params.id,
+      tables,
+      suggestedQuestions: suggestedQuestions || [],
+      analyzedAt: Date.now(),
+      updatedAt: Date.now(),
+      isUserEdited: true
+    }, req.user.id);
+
+    res.json({ message: '字段映射保存成功' });
+  } catch (error: any) {
+    console.error('保存字段映射失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 更新推荐问题（用户编辑）
 app.put('/api/datasource/:id/schema/questions', authMiddleware, async (req, res) => {
   if (!req.user) {
@@ -1925,6 +1958,8 @@ app.post('/api/agent/data-report-ppt', authMiddleware, async (req, res) => {
 });
 
 // 注册管理后台路由
+import { registerAllSkills } from './agent/skills';
+import { crawlerScheduler } from './agent/skills/crawler/scheduler';
 import { createAdminRouter } from './admin';
 app.use('/api/admin', authMiddleware, createAdminRouter());
 
@@ -1964,6 +1999,9 @@ const PORT = process.env.PORT || 3000;
 
 // 先初始化数据源，再启动服务
 initDataSources().then(() => {
+  // 启动爬虫任务调度器
+  crawlerScheduler.start();
+
   app.listen(PORT, () => {
     console.log(`AI数据问答平台运行在 http://localhost:${PORT}`);
   });

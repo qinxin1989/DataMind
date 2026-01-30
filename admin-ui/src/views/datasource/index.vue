@@ -53,6 +53,9 @@
             <a-button type="link" size="small" @click="handleManageFields(record)">
               字段管理
             </a-button>
+            <a-button type="link" size="small" @click="handleManageFields(record, true)" :loading="loading">
+              重新分析
+            </a-button>
             <a-dropdown>
               <a-button type="link" size="small">
                 更多 <DownOutlined />
@@ -176,15 +179,25 @@
       :confirmLoading="fieldModalLoading"
     >
       <div style="margin-bottom: 16px;">
-        <a-space>
+        <a-space wrap>
           <a-button type="primary" ghost @click="suggestFieldsWithAI" :loading="suggestLoading">
             <template #icon><RobotOutlined /></template>
             AI 自动匹配映射
           </a-button>
           <a-button @click="showImportModal = true">批量导入 (文本)</a-button>
+          <a-button type="link" size="small" @click="handleManageFields(editingDs!, true)" :loading="loading">
+            <template #icon><ReloadOutlined /></template>
+            强制重新分析所有字段
+          </a-button>
         </a-space>
         <div style="margin-top: 8px;">
-          <a-alert message="提示：AI 生成的建议会标记为蓝色背景，点击保存后生效。" type="info" show-icon />
+          <a-alert
+            v-if="currentAnalysis"
+            :message="`共 ${flattenedColumns.length} 个字段 • ${currentAnalysis.cached ? '来自缓存' : '最新分析'} • ${currentAnalysis.isUserEdited ? '已编辑' : 'AI生成'}`"
+            type="info"
+            show-icon
+          />
+          <a-alert v-else message="提示：AI 生成的建议会标记为蓝色背景，点击保存后生效。" type="info" show-icon />
         </div>
       </div>
 
@@ -232,7 +245,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, DownOutlined, InboxOutlined, RobotOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, DownOutlined, InboxOutlined, RobotOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { datasourceApi } from '@/api/datasource'
 import { get, post } from '@/api/request'
 import type { DatasourceVisibility, ApprovalStatus } from '@/types'
@@ -560,18 +573,24 @@ async function handleToggleVisibility(record: DatasourceItem) {
     }
   })
 }
-async function handleManageFields(record: DatasourceItem) {
+async function handleManageFields(record: DatasourceItem, forceRefresh = false) {
   loading.value = true
   editingDs.value = record
   try {
-    // 获取当前分析结果
-    const res = await get<any>(`/datasource/${record.id}/schema/analyze`)
+    // 获取当前分析结果（支持强制刷新）
+    const url = `/datasource/${record.id}/schema/analyze${forceRefresh ? '?refresh=true' : ''}`
+    const res = await get<any>(url)
     currentAnalysis.value = res.data || res
-    
+
     // 展平列以便在表格中展示
     prepareFlattenedColumns()
-    
+
     fieldModalVisible.value = true
+
+    // 如果是强制刷新，提示用户
+    if (forceRefresh) {
+      message.success('已重新分析所有字段')
+    }
   } catch (error) {
     message.error('加载字段映射失败')
   } finally {

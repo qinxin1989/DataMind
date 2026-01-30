@@ -762,14 +762,17 @@ export class AIQAService {
 
       if (activeConfigs && activeConfigs.length > 0) {
         const embeddingModels = activeConfigs.map(config => {
-          let embeddingModel = 'text-embedding-ada-002';
+          // 确定嵌入模型
+          let embeddingModel = config.embeddingModel || 'text-embedding-ada-002';
 
-          if (config.provider === 'qwen' || config.name?.toLowerCase().includes('qwen') || config.model?.toLowerCase().includes('qwen')) {
-            // 通义千问系列模型 (包括本地部署)
-            embeddingModel = 'text-embedding-v2';
-          } else if (config.provider === 'siliconflow') {
-            // SiliconFlow 模型
-            embeddingModel = 'BAAI/bge-large-zh-v1.5';
+          if (!config.embeddingModel) {
+            if (config.provider === 'qwen' || config.name?.toLowerCase().includes('qwen') || config.model?.toLowerCase().includes('qwen')) {
+              // 通义千问系列模型 (包括本地部署)
+              embeddingModel = 'text-embedding-v2';
+            } else if (config.provider === 'siliconflow') {
+              // SiliconFlow 模型
+              embeddingModel = 'BAAI/bge-large-zh-v1.5';
+            }
           }
 
           return {

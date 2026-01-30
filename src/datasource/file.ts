@@ -59,20 +59,20 @@ export class FileDataSource extends BaseDataSource {
 
   async connect(): Promise<void> {
     const fileInfos = this.getFileInfos();
-    
+
     for (const fileInfo of fileInfos) {
       try {
         const data = await this.loadFile(fileInfo);
         this.tables.set(fileInfo.tableName, data);
-        
+
         // 生成 schema
         if (data.length > 0) {
           const columns: ColumnInfo[] = Object.keys(data[0]).map(key => ({
             name: key,
-            type: this.inferType(data[0][key]),
+            type: this.inferType(data, key), // 传入整个data数组和字段名
             nullable: true,
           }));
-          
+
           this.schemas.push({
             tableName: fileInfo.tableName,
             columns,
@@ -88,14 +88,26 @@ export class FileDataSource extends BaseDataSource {
   // 加载单个文件
   private async loadFile(fileInfo: FileInfo): Promise<any[]> {
     let content: Buffer;
-    
-    // 检查文件是否加密
-    if (fileInfo.encrypted || fileEncryption.isEncrypted(fileInfo.path)) {
-      content = fileEncryption.decryptFileToBuffer(fileInfo.path);
-    } else {
-      content = fs.readFileSync(fileInfo.path);
+
+    try {
+      // 检查文件是否加密
+      if (fileInfo.encrypted || fileEncryption.isEncrypted(fileInfo.path)) {
+        // 先验证加密文件格式
+        const validation = fileEncryption.validateEncryptedFile(fileInfo.path);
+        if (!validation.valid) {
+          const fileName = fileInfo.originalName || fileInfo.path;
+          throw new Error(`加密文件已损坏或格式不正确 [${fileName}]: ${validation.error}。建议：重新上传该文件`);
+        }
+        content = fileEncryption.decryptFileToBuffer(fileInfo.path);
+      } else {
+        content = fs.readFileSync(fileInfo.path);
+      }
+    } catch (error: any) {
+      // 提供更详细的错误信息，包括文件名
+      const fileName = fileInfo.originalName || fileInfo.path;
+      throw new Error(`加载文件失败 [${fileName}]: ${error.message}`);
     }
-    
+
     switch (fileInfo.fileType) {
       case 'csv':
         return parse(content, { columns: true, skip_empty_lines: true });
@@ -111,11 +123,69 @@ export class FileDataSource extends BaseDataSource {
     }
   }
 
-  private inferType(value: any): string {
-    if (value === null || value === undefined) return 'string';
-    if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'float';
-    if (typeof value === 'boolean') return 'boolean';
-    if (!isNaN(Date.parse(value))) return 'date';
+  /**
+   * 改进的类型推断：采样多行数据来推断字段类型
+   * @param data - 数据数组
+   * @param key - 字段名
+   * @returns 推断的类型
+   */
+  private inferType(data: any[], key: string): string {
+    // 采样前20行数据（或全部数据，如果少于20行）
+    const sampleSize = Math.min(data.length, 20);
+    const samples: any[] = [];
+
+    for (let i = 0; i < sampleSize; i++) {
+      const value = data[i][key];
+      if (value !== null && value !== undefined && value !== '') {
+        samples.push(value);
+      }
+    }
+
+    // 如果所有采样值都是空的，返回string
+    if (samples.length === 0) return 'string';
+
+    // 统计各类型的出现次数
+    let numberCount = 0;
+    let integerCount = 0;
+    let booleanCount = 0;
+    let dateCount = 0;
+    let stringCount = 0;
+
+    for (const value of samples) {
+      const type = typeof value;
+
+      if (type === 'number') {
+        numberCount++;
+        if (Number.isInteger(value)) {
+          integerCount++;
+        }
+      } else if (type === 'boolean') {
+        booleanCount++;
+      } else if (type === 'string') {
+        // 尝试解析为日期
+        const dateVal = new Date(value);
+        const isValidDate = !isNaN(dateVal.getTime()) &&
+                           !isNaN(Date.parse(value)) &&
+                           value.match(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/); // 包含日期格式
+
+        if (isValidDate) {
+          dateCount++;
+        } else {
+          stringCount++;
+        }
+      }
+    }
+
+    const total = samples.length;
+
+    // 判断逻辑：如果某种类型占比超过80%，则认为是该类型
+    if (numberCount / total > 0.8) {
+      return integerCount / numberCount > 0.8 ? 'integer' : 'float';
+    }
+    if (booleanCount / total > 0.8) return 'boolean';
+    if (dateCount / total > 0.8) return 'date';
+
+    // 默认返回string
     return 'string';
   }
 
@@ -330,21 +400,21 @@ export class FileDataSource extends BaseDataSource {
         console.log('After WHERE:', result.length, 'rows');
       }
 
-      // 解析GROUP BY（支持中文字段名）
-      const groupMatch = sql.match(/group\s+by\s+([a-zA-Z0-9_\u4e00-\u9fa5.]+)/i);
-      const groupByField = groupMatch ? groupMatch[1] : undefined;
-      
+      // 解析GROUP BY（支持中文字段名和多个字段）
+      const groupMatch = sql.match(/group\s+by\s+(.+?)(?:\s+order|\s+limit|$)/i);
+      const groupByFields = groupMatch ? groupMatch[1].trim().split(',').map(f => f.trim()) : [];
+
       // 解析SELECT字段和聚合函数
       const selectMatch = sql.match(/select\s+(.+?)\s+from/i);
       const selectFields = selectMatch ? selectMatch[1].trim() : '*';
-      
+
       // 检查是否有聚合函数
       const hasAggregation = /\b(count|sum|avg|max|min)\s*\(/i.test(selectFields);
-      
-      console.log('SELECT fields:', selectFields, 'hasAggregation:', hasAggregation, 'groupBy:', groupByField);
-      
+
+      console.log('SELECT fields:', selectFields, 'hasAggregation:', hasAggregation, 'groupBy:', groupByFields.join(', '));
+
       if (hasAggregation) {
-        result = this.applyAggregation(result, selectFields, groupByField);
+        result = this.applyAggregation(result, selectFields, groupByFields);
         console.log('After aggregation:', result.length, 'rows', result);
       }
 
@@ -375,8 +445,8 @@ export class FileDataSource extends BaseDataSource {
     }
   }
 
-  // 应用聚合函数（支持中文字段名）
-  private applyAggregation(data: any[], selectFields: string, groupByField?: string): any[] {
+  // 应用聚合函数（支持中文字段名和多个分组字段）
+  private applyAggregation(data: any[], selectFields: string, groupByFields: string[] = []): any[] {
     const aggregations: { alias: string; func: string; field: string }[] = [];
     // 支持中文字段名的正则
     const aggRegex = /(count|sum|avg|max|min)\s*\(\s*(\*|[a-zA-Z0-9_\u4e00-\u9fa5]+)\s*\)(?:\s+as\s+([a-zA-Z0-9_\u4e00-\u9fa5]+))?/gi;
@@ -394,18 +464,25 @@ export class FileDataSource extends BaseDataSource {
       return data;
     }
 
-    if (groupByField) {
+    if (groupByFields.length > 0) {
       const groups = new Map<string, any[]>();
       for (const row of data) {
-        const key = String(row[groupByField] ?? 'null');
+        // 使用所有分组字段的组合作为key
+        const keyParts = groupByFields.map(f => String(row[f] ?? 'null'));
+        const key = keyParts.join('|||');  // 使用特殊分隔符避免冲突
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key)!.push(row);
       }
-      console.log('Groups count:', groups.size);
+      console.log('Groups count:', groups.size, 'fields:', groupByFields.join(', '));
 
       const result: any[] = [];
       for (const [key, rows] of groups) {
-        const row: any = { [groupByField]: key };
+        // 解析组合key，恢复各个字段的值
+        const keyParts = key.split('|||');
+        const row: any = {};
+        groupByFields.forEach((f, i) => {
+          row[f] = keyParts[i];
+        });
         for (const agg of aggregations) {
           row[agg.alias] = this.calculateAggregation(rows, agg.func, agg.field);
         }

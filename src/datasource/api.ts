@@ -31,7 +31,7 @@ export class ApiDataSource extends BaseDataSource {
     if (this.data.length > 0) {
       const columns: ColumnInfo[] = Object.keys(this.data[0]).map(key => ({
         name: key,
-        type: this.inferType(this.data[0][key]),
+        type: this.inferType(this.data, key), // 传入整个data数组和字段名
         nullable: true,
       }));
       this.schema = {
@@ -42,12 +42,77 @@ export class ApiDataSource extends BaseDataSource {
     }
   }
 
-  private inferType(value: any): string {
-    if (value === null || value === undefined) return 'string';
-    if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'float';
-    if (typeof value === 'boolean') return 'boolean';
-    if (Array.isArray(value)) return 'array';
-    if (typeof value === 'object') return 'object';
+  /**
+   * 改进的类型推断：采样多行数据来推断字段类型
+   * @param data - 数据数组
+   * @param key - 字段名
+   * @returns 推断的类型
+   */
+  private inferType(data: any[], key: string): string {
+    // 采样前20行数据（或全部数据，如果少于20行）
+    const sampleSize = Math.min(data.length, 20);
+    const samples: any[] = [];
+
+    for (let i = 0; i < sampleSize; i++) {
+      const value = data[i][key];
+      if (value !== null && value !== undefined && value !== '') {
+        samples.push(value);
+      }
+    }
+
+    // 如果所有采样值都是空的，返回string
+    if (samples.length === 0) return 'string';
+
+    // 统计各类型的出现次数
+    let numberCount = 0;
+    let integerCount = 0;
+    let booleanCount = 0;
+    let arrayCount = 0;
+    let objectCount = 0;
+    let dateCount = 0;
+    let stringCount = 0;
+
+    for (const value of samples) {
+      const type = typeof value;
+
+      if (type === 'number') {
+        numberCount++;
+        if (Number.isInteger(value)) {
+          integerCount++;
+        }
+      } else if (type === 'boolean') {
+        booleanCount++;
+      } else if (Array.isArray(value)) {
+        arrayCount++;
+      } else if (type === 'object') {
+        objectCount++;
+      } else if (type === 'string') {
+        // 尝试解析为日期
+        const dateVal = new Date(value);
+        const isValidDate = !isNaN(dateVal.getTime()) &&
+                           !isNaN(Date.parse(value)) &&
+                           value.match(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/); // 包含日期格式
+
+        if (isValidDate) {
+          dateCount++;
+        } else {
+          stringCount++;
+        }
+      }
+    }
+
+    const total = samples.length;
+
+    // 判断逻辑：如果某种类型占比超过80%，则认为是该类型
+    if (arrayCount / total > 0.8) return 'array';
+    if (objectCount / total > 0.8) return 'object';
+    if (numberCount / total > 0.8) {
+      return integerCount / numberCount > 0.8 ? 'integer' : 'float';
+    }
+    if (booleanCount / total > 0.8) return 'boolean';
+    if (dateCount / total > 0.8) return 'date';
+
+    // 默认返回string
     return 'string';
   }
 

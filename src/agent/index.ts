@@ -529,6 +529,7 @@ export class AIAgent {
 
 可选工具:
 - sql: 查询具体数据 (如: "查询用户表", "统计销售额", "画个图", "Top 10")
+- crawler.extract: 网页抓取/提取 (如: "抓取这个网站的内容", "提取网页上的价格", "从网址获取信息")
 - data.analyze: 深度分析/总结/洞察 (如: "分析这个数据源", "给出业务总结")
 - chitchat: 闲聊/问候 (如: "你好", "谢谢")
 
@@ -547,8 +548,10 @@ ${schemaDesc}
 
 返回JSON格式: 
 {
-  "tool": "sql" | "data.analyze" | "chitchat", 
+  "tool": "sql" | "data.analyze" | "chitchat" | "crawler.extract", 
   "reason": "原因",
+  "url": "要抓取的网址（如果是抓取工具则必填）",
+  "extractDescription": "提取需求描述（如果是抓取工具则必填）",
   "chartType": "bar" | "line" | "pie" | "area" | "scatter" | "none",
   "chartTitle": "简短且具业务意义的图表标题，务必简洁（如'语言分布'而非'各表语言占比统计'）",
   "chartConfig": {
@@ -582,6 +585,18 @@ ${schemaDesc}
             type: 'chitchat',
             name: 'chitchat',
             params: { question },
+            needChart: false
+          };
+
+        case 'crawler.extract':
+          return {
+            type: 'skill',
+            name: 'crawler.extract',
+            params: {
+              url: result.url || (question.match(/https?:\/\/[^\s]+/i) || [])[0],
+              description: result.extractDescription || question,
+              format: 'json'
+            },
             needChart: false
           };
 
@@ -1290,7 +1305,13 @@ ${schemaDesc}
 
         if (skill) {
           console.log('Executing skill:', plan.name, 'params:', JSON.stringify(plan.params));
-          const ctx: SkillContext = { dataSource, schemas, dbType };
+          const ctx: SkillContext = {
+            dataSource,
+            schemas,
+            dbType,
+            openai: this.openai,
+            model: this.model
+          };
 
           try {
             const skillResult = await skill.execute(plan.params, ctx);
@@ -1550,17 +1571,59 @@ ${schemaDesc}
 
     const recentContext = history.slice(-2).map(m => m.content.slice(0, 100)).join(';');
 
+    // 识别维度字段（用于GROUP BY）
+    const dimensionFields: string[] = [];
+    for (const schema of schemas) {
+      for (const col of schema.columns) {
+        const name = col.name.toLowerCase();
+        // 地域维度
+        if (name.includes('地区') || name.includes('区域') || name.includes('省份') ||
+            name.includes('城市') || name.includes('国家') || name.includes('地址') ||
+            name.includes('region') || name.includes('area') || name.includes('province')) {
+          dimensionFields.push(`- ${col.name}: 地域维度`);
+        }
+        // 时间维度
+        else if (name.includes('时间') || name.includes('日期') || name.includes('年份') ||
+                 name.includes('月份') || name.includes('date') || name.includes('time')) {
+          dimensionFields.push(`- ${col.name}: 时间维度`);
+        }
+        // 分类维度
+        else if (name.includes('类型') || name.includes('类别') || name.includes('分类') ||
+                 name.includes('组别') || name.includes('级别') || name.includes('status')) {
+          dimensionFields.push(`- ${col.name}: 分类维度`);
+        }
+      }
+    }
+
+    // 构建维度字段示例
+    const dimensionExamples = dimensionFields.length > 0
+      ? `\n**SQL示例**:
+- 问"参赛地区分布" → SELECT 参赛地区, COUNT(*) as count FROM table GROUP BY 参赛地区 ORDER BY count DESC LIMIT 20
+- 问"类型分布" → SELECT 类型, COUNT(*) as count FROM table GROUP BY 类型 ORDER BY count DESC LIMIT 20
+- 问"时间趋势" → SELECT 时间, COUNT(*) as count FROM table GROUP BY 时间 ORDER BY 时间 ASC LIMIT 100`
+      : '';
+
+    const dimensionHint = dimensionFields.length > 0
+      ? `\n\n**重要：可用的维度字段（用于GROUP BY分组）**:\n${dimensionFields.join('\n')}${dimensionExamples}`
+      : '';
+
     const response = await this.callWithRetry(() => this.openai.chat.completions.create({
       model: this.model,
       messages: [
         {
           role: 'system',
           content: `SQL生成器(${dbType})。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"业务标题"}
-规则:SELECT only,默认LIMIT 20(除非是时间序列趋势分析,可根据需要增加LIMIT到100),聚合按值DESC排序。
-轴设计规则:X轴(xField)必须是维度/时间(如年份,名称),Y轴(yField)必须是数值(如数量,金额)。禁止反转!
-规则:必须仔细观察表结构中每个表的sampleRows/sampleData，根据样例确定字段值(比如IsOfficial是'T'还是'Official')，不要猜！
-规则:必须支持宽表（多达1000列），不要遗漏用户关心的字段。
+
+**核心规则**:
+1. 【强制】用户问"分布""趋势""对比""最多""最少"等分析时，必须使用维度字段GROUP BY，禁止说"无法分析"
+2. 【强制】地域/类型/时间分析时，必须 SELECT 维度字段, COUNT(*) GROUP BY 维度字段
+3. SELECT only,默认LIMIT 20(时间序列趋势可增加到100),聚合按值DESC排序
+4. X轴(xField)必须是维度/时间字段,Y轴(yField)必须是数值字段,禁止反转!
+5. 必须仔细观察sampleData中的真实字段值,不要猜测格式
+6. 支持宽表(多达2000列),不要遗漏任何字段${dimensionHint}
+
 ${noChart ? '注意:当前处于无图模式，请务必将"chartType"设置为"none"，不要生成图表。' : ''}
+
 表结构:
 ${schemaContext}${additionalContext}`
         },
@@ -1603,7 +1666,27 @@ ${schemaContext}${additionalContext}`
 
     const limitedResult = Array.isArray(result) ? result.slice(0, 1000) : result;
     const resultStr = JSON.stringify(limitedResult);
-    let systemPrompt = `数据分析助手。用中文简洁回答，**严禁单位换算幻觉**：1000万是1千万，不是1亿。大数用习惯单位（万、亿）。直接给出结论。`;
+
+    // 检查结果是否包含维度字段（用于增强分析）
+    const hasDimensionField = Array.isArray(result) && result.length > 0 &&
+      Object.keys(result[0]).some(key =>
+        key.toLowerCase().includes('地区') || key.toLowerCase().includes('区域') ||
+        key.toLowerCase().includes('省份') || key.toLowerCase().includes('城市') ||
+        key.toLowerCase().includes('类型') || key.toLowerCase().includes('类别') ||
+        key.toLowerCase().includes('时间') || key.toLowerCase().includes('日期')
+      );
+
+    let systemPrompt = `你是专业的数据分析助手。基于查询结果给出简洁准确的业务洞察。
+
+**核心规则**:
+1. 【强制】必须基于查询结果进行分析，结果有数据就给出具体结论，禁止说"无法分析""数据不足"等
+2. 【强制】地域分布：必须列出每个地区的具体数量，如"南昌: XXX件, 武汉: XXX件, ..."，禁止只说"中国: XXX件"
+3. 【强制】分类统计：必须列出每个类别的具体数值，如"类型A: XXX, 类型B: XXX, ..."
+4. 严格按真实数据解读，禁止幻觉：1000万=1千万≠1亿，用"万""亿"等单位
+5. 时间趋势：指出上升/下降/稳定的趋势，给出关键时间点
+6. 突出Top项目：指出最多/最少的类别或地区，突出异常值
+7. 用自然语言描述数据含义，直接回答用户问题${hasDimensionField ? '\n\n【注意】检测结果包含维度字段，请详细列出每个维度的具体数值' : ''}`;
+
     if (ragContext) {
       systemPrompt += `\n\n参考知识:\n${ragContext.slice(0, 300)}`;
     }
@@ -1642,15 +1725,48 @@ ${schemaContext}${additionalContext}`
   ): Promise<{ sql: string; chartType?: string; chartTitle?: string }> {
     await this.ensureInitialized();
 
+    // 识别维度字段
+    const dimensionFields: string[] = [];
+    for (const schema of schemas) {
+      for (const col of schema.columns) {
+        const name = col.name.toLowerCase();
+        if (name.includes('地区') || name.includes('区域') || name.includes('省份') ||
+            name.includes('城市') || name.includes('国家') ||
+            name.includes('类型') || name.includes('类别') || name.includes('分类') ||
+            name.includes('时间') || name.includes('日期') || name.includes('年份')) {
+          dimensionFields.push(`- ${col.name}: 可用于GROUP BY的维度字段`);
+        }
+      }
+    }
+
+    // 构建维度字段示例
+    const dimensionExamples = dimensionFields.length > 0
+      ? `\n**示例**:
+- 问"参赛地区分布" → SELECT 参赛地区, COUNT(*) as count FROM table GROUP BY 参赛地区 ORDER BY count DESC LIMIT 20
+- 问"类型分布" → SELECT 类型, COUNT(*) as count FROM table GROUP BY 类型 ORDER BY count DESC LIMIT 20
+- 问"时间趋势" → SELECT 时间, COUNT(*) as count FROM table GROUP BY 时间 ORDER BY 时间 ASC LIMIT 100`
+      : '';
+
+    const dimensionHint = dimensionFields.length > 0
+      ? `\n\n**可用维度字段（用于GROUP BY分组分析）**:\n${dimensionFields.join('\n')}${dimensionExamples}`
+      : '';
+
     const response = await this.callWithRetry(() => this.openai.chat.completions.create({
       model: this.model,
       messages: [
         {
           role: 'system',
           content: `SQL生成器（文件数据源）。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"简短标题"}
-规则:聚合查询优先(HAVING SUM > X)，按值DESC排序，LIMIT 20
-注意:必须检查表结构中的sampleData以确定字段真实取值(如'T'/'F'与'Official')，严禁猜测。
+
+**核心规则**:
+1. 【强制】用户问"分布""趋势""对比""最多""最少"等分析时，必须使用维度字段GROUP BY，禁止说"无法分析"
+2. 【强制】地域/类型/时间分析时，必须 SELECT 维度字段, COUNT(*) GROUP BY 维度字段
+3. 聚合查询优先，按值DESC排序，LIMIT 20（时间序列可增加到100）
+4. 必须检查sampleData确定字段真实值，严禁猜测
+5. 图表配置: xField=维度字段, yField=数值字段, 颜色区分不同维度${dimensionHint}
+
 ${noChart ? '注意:用户开启了无图模式，请将"chartType"设置为"none"且不要生成图表标题。' : ''}
+
 表结构:
 ${schemaContext}${additionalContext}`
         },
@@ -1899,14 +2015,24 @@ ${schemaContext}${additionalContext}`
 
     // 对每个表进行独立分析，如果是超宽表则进一步分段
     for (const tableSchema of schemas.slice(0, 100)) {
-      const columnChunks = this.chunkArray(tableSchema.columns.slice(0, 1000), 40); // 每组40个字段，确保不溢出且生成质量高
-      console.log(`Analyzing table ${tableSchema.tableName}: splitting into ${columnChunks.length} chunks`);
+      const allColumns = tableSchema.columns;
+      const totalColumns = allColumns.length;
+
+      // 记录字段数量警告
+      if (totalColumns > 2000) {
+        console.warn(`⚠️ 表 ${tableSchema.tableName} 包含 ${totalColumns} 个字段，超过2000个字段的分析上限，部分字段将被忽略`);
+      }
+
+      const columnChunks = this.chunkArray(allColumns.slice(0, 2000), 30); // 提高到2000个字段，每组30个字段以提高质量
+      console.log(`📊 Analyzing table ${tableSchema.tableName}: ${totalColumns} columns total, splitting into ${columnChunks.length} chunks (max 2000 analyzed)`);
 
       const tableResults = await Promise.all(columnChunks.map(async (chunk, index) => {
+        // 增加样例数据数量，给AI更多上下文
+        const sampleCount = Math.min(tableSchema.sampleData?.length || 0, 10);
         const schemaForAI = {
           tableName: tableSchema.tableName,
           columns: chunk.map(c => ({ name: c.name, type: c.type })),
-          sampleData: tableSchema.sampleData?.slice(0, 5) || []
+          sampleData: tableSchema.sampleData?.slice(0, sampleCount) || []
         };
 
         const response = await this.callWithRetry(() => this.openai.chat.completions.create({
@@ -1914,29 +2040,48 @@ ${schemaContext}${additionalContext}`
           messages: [
             {
               role: 'system',
-              content: `你是一个数据库专家。请分析以下提供的数据表结构(第 ${index + 1} 部分)，并返回分析结果。
+              content: `你是一个资深的数据库业务专家。请仔细分析以下数据表结构(第 ${index + 1} 部分)，并返回分析结果。
+
+**重要规则**:
+1. 字段命名识别：
+   - 包含"地区""区域""省份""城市""地址"等词 → 这是**地域维度**字段，用于GROUP BY分组
+   - 包含"时间""日期""年份""月份"等词 → 这是**时间维度**字段
+   - 包含"类型""类别""分类""组别""级别"等词 → 这是**分类维度**字段
+   - 包含"数量""金额""数值""分数""比例"等词 → 这是**数值度量**字段
+   - 包含"编号""ID""id""ID"等词 → 这是**标识字段**
+
+2. 中文名称要：
+   - 简洁准确，符合业务习惯
+   - 维度字段用"XX地区""XX类型""XX时间"
+   - 度量字段用"XX数量""XX金额""XX分数"
+
+3. 描述要包含：
+   - 字段的业务含义
+   - 数据格式示例（从sampleData中提取）
+   - 典型值说明
+
 必须严格遵循以下 JSON 响应格式:
 {
   "tableNameCn": "表的中文业务名称",
   "columns": [
     {
       "name": "必须保持与原列名完全一致",
-      "nameCn": "中文业务名称",
-      "description": "详细业务描述"
+      "nameCn": "简洁的中文业务名称",
+      "description": "详细业务描述，包含字段含义、数据格式、典型值说明"
     }
   ]
-  ${index === 0 ? ',"suggestedQuestions": ["针对该数据集的 10-15 个探索性业务问题(中文)"]' : ''}
+  ${index === 0 ? ',"suggestedQuestions": ["生成10-15个简单直白的提问问题（中文），要求：1）用日常口语化表达，如\"总共多少\"\"哪个最多\"\"排名前十\"\"按地区分布\"等 2）问题要简短，不超过15个字 3）涵盖常见查询：总数、排名、分布、趋势、对比 4）避免专业术语，用普通人会问的方式"]' : ''}
 }
 
-要求:
-1. 严禁修改或翻译 "name" (列名)，必须原样返回。
-2. 必须为传入的每一列提供 nameCn 和 description。
-3. 参考传入的 sampleData 来推断字段的真实业务含义。`
+**特别注意**:
+- name 必须原样返回，不能修改
+- nameCn 必须是简洁的中文，不要带英文括号说明
+- description 要基于真实的 sampleData 推断，不要猜测`
             },
-            { role: 'user', content: `请分析以下数据结构:\n${JSON.stringify(schemaForAI)}` }
+            { role: 'user', content: `请分析以下数据结构:\n${JSON.stringify(schemaForAI, null, 2)}` }
           ],
           temperature: 0.1,
-          max_tokens: 2500, // 40个字段配合描述，预计3000以内足够
+          max_tokens: 4000,
           response_format: { type: 'json_object' }
         }));
 
@@ -1968,10 +2113,14 @@ ${schemaContext}${additionalContext}`
             c.name.toLowerCase().trim() === origCol.name.toLowerCase().trim()
           );
 
+          // 如果字段名本身是中文（超过50%是中文字符），直接用原字段名作为nameCn
+          const isChineseName = /[\u4e00-\u9fa5]/.test(origCol.name) &&
+                               (origCol.name.match(/[\u4e00-\u9fa5]/g) || []).length / origCol.name.length > 0.5;
+
           return {
             name: origCol.name,
             type: origCol.type,
-            nameCn: aiCol?.nameCn || origCol.name,
+            nameCn: isChineseName ? origCol.name : (aiCol?.nameCn || origCol.name),
             description: aiCol?.description || (origCol.comment || '-')
           };
         })
@@ -2021,7 +2170,7 @@ ${schemaContext}${additionalContext}`
     return info.join('\n');
   }
 
-  // 基于中文名称生成问题
+  // 基于中文名称生成简单直白的问题
   private generateChineseQuestions(schemas: TableSchema[], analyzedTables: any[]): string[] {
     const questions: string[] = [];
 
@@ -2030,38 +2179,56 @@ ${schemaContext}${additionalContext}`
       const analyzed = analyzedTables[i];
       const tableCn = analyzed?.tableNameCn || this.guessTableNameCn(table.tableName);
 
-      // 基础统计
-      questions.push(`${tableCn}共有多少条记录？`);
+      // 基础统计 - 更口语化
+      questions.push(`一共有多少条${tableCn}？`);
+      questions.push(`展示前10条${tableCn}`);
+      questions.push(`给我看看所有${tableCn}`);
 
-      // 找分类字段并生成中文问题
-      const categoryFields = table.columns.filter(c =>
-        c.name.includes('代码') || c.name.includes('类型') || c.name.includes('性别') || c.name.includes('状态')
+      // 地区/地域字段
+      const regionFields = table.columns.filter(c =>
+        c.name.includes('地区') || c.name.includes('区域') || c.name.includes('省份') || c.name.includes('城市')
       );
-
-      for (const field of categoryFields.slice(0, 2)) {
+      for (const field of regionFields.slice(0, 2)) {
         const fieldCn = analyzed?.columns?.find((c: any) => c.name === field.name)?.nameCn || field.name;
-        questions.push(`按${fieldCn}统计${tableCn}的分布情况`);
+        questions.push(`按${fieldCn}分布，哪个最多？`);
+        questions.push(`${fieldCn}排名前十的是哪些？`);
       }
 
-      // 日期字段
+      // 类型/分类字段
+      const categoryFields = table.columns.filter(c =>
+        c.name.includes('类型') || c.name.includes('类别') || c.name.includes('分类') || c.name.includes('性别') || c.name.includes('状态')
+      );
+      for (const field of categoryFields.slice(0, 2)) {
+        const fieldCn = analyzed?.columns?.find((c: any) => c.name === field.name)?.nameCn || field.name;
+        questions.push(`按${fieldCn}分组统计数量`);
+        questions.push(`哪种${fieldCn}最多？`);
+      }
+
+      // 时间字段
       const dateFields = table.columns.filter(c =>
-        c.type.toLowerCase().includes('date') || c.name.includes('日期')
+        c.type.toLowerCase().includes('date') || c.name.includes('时间') || c.name.includes('日期')
       );
       if (dateFields.length > 0) {
-        questions.push(`按月份统计${tableCn}的时间趋势`);
+        questions.push(`按月份统计数量趋势`);
+        questions.push(`最近的数据有哪些？`);
       }
 
       // 数值字段
-      const numericFields = table.columns.filter(c => c.name.includes('年龄') || c.name.includes('金额'));
-      if (numericFields.length > 0) {
-        const fieldCn = analyzed?.columns?.find((c: any) => c.name === numericFields[0].name)?.nameCn || numericFields[0].name;
-        questions.push(`${tableCn}中${fieldCn}的统计情况（最大、最小、平均）`);
+      const numericFields = table.columns.filter(c =>
+        c.name.includes('数量') || c.name.includes('金额') || c.name.includes('分数') || c.name.includes('年龄') || c.name.includes('比例')
+      );
+      for (const field of numericFields.slice(0, 2)) {
+        const fieldCn = analyzed?.columns?.find((c: any) => c.name === field.name)?.nameCn || field.name;
+        questions.push(`${fieldCn}最大的是多少？`);
+        questions.push(`${fieldCn}排名前十的`);
+        questions.push(`${fieldCn}平均是多少？`);
       }
     }
 
     // 综合分析
-    const allTablesCn = analyzedTables.map(t => t?.tableNameCn).filter(Boolean).join('和') || '数据';
-    questions.push(`对${allTablesCn}进行全面分析`);
+    questions.push(`数据总览`);
+    questions.push(`有什么规律和特点？`);
+    questions.push(`帮我分析一下数据`);
 
     return questions.slice(0, 15);
   }

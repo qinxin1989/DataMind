@@ -57,26 +57,45 @@ export class FileEncryptionService {
 
   // 解密文件到内存
   decryptFileToBuffer(encryptedPath: string): Buffer {
-    // 读取加密文件
-    const data = fs.readFileSync(encryptedPath);
-    
-    // 提取各部分
-    const salt = data.subarray(0, SALT_LENGTH);
-    const iv = data.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
-    const authTag = data.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH);
-    const encrypted = data.subarray(SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH);
-    
-    // 派生密钥
-    const key = this.deriveKey(salt);
-    
-    // 创建解密器
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
-    
-    // 解密数据
-    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-    
-    return decrypted;
+    try {
+      // 读取加密文件
+      const data = fs.readFileSync(encryptedPath);
+
+      // 验证文件最小长度：salt + iv + authTag = 32 + 16 + 16 = 64字节
+      const minFileSize = SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH;
+      if (data.length < minFileSize) {
+        throw new Error(`加密文件格式不正确：文件大小 (${data.length}字节) 小于最小要求 (${minFileSize}字节)，文件可能被截断或损坏`);
+      }
+
+      // 提取各部分
+      const salt = data.subarray(0, SALT_LENGTH);
+      const iv = data.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
+      const authTag = data.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH);
+      const encrypted = data.subarray(SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH);
+
+      // 验证是否有加密数据
+      if (encrypted.length === 0) {
+        throw new Error('加密文件格式不正确：未找到加密数据');
+      }
+
+      // 派生密钥
+      const key = this.deriveKey(salt);
+
+      // 创建解密器
+      const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+
+      // 解密数据
+      const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+
+      return decrypted;
+    } catch (error: any) {
+      // 提供更详细的错误信息
+      if (error.message.includes('Unsupported state') || error.message.includes('unable to authenticate')) {
+        throw new Error(`解密失败：文件认证失败。可能原因：1) 加密密钥已变更 2) 文件已损坏 3) 加密过程被中断。文件路径: ${encryptedPath}`);
+      }
+      throw error;
+    }
   }
 
   // 解密文件到临时文件（用于需要文件路径的场景）
@@ -100,6 +119,28 @@ export class FileEncryptionService {
   // 检查文件是否已加密
   isEncrypted(filePath: string): boolean {
     return filePath.endsWith('.enc');
+  }
+
+  // 验证加密文件是否有效（不实际解密，只检查格式）
+  validateEncryptedFile(encryptedPath: string): { valid: boolean; error?: string } {
+    try {
+      const data = fs.readFileSync(encryptedPath);
+      const minFileSize = SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH;
+
+      if (data.length < minFileSize) {
+        return { valid: false, error: `文件过小 (${data.length}字节 < ${minFileSize}字节)，可能被截断` };
+      }
+
+      // 检查文件末尾是否有数据
+      const encryptedSize = data.length - minFileSize;
+      if (encryptedSize === 0) {
+        return { valid: false, error: '文件不包含加密数据' };
+      }
+
+      return { valid: true };
+    } catch (error: any) {
+      return { valid: false, error: error.message };
+    }
   }
 }
 

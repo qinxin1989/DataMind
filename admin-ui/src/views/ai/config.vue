@@ -102,8 +102,8 @@
         <a-form-item label="API Key" name="apiKey">
           <a-input-password v-model:value="formState.apiKey" :placeholder="editingConfig ? '留空则不修改' : '请输入 API Key'" />
         </a-form-item>
-        <a-form-item label="API Endpoint" name="apiEndpoint">
-          <a-input v-model:value="formState.apiEndpoint" :placeholder="getEndpointPlaceholder()" />
+        <a-form-item label="API Endpoint" name="baseUrl">
+          <a-input v-model:value="formState.baseUrl" :placeholder="getEndpointPlaceholder()" />
           <div v-if="isLocalProvider()" class="endpoint-tips">
             <div class="tip-item">
               <strong>{{ getProviderLabel(formState.provider) }} 配置说明：</strong>
@@ -156,17 +156,32 @@
             </a-form-item>
           </a-col>
           <a-col :span="12">
-            <a-form-item label="最大Token" name="maxTokens">
-              <a-input-number v-model:value="formState.maxTokens" :min="100" :max="128000" style="width: 100%" />
+            <a-form-item label="嵌入模型 (Embedding)" name="embeddingModel">
+              <a-select v-model:value="formState.embeddingModel" :options="getEmbeddingOptions()" show-search allow-clear>
+                <template #dropdownRender="{ menuNode }">
+                  <component :is="menuNode" />
+                  <a-divider style="margin: 4px 0" />
+                  <div style="padding: 4px 8px; color: #999; font-size: 12px">
+                    RAG 向量化使用的模型
+                  </div>
+                </template>
+              </a-select>
             </a-form-item>
           </a-col>
         </a-row>
         <a-row :gutter="16">
           <a-col :span="12">
+            <a-form-item label="最大Token" name="maxTokens">
+              <a-input-number v-model:value="formState.maxTokens" :min="100" :max="128000" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
             <a-form-item label="Temperature" name="temperature">
               <a-slider v-model:value="formState.temperature" :min="0" :max="2" :step="0.1" />
             </a-form-item>
           </a-col>
+        </a-row>
+        <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="状态" name="status">
               <a-select v-model:value="formState.status">
@@ -189,30 +204,45 @@ import { aiApi } from '@/api/ai'
 import type { AIConfig } from '@/types'
 
 // 提供商配置
-const providerConfigs: Record<string, { label: string; endpoint: string; models: string[]; defaultModel: string }> = {
+const providerConfigs: Record<string, { 
+  label: string; 
+  endpoint: string; 
+  models: string[]; 
+  defaultModel: string;
+  embeddingModels?: string[];
+  defaultEmbeddingModel?: string;
+}> = {
   siliconflow: {
     label: 'SiliconFlow',
     endpoint: 'https://api.siliconflow.cn/v1',
     models: ['Qwen/Qwen3-32B', 'Qwen/Qwen2.5-72B-Instruct', 'deepseek-ai/DeepSeek-V3', 'Pro/deepseek-ai/DeepSeek-R1'],
     defaultModel: 'Qwen/Qwen3-32B',
+    embeddingModels: ['BAAI/bge-large-zh-v1.5', 'netease-youdao/bce-embedding-base_v1'],
+    defaultEmbeddingModel: 'BAAI/bge-large-zh-v1.5',
   },
   qwen: {
     label: '通义千问',
     endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     models: ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen-long'],
     defaultModel: 'qwen-plus',
+    embeddingModels: ['text-embedding-v2', 'text-embedding-v1'],
+    defaultEmbeddingModel: 'text-embedding-v2',
   },
   zhipu: {
     label: '智谱AI',
     endpoint: 'https://open.bigmodel.cn/api/paas/v4',
     models: ['GLM-4.7', 'GLM-4.5-Air', 'glm-4-plus', 'glm-4-0520', 'glm-4-air', 'glm-4-airx', 'glm-4-long', 'glm-4-flash'],
     defaultModel: 'GLM-4.7',
+    embeddingModels: ['embedding-3', 'embedding-2'],
+    defaultEmbeddingModel: 'embedding-3',
   },
   openai: {
     label: 'OpenAI',
     endpoint: 'https://api.openai.com/v1',
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'qwen3-32b'],
     defaultModel: 'gpt-4o',
+    embeddingModels: ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'],
+    defaultEmbeddingModel: 'text-embedding-3-small',
   },
   azure: {
     label: 'Azure OpenAI',
@@ -261,18 +291,24 @@ const providerConfigs: Record<string, { label: string; endpoint: string; models:
     endpoint: 'http://localhost:9997/v1',
     models: ['qwen2.5-instruct', 'llama-3.1-instruct', 'chatglm3'],
     defaultModel: 'qwen2.5-instruct',
+    embeddingModels: ['bge-large-zh-v1.5'],
+    defaultEmbeddingModel: 'bge-large-zh-v1.5',
   },
   'fastchat': {
     label: 'FastChat',
     endpoint: 'http://localhost:8000/v1',
     models: ['vicuna-7b-v1.5', 'vicuna-13b-v1.5'],
     defaultModel: 'vicuna-7b-v1.5',
+    embeddingModels: ['bge-large-zh-v1.5'],
+    defaultEmbeddingModel: 'bge-large-zh-v1.5',
   },
   custom: {
     label: '自定义',
     endpoint: '',
     models: [],
     defaultModel: '',
+    embeddingModels: [],
+    defaultEmbeddingModel: '',
   },
 }
 
@@ -288,10 +324,11 @@ let dragIndex = -1
 
 const formState = reactive({
   name: '',
-  provider: 'siliconflow' as string,
+  provider: 'siliconflow' as AIConfig['provider'],
   apiKey: '',
-  apiEndpoint: 'https://api.siliconflow.cn/v1',
+  baseUrl: 'https://api.siliconflow.cn/v1',
   model: 'Qwen/Qwen3-32B',
+  embeddingModel: 'BAAI/bge-large-zh-v1.5',
   maxTokens: 8192,
   temperature: 0.7,
   status: 'active' as 'active' | 'inactive',
@@ -373,18 +410,25 @@ function getModelOptions() {
   return config.models.map(m => ({ label: m, value: m }))
 }
 
+function getEmbeddingOptions() {
+  const config = providerConfigs[formState.provider]
+  if (!config?.embeddingModels?.length) return []
+  return config.embeddingModels.map(m => ({ label: m, value: m }))
+}
+
 function isLocalProvider(): boolean {
   return ['local-qwen', 'ollama', 'text-generation-webui', 'lm-studio', 'vllm', 'xinference', 'fastchat'].includes(formState.provider)
 }
 
-function onProviderChange(provider: string) {
+function onProviderChange(provider: AIConfig['provider']) {
   const config = providerConfigs[provider]
   if (config) {
-    if (!editingConfig.value || !formState.apiEndpoint) {
-      formState.apiEndpoint = config.endpoint
+    if (!editingConfig.value || !formState.baseUrl) {
+      formState.baseUrl = config.endpoint
     }
     if (!editingConfig.value) {
       formState.model = config.defaultModel
+      formState.embeddingModel = config.defaultEmbeddingModel
       formState.name = config.label
     }
   }
@@ -417,9 +461,9 @@ function handleAdd() {
     name: config.label,
     provider: defaultProvider,
     apiKey: '',
-    apiEndpoint: config.endpoint,
+    baseUrl: config.endpoint,
     model: config.defaultModel,
-    maxTokens: 8192,
+    embeddingModel: config.defaultEmbeddingModel || '',
     temperature: 0.7,
     status: 'active',
   })
@@ -432,8 +476,9 @@ function handleEdit(record: AIConfig) {
     name: record.name,
     provider: record.provider,
     apiKey: '',
-    apiEndpoint: record.baseUrl || record.apiEndpoint || '',
+    baseUrl: record.baseUrl || '',
     model: record.model,
+    embeddingModel: record.embeddingModel || '',
     maxTokens: record.maxTokens || 8192,
     temperature: record.temperature || 0.7,
     status: record.status,
@@ -475,7 +520,7 @@ async function handleDelete(record: AIConfig) {
 
 async function handleValidate(record: AIConfig) {
   try {
-    const res = await aiApi.validateApiKey(record.provider, undefined, record.baseUrl, record.id, record.model)
+    const res = await aiApi.validateApiKey(record.provider, record.apiKey || '', record.baseUrl, record.id, record.model)
     if (res.success && res.data?.valid) {
       message.success('API Key 验证成功')
     } else {

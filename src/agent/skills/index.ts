@@ -8,27 +8,32 @@ import { dataSkills } from './data';
 import { documentSkills } from './document';
 import { mediaSkills } from './media';
 import { reportSkills } from './report';
+import { crawlerSkills } from './crawler';
 
 // 注册所有技能
-function registerAllSkills() {
+export function registerAllSkills() {
   console.log('[Skills] Registering all skills...');
-  
+
   // 注册数据技能
   skillsRegistry.registerAll(dataSkills);
   console.log(`[Skills] Registered ${dataSkills.length} data skills`);
-  
+
   // 注册文档技能
   skillsRegistry.registerAll(documentSkills);
   console.log(`[Skills] Registered ${documentSkills.length} document skills`);
-  
+
   // 注册媒体技能
   skillsRegistry.registerAll(mediaSkills);
   console.log(`[Skills] Registered ${mediaSkills.length} media skills`);
-  
+
   // 注册报告技能
   skillsRegistry.registerAll(reportSkills);
   console.log(`[Skills] Registered ${reportSkills.length} report skills`);
-  
+
+  // 注册爬虫技能
+  skillsRegistry.registerAll(crawlerSkills);
+  console.log(`[Skills] Registered ${crawlerSkills.length} crawler skills`);
+
   console.log(`[Skills] Total skills registered: ${skillsRegistry.getAll().length}`);
 }
 
@@ -47,7 +52,8 @@ export {
   dataSkills,
   documentSkills,
   mediaSkills,
-  reportSkills
+  reportSkills,
+  crawlerSkills
 };
 
 // 默认导出注册中心

@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard">
     <div class="page-header">
-      <h1>仪表盘</h1>
+      <h1>工作台</h1>
     </div>
 
     <!-- 快捷操作 -->

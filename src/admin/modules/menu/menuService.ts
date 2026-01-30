@@ -54,19 +54,19 @@ export class MenuService {
   async getUserMenuTree(userId: string): Promise<Menu[]> {
     // 获取用户有权限的菜单ID
     let allowedMenuIds = await permissionService.getUserMenuIds(userId);
-    
+
     // 检查用户是否是管理员（拥有所有权限）
     const userPermissions = await permissionService.getUserPermissions(userId);
     const isAdmin = userPermissions.includes('*');
-    
+
     const menus = await this.getAllMenus();
-    
+
     // 如果是管理员，返回所有可见菜单
     if (isAdmin) {
       const visibleMenus = menus.filter(m => m.visible);
       return this.buildTree(visibleMenus);
     }
-    
+
     // 如果用户没有任何菜单权限，尝试获取"普通用户"角色的默认菜单
     if (allowedMenuIds.length === 0) {
       const defaultRoleMenus = await permissionService.getRoleMenus('00000000-0000-0000-0000-000000000003');
@@ -74,28 +74,27 @@ export class MenuService {
         allowedMenuIds = defaultRoleMenus;
       }
     }
-    
+
     // 如果还是没有菜单，返回基础菜单（仪表盘和AI服务）
     if (allowedMenuIds.length === 0) {
-      const basicMenus = menus.filter(m => 
+      const basicMenus = menus.filter(m =>
         m.visible && (
-          m.path === '/dashboard' || 
+          m.path === '/workbench' ||
           m.path?.startsWith('/ai/') ||
-          m.title === 'AI服务' ||
-          m.title === '仪表盘'
+          m.title === '工作台'
         )
       );
       return this.buildTree(basicMenus);
     }
-    
+
     // 普通用户只返回有权限的菜单
     // 同时需要包含父菜单（即使父菜单不在权限列表中，也需要显示以保持树结构）
     const allowedMenuIdSet = new Set(allowedMenuIds);
-    
+
     // 找出所有需要显示的菜单ID（包括父菜单）
     const menuMap = new Map(menus.map(m => [m.id, m]));
     const visibleMenuIds = new Set<string>();
-    
+
     for (const menuId of allowedMenuIds) {
       // 添加当前菜单
       visibleMenuIds.add(menuId);
@@ -106,7 +105,7 @@ export class MenuService {
         currentMenu = menuMap.get(currentMenu.parentId);
       }
     }
-    
+
     // 过滤出有权限且可见的菜单
     const filteredMenus = menus.filter(m => m.visible && visibleMenuIds.has(m.id));
     return this.buildTree(filteredMenus);
@@ -165,8 +164,8 @@ export class MenuService {
       `INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system, menu_type, external_url, open_mode, module_code)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, data.title, data.path || null, data.icon || null, data.parentId || null,
-       data.order || 0, data.visible !== false, data.permission || null, false,
-       data.menuType || 'internal', data.externalUrl || null, data.openMode || 'current', data.moduleCode || null]
+        data.order || 0, data.visible !== false, data.permission || null, false,
+        data.menuType || 'internal', data.externalUrl || null, data.openMode || 'current', data.moduleCode || null]
     );
 
     return this.getMenuById(id) as Promise<Menu>;

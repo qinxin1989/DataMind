@@ -22,6 +22,8 @@ export interface SkillContext {
   dbType?: string;
   workDir?: string;  // 工作目录
   userId?: string;   // 用户ID
+  openai?: any;      // OpenAI 实例
+  model?: string;    // 模型名称
 }
 
 // 技能执行结果
@@ -31,11 +33,13 @@ export interface SkillResult {
   message?: string;
   outputPath?: string;  // 输出文件路径
   visualization?: {
-    type: 'table' | 'bar' | 'line' | 'pie' | 'scatter' | 'image';
+    type: 'table' | 'bar' | 'line' | 'pie' | 'scatter' | 'image' | 'html';
     title?: string;
+    data?: any;
+    content?: string; // 用于 html 或 image (base64)
     xField?: string;
     yField?: string;
-    data: any[];
+    config?: any;
   };
 }
 
@@ -68,13 +72,13 @@ export class SkillsRegistry {
   // 注册技能
   register(skill: SkillDefinition): void {
     this.skills.set(skill.name, skill);
-    
+
     // 添加到分类
     const category = skill.category as SkillCategory;
     if (this.categories.has(category)) {
       this.categories.get(category)!.push(skill);
     }
-    
+
     console.log(`[SkillsRegistry] Registered skill: ${skill.name}`);
   }
 
@@ -112,7 +116,7 @@ export class SkillsRegistry {
     context: SkillContext
   ): Promise<SkillResult> {
     const skill = this.skills.get(skillName);
-    
+
     if (!skill) {
       return {
         success: false,
@@ -152,13 +156,13 @@ export class SkillsRegistry {
   // 获取技能描述（供 AI 选择）
   getSkillDescriptions(): string {
     const descriptions: string[] = [];
-    
+
     for (const category of this.getCategories()) {
       const skills = this.getByCategory(category);
       if (skills.length === 0) continue;
-      
+
       descriptions.push(`\n## ${category.toUpperCase()} 技能`);
-      
+
       for (const skill of skills) {
         const params = skill.parameters
           .map(p => `${p.name}(${p.type}${p.required ? ',必填' : ''}): ${p.description}`)
@@ -167,7 +171,7 @@ export class SkillsRegistry {
         descriptions.push(`  参数: ${params}`);
       }
     }
-    
+
     return descriptions.join('\n');
   }
 

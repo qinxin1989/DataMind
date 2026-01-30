@@ -31,9 +31,9 @@ export class AIConfigService {
     const encryptedApiKey = data.apiKey && data.apiKey.trim() !== '' ? encrypt(data.apiKey) : '';
 
     await pool.execute(
-      `INSERT INTO sys_ai_configs (id, name, provider, model, api_key, base_url, is_default, status, priority)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, data.name, data.provider, data.model, encryptedApiKey, data.baseUrl || null,
+      `INSERT INTO sys_ai_configs (id, name, provider, model, embedding_model, api_key, base_url, is_default, status, priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, data.name, data.provider, data.model, data.embeddingModel || null, encryptedApiKey, data.baseUrl || null,
         data.isDefault || false, data.status || 'active', nextPriority]
     );
 
@@ -56,6 +56,7 @@ export class AIConfigService {
     if (data.name !== undefined) { updates.push('name = ?'); values.push(data.name); }
     if (data.provider !== undefined) { updates.push('provider = ?'); values.push(data.provider); }
     if (data.model !== undefined) { updates.push('model = ?'); values.push(data.model); }
+    if (data.embeddingModel !== undefined) { updates.push('embedding_model = ?'); values.push(data.embeddingModel); }
     // API Key 只有在非空时才更新（空字符串表示不修改），并加密
     if (data.apiKey !== undefined && data.apiKey !== '') {
       updates.push('api_key = ?');
@@ -94,6 +95,7 @@ export class AIConfigService {
       name: config.name,
       provider: config.provider,
       model: config.model,
+      embeddingModel: config.embedding_model,
       apiKey: decrypt(config.api_key),  // 解密
       baseUrl: config.base_url,
       isDefault: config.is_default,
@@ -111,6 +113,7 @@ export class AIConfigService {
       name: config.name,
       provider: config.provider,
       model: config.model,
+      embeddingModel: config.embedding_model,
       apiKey: decrypt(config.api_key),  // 解密
       baseUrl: config.base_url,
       isDefault: config.is_default,
@@ -131,6 +134,7 @@ export class AIConfigService {
       name: config.name,
       provider: config.provider,
       model: config.model,
+      embeddingModel: config.embedding_model,
       apiKey: decrypt(config.api_key),
       baseUrl: config.base_url,
       isDefault: config.is_default,
@@ -152,6 +156,7 @@ export class AIConfigService {
       name: config.name,
       provider: config.provider,
       model: config.model,
+      embeddingModel: config.embedding_model,
       apiKey: decrypt(config.api_key),  // 解密
       baseUrl: config.base_url,
       isDefault: config.is_default,
@@ -199,6 +204,7 @@ export const aiConfigService = {
       name: config.name,
       provider: config.provider,
       model: config.model,
+      embeddingModel: config.embeddingModel,
       apiKey: config.apiKey,  // 已解密
       apiEndpoint: config.baseUrl,
       isDefault: config.isDefault,
@@ -214,6 +220,7 @@ export const aiConfigService = {
       name: data.name,
       provider: data.provider,
       model: data.model,
+      embeddingModel: data.embeddingModel,
       apiKey: data.apiKey,
       baseUrl: data.apiEndpoint,
       isDefault: data.isDefault,

@@ -64,10 +64,12 @@ export interface MenuItem {
 export interface AIConfig {
   id: string
   name: string
-  provider: 'openai' | 'qwen' | 'azure' | 'siliconflow' | 'custom'
+  provider: 'openai' | 'qwen' | 'azure' | 'siliconflow' | 'zhipu' | 'deepseek' | 'local-qwen' | 'ollama' | 'text-generation-webui' | 'lm-studio' | 'vllm' | 'xinference' | 'fastchat' | 'custom'
   apiKey: string
   apiEndpoint?: string
+  baseUrl?: string // 增加与后端兼容的字段
   model: string
+  embeddingModel?: string
   maxTokens: number
   temperature: number
   isDefault: boolean

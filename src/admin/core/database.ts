@@ -18,6 +18,7 @@ export const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 20,
   queueLimit: 0,
+  charset: 'utf8mb4'
 });
 
 // 导出别名，方便其他模块使用
@@ -129,6 +130,7 @@ export async function initAdminTables(): Promise<void> {
         model VARCHAR(100) NOT NULL,
         api_key VARCHAR(255) NOT NULL,
         base_url VARCHAR(255),
+        embedding_model VARCHAR(100),
         is_default BOOLEAN DEFAULT FALSE,
         status VARCHAR(20) DEFAULT 'active',
         priority INT DEFAULT 0,
@@ -140,14 +142,18 @@ export async function initAdminTables(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
-    // 添加 priority 字段（如果不存在）
+    // 添加 priority 和 embedding_model 字段（如果不存在）
     try {
       await connection.execute(`
         ALTER TABLE sys_ai_configs ADD COLUMN priority INT DEFAULT 0 AFTER status
       `);
-    } catch (e: any) {
-      // 字段已存在，忽略错误
-    }
+    } catch (e: any) { }
+
+    try {
+      await connection.execute(`
+        ALTER TABLE sys_ai_configs ADD COLUMN embedding_model VARCHAR(100) AFTER base_url
+      `);
+    } catch (e: any) { }
 
     // 系统配置表
     await connection.execute(`
@@ -259,8 +265,115 @@ export async function initAdminTables(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    // ========== 爬虫相关表 ==========
+
+    // 爬虫模板表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_templates (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        url VARCHAR(500) NOT NULL,
+        department VARCHAR(100),
+        data_type VARCHAR(100),
+        container_selector VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 为 crawler_templates 添加 department 和 data_type 字段
+    try {
+      await connection.execute(`ALTER TABLE crawler_templates ADD COLUMN department VARCHAR(100) AFTER url`);
+    } catch (e) { }
+    try {
+      await connection.execute(`ALTER TABLE crawler_templates ADD COLUMN data_type VARCHAR(100) AFTER department`);
+    } catch (e) { }
+
+    // 爬虫模板字段表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_template_fields (
+        id VARCHAR(36) PRIMARY KEY,
+        template_id VARCHAR(36) NOT NULL,
+        field_name VARCHAR(100) NOT NULL,
+        field_selector VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_template (template_id),
+        FOREIGN KEY (template_id) REFERENCES crawler_templates(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 爬虫定时任务表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_tasks (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        template_id VARCHAR(36) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        frequency VARCHAR(50) NOT NULL,
+        next_run_at TIMESTAMP NULL,
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_template (template_id),
+        FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE,
+        FOREIGN KEY (template_id) REFERENCES crawler_templates(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 爬虫抓取批次表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_results (
+        id VARCHAR(36) PRIMARY KEY,
+        task_id VARCHAR(36),
+        template_id VARCHAR(36) NOT NULL,
+        user_id VARCHAR(36) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_task (task_id),
+        INDEX idx_template (template_id),
+        INDEX idx_user (user_id),
+        FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 爬虫抓取行表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_result_rows (
+        id VARCHAR(36) PRIMARY KEY,
+        result_id VARCHAR(36) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_result (result_id),
+        FOREIGN KEY (result_id) REFERENCES crawler_results(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 爬虫抓取明细条目表 (EAV 模式)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_result_items (
+        id VARCHAR(36) PRIMARY KEY,
+        row_id VARCHAR(36) NOT NULL,
+        field_name VARCHAR(100) NOT NULL,
+        field_value TEXT,
+        INDEX idx_row (row_id),
+        INDEX idx_field (field_name),
+        FOREIGN KEY (row_id) REFERENCES crawler_result_rows(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
     // 初始化默认数据
     await initDefaultData(connection);
+
+    // 始终同步必要的菜单
+    await syncSystemMenus(connection);
+
+    // 确保超级管理员拥有所有权限 (*)
+    await connection.execute(`
+      INSERT IGNORE INTO sys_role_permissions (role_id, permission_code)
+      VALUES ('00000000-0000-0000-0000-000000000001', '*')
+    `);
 
     console.log('Admin 数据库表初始化完成');
   } finally {
@@ -306,22 +419,80 @@ async function initDefaultData(connection: mysql.PoolConnection): Promise<void> 
     INSERT IGNORE INTO sys_user_roles (user_id, role_id) VALUES
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001')
   `);
+}
 
-  // 插入默认菜单
-  await connection.execute(`
-    INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, is_system) VALUES
-    ('00000000-0000-0000-0000-000000000001', '仪表盘', '/dashboard', 'DashboardOutlined', NULL, 1, TRUE),
-    ('00000000-0000-0000-0000-000000000002', '用户管理', '/user', 'UserOutlined', NULL, 2, TRUE),
-    ('00000000-0000-0000-0000-000000000003', '角色管理', '/role', 'TeamOutlined', NULL, 3, TRUE),
-    ('00000000-0000-0000-0000-000000000004', '菜单管理', '/menu', 'MenuOutlined', NULL, 4, TRUE),
-    ('00000000-0000-0000-0000-000000000005', 'AI管理', NULL, 'RobotOutlined', NULL, 5, TRUE),
-    ('00000000-0000-0000-0000-000000000011', 'AI问答', '/ai/chat', 'MessageOutlined', '00000000-0000-0000-0000-000000000005', 0, TRUE),
-    ('00000000-0000-0000-0000-000000000012', '知识库', '/ai/knowledge', 'BookOutlined', '00000000-0000-0000-0000-000000000005', 1, TRUE),
-    ('00000000-0000-0000-0000-000000000006', 'AI配置', '/ai/config', 'SettingOutlined', '00000000-0000-0000-0000-000000000005', 2, TRUE),
-    ('00000000-0000-0000-0000-000000000007', '使用统计', '/ai/stats', 'BarChartOutlined', '00000000-0000-0000-0000-000000000005', 3, TRUE),
-    ('00000000-0000-0000-0000-000000000008', '对话历史', '/ai/history', 'HistoryOutlined', '00000000-0000-0000-0000-000000000005', 4, TRUE),
-    ('00000000-0000-0000-0000-000000000009', '数据源管理', '/datasource', 'DatabaseOutlined', NULL, 6, TRUE),
-    ('00000000-0000-0000-0000-000000000010', '系统管理', '/system', 'SettingOutlined', NULL, 7, TRUE),
-    ('00000000-0000-0000-0000-000000000013', '通知中心', '/notification', 'BellOutlined', NULL, 8, TRUE)
-  `);
+/**
+ * 同步必要的系统菜单（增量更新 + 权限迁移）
+ */
+export async function syncSystemMenus(connection: mysql.PoolConnection): Promise<void> {
+  const menus = [
+    { id: '00000000-0000-0000-0000-000000000001', title: '工作台', path: '/workbench', icon: 'DashboardOutlined', parentId: null, sort: 1 },
+
+    // AI 创新中心
+    { id: '00000000-0000-0000-0000-000000000005', title: 'AI 创新中心', path: null, icon: 'RobotOutlined', parentId: null, sort: 2 },
+    { id: '00000000-0000-0000-0000-000000000011', title: '智能问答', path: '/ai/chat', icon: 'MessageOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 1 },
+    { id: '00000000-0000-0000-0000-000000000012', title: '知识中心', path: '/ai/knowledge', icon: 'BookOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 2 },
+    { id: '00000000-0000-0000-0000-000000000007', title: '使用统计', path: '/ai/stats', icon: 'BarChartOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 3 },
+    { id: '00000000-0000-0000-0000-000000000008', title: '对话历史', path: '/ai/history', icon: 'HistoryOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 4 },
+
+    // 数据资源中心
+    { id: '00000000-0000-0000-0000-000000000009', title: '数据资源中心', path: null, icon: 'DatabaseOutlined', parentId: null, sort: 3 },
+    { id: '00000000-0000-0000-0000-000000000016', title: '数据源管理', path: '/datasource', icon: 'DatabaseOutlined', parentId: '00000000-0000-0000-0000-000000000009', sort: 1 },
+    { id: '00000000-0000-0000-0000-000000000017', title: '数据源审核', path: '/datasource/approval', icon: 'AuditOutlined', parentId: '00000000-0000-0000-0000-000000000009', sort: 2 },
+
+    // 高效办公工具
+    { id: '00000000-0000-0000-0000-000000000018', title: '高效办公工具', path: null, icon: 'ToolOutlined', parentId: null, sort: 4 },
+    { id: '00000000-0000-0000-0000-000000000014', title: '爬虫管理', path: '/ai/crawler', icon: 'GlobalOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 1 },
+    { id: '00000000-0000-0000-0000-000000000019', title: '文件工具', path: '/tools/file', icon: 'FileTextOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 2 },
+    { id: '00000000-0000-0000-0000-000000000020', title: '公文写作', path: '/tools/official-doc', icon: 'EditOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 3 },
+    { id: '00000000-0000-0000-0000-000000000015', title: 'OCR 识别', path: '/ai/ocr', icon: 'ScanOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 4 },
+
+    // 基础系统管理
+    { id: '00000000-0000-0000-0000-000000000010', title: '基础系统管理', path: null, icon: 'SettingOutlined', parentId: null, sort: 5 },
+    { id: '00000000-0000-0000-0000-000000000002', title: '用户管理', path: '/user', icon: 'UserOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 1 },
+    { id: '00000000-0000-0000-0000-000000000003', title: '角色管理', path: '/role', icon: 'TeamOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 2 },
+    { id: '00000000-0000-0000-0000-000000000004', title: '菜单管理', path: '/menu', icon: 'MenuOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 3 },
+    { id: '00000000-0000-0000-0000-000000000006', title: 'AI 模型配置', path: '/ai/config', icon: 'SettingOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 4 },
+    { id: '00000000-0000-0000-0000-000000000013', title: '通知中心', path: '/notification', icon: 'BellOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 5 }
+  ];
+
+  for (const menu of menus) {
+    // 1. 查找是否存在具有相同路径或标题的重复菜单（排除自身）
+    const [existing] = await connection.execute(
+      'SELECT id FROM sys_menus WHERE (path = ? OR title = ?) AND id != ?',
+      [menu.path, menu.title, menu.id]
+    );
+
+    const duplicates = existing as any[];
+    if (duplicates.length > 0) {
+      console.log(`[MenuSync] Found ${duplicates.length} duplicates for ${menu.title}, migrating...`);
+      for (const dup of duplicates) {
+        // 2. 迁移角色权限
+        await connection.execute(
+          'UPDATE IGNORE sys_role_menus SET menu_id = ? WHERE menu_id = ?',
+          [menu.id, dup.id]
+        );
+        // 3. 迁移子菜单归属
+        await connection.execute(
+          'UPDATE sys_menus SET parent_id = ? WHERE parent_id = ?',
+          [menu.id, dup.id]
+        );
+        // 4. 删除旧菜单
+        await connection.execute('DELETE FROM sys_menus WHERE id = ?', [dup.id]);
+        await connection.execute('DELETE FROM sys_role_menus WHERE menu_id = ?', [dup.id]);
+      }
+    }
+
+    // 5. 插入或更新标准菜单
+    await connection.execute(`
+      INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, is_system)
+      VALUES (?, ?, ?, ?, ?, ?, TRUE)
+      ON DUPLICATE KEY UPDATE 
+        title = VALUES(title), 
+        path = VALUES(path), 
+        icon = VALUES(icon), 
+        parent_id = VALUES(parent_id), 
+        sort_order = VALUES(sort_order)
+    `, [menu.id, menu.title, menu.path, menu.icon, menu.parentId, menu.sort]);
+  }
 }

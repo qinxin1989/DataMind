@@ -260,6 +260,7 @@ export interface AIConfig {
   name: string;
   provider: AIProviderType;
   model: string;
+  embeddingModel?: string;
   apiKey?: string;
   baseUrl?: string;
   isDefault: boolean;
@@ -274,6 +275,7 @@ export interface CreateAIConfigRequest {
   name: string;
   provider: AIProviderType;
   model: string;
+  embeddingModel?: string;
   apiKey?: string;
   baseUrl?: string;
   isDefault?: boolean;
@@ -285,6 +287,7 @@ export interface UpdateAIConfigRequest {
   name?: string;
   provider?: AIProviderType;
   model?: string;
+  embeddingModel?: string;
   apiKey?: string;
   baseUrl?: string;
   apiEndpoint?: string;

@@ -91,9 +91,9 @@ async function handleLogin() {
       await permissionStore.loadMenuTree()
       
       message.success('登录成功')
-      
+
       const redirect = route.query.redirect as string
-      router.push(redirect || '/dashboard')
+      router.push(redirect || '/workbench')
     } else {
       message.error('登录失败')
     }

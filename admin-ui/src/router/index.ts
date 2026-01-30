@@ -12,13 +12,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/layouts/AdminLayout.vue'),
-    redirect: '/dashboard',
+    redirect: '/workbench',
     children: [
       {
-        path: 'dashboard',
-        name: 'Dashboard',
+        path: '/workbench',
+        name: 'Workbench',
         component: () => import('@/views/dashboard/index.vue'),
-        meta: { title: '仪表盘', icon: 'DashboardOutlined' },
+        meta: { title: '工作台', icon: 'DashboardOutlined' },
       },
       {
         path: 'profile',
@@ -105,6 +105,18 @@ const routes: RouteRecordRaw[] = [
             name: 'AIHistory',
             component: () => import('@/views/ai/history.vue'),
             meta: { title: '对话历史' },
+          },
+          {
+            path: '/ai/crawler',
+            name: 'AICrawler',
+            component: () => import('@/views/ai/crawler.vue'),
+            meta: { title: '爬虫管理' },
+          },
+          {
+            path: '/ai/crawler-assistant',
+            name: 'AICrawlerAssistant',
+            component: () => import('@/views/ai/crawler-assistant.vue'),
+            meta: { title: 'AI爬虫助手' },
           },
           {
             path: '/ai/ocr',
@@ -244,7 +256,7 @@ router.beforeEach((to, _from, next) => {
   // 检查权限
   const requiredPermission = to.meta.permission as string | undefined
   if (requiredPermission && !permissionStore.hasPermission(requiredPermission)) {
-    next({ name: 'Dashboard' })
+    next({ name: 'Workbench' })
     return
   }
 

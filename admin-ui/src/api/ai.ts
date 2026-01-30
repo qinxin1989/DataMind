@@ -77,4 +77,46 @@ export const aiApi = {
   // 删除对话历史
   deleteChatHistory: (id: string) =>
     del(`/admin/audit/chat-history/${id}`),
+
+  // --- 爬虫相关 ---
+  // 获取模板列表
+  getCrawlerTemplates: () =>
+    get<any[]>('/skills/crawler/templates'),
+
+  // 获取定时任务列表
+  getCrawlerTasks: () =>
+    get<any[]>('/skills/crawler/tasks'),
+
+  // 获取采集结果批次
+  getCrawlerResults: () =>
+    get<any[]>('/skills/crawler/results'),
+
+  // 获取具体结果明细
+  getCrawlerResultDetails: (id: string) =>
+    get<any[]>(`/skills/crawler/results/${id}`),
+
+  // 切换任务状态
+  toggleCrawlerTask: (id: string, status: 'active' | 'paused') =>
+    post(`/skills/crawler/tasks/${id}/toggle`, { status }),
+
+  // 删除爬虫模板
+  deleteCrawlerTemplate: (id: string) =>
+    del(`/skills/crawler/templates/${id}`),
+
+  // 删除采集结果
+  deleteCrawlerResult: (id: string) =>
+    del(`/skills/crawler/results/${id}`),
+
+  // --- AI 爬虫助手相关 ---
+  // 分析网页并生成选择器
+  analyzeCrawler: (url: string, description: string) =>
+    post<any>('/admin/ai/crawler/analyze', { url, description }),
+
+  // 预览爬虫效果
+  previewCrawler: (url: string, selectors: any) =>
+    post<any>('/admin/ai/crawler/preview', { url, selectors }),
+
+  // 保存爬虫模板
+  saveCrawlerTemplate: (data: { name: string; description: string; url: string; department?: string; data_type?: string; selectors: any }) =>
+    post<any>('/skills/crawler/templates', data),
 }
