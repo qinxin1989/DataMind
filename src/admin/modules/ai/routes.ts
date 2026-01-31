@@ -332,6 +332,49 @@ router.post('/crawler/analyze', requirePermission('ai:view'), async (req: Reques
 });
 
 /**
+ * POST /ai/crawler/chat - 智能爬虫助手对话（支持多网址与上下文反馈）
+ */
+router.post('/crawler/chat', requirePermission('ai:view'), async (req: Request, res: Response) => {
+  try {
+    const { messages, stream } = req.body;
+    const userId = (req as any).user?.id || 'admin';
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json(error('VALID_PARAM_MISSING', '缺少对话消息'));
+    }
+
+    if (stream) {
+      // 开启流式输出 (SSE)
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+
+      try {
+        await crawlerAssistantService.processChat(messages, userId, (data) => {
+          res.write(`data: ${JSON.stringify(data)}\n\n`);
+        });
+        res.write('data: {"type":"done"}\n\n');
+        res.end();
+      } catch (streamErr: any) {
+        res.write(`data: ${JSON.stringify({ type: 'error', content: streamErr.message })}\n\n`);
+        res.end();
+      }
+    } else {
+      // 普通 JSON 返回
+      const result = await crawlerAssistantService.processChat(messages, userId);
+      res.json(success(result));
+    }
+  } catch (err: any) {
+    console.error('[Crawler Chat] Error:', err);
+    if (!res.headersSent) {
+      res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+    }
+  }
+});
+
+/**
  * POST /ai/crawler/preview - 预览爬虫效果
  */
 router.post('/crawler/preview', requirePermission('ai:view'), async (req: Request, res: Response) => {
@@ -461,6 +504,56 @@ router.delete('/crawler/templates/:id', requirePermission('ai:view'), async (req
       return res.status(404).json(error('RES_NOT_FOUND', err.message));
     }
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
+
+// ==================== AI 对话接口 ====================
+
+/**
+ * POST /ai/chat - AI对话接口（支持上下文追问）
+ */
+router.post('/chat', requirePermission('ai:view'), async (req: Request, res: Response) => {
+  try {
+    const { messages } = req.body;
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json(error('VALID_PARAM_MISSING', '缺少对话消息'));
+    }
+
+    // 获取AI配置
+    const configs = await aiConfigService.getActiveConfigsByPriority();
+    if (!configs || configs.length === 0) {
+      return res.status(400).json(error('AI_CONFIG_NOT_FOUND', '未配置AI服务'));
+    }
+
+    const aiConfig = configs[0];
+
+    // 调用OpenAI接口
+    const OpenAI = require('openai').default;
+    const openai = new OpenAI({
+      apiKey: aiConfig.apiKey,
+      baseURL: aiConfig.baseUrl || undefined
+    });
+
+    const response = await openai.chat.completions.create({
+      model: aiConfig.model || 'gpt-4o',
+      messages: messages.map((m: any) => ({
+        role: m.role,
+        content: m.content
+      })),
+      temperature: 0.7,
+      max_tokens: 2000
+    });
+
+    const aiMessage = response.choices[0]?.message?.content || '抱歉，我无法理解您的问题。';
+
+    res.json(success({
+      message: aiMessage,
+      content: aiMessage
+    }));
+  } catch (err: any) {
+    console.error('[AI Chat] Error:', err);
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message || 'AI对话失败'));
   }
 });
 

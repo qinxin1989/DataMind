@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup, Comment
 import random
 import re
+import os
 from urllib.parse import urljoin
 
 # 常见的 User-Agent 列表
@@ -125,8 +126,35 @@ def get_field_data(element, attr=None, base_url=None, field_name=None, container
                 if potential_titles:
                     return max(potential_titles, key=len)
         
-        # 2. 日期兜底
+        # 2. 日期兜底（增强版：优先搜索 span 等独立标签）
         elif field_name and ('日期' in field_name or '时间' in field_name):
+            # 第一优先级：如果找到了 element，尝试从中提取日期
+            if element:
+                val = element.get_text(strip=True)
+                extracted_date = extract_date_from_text(val)
+                if extracted_date:
+                    return extracted_date
+
+            # 第二优先级：优先搜索 span 标签（日期通常在独立的 span 中）
+            spans = container.find_all('span')
+            for span in spans:
+                span_text = span.get_text(strip=True)
+                # 只关注简短文本（可能是日期）
+                if len(span_text) < 30:
+                    extracted_date = extract_date_from_text(span_text)
+                    if extracted_date:
+                        return extracted_date
+
+            # 第三优先级：搜索其他可能包含日期的标签
+            date_tags = container.find_all(['div', 'time', 'p', 'font', 'b'])
+            for tag in date_tags:
+                tag_text = tag.get_text(strip=True)
+                if len(tag_text) < 30:
+                    extracted_date = extract_date_from_text(tag_text)
+                    if extracted_date:
+                        return extracted_date
+
+            # 第四优先级：容器的完整文本
             text = container.get_text(separator=' ', strip=True)
             extracted_date = extract_date_from_text(text)
             
@@ -191,84 +219,167 @@ def get_field_data(element, attr=None, base_url=None, field_name=None, container
                 
     return val
 
-def crawl(url, selectors):
+def detect_pagination_next(soup, url):
     """
-    根据选择器抓取网页数据
+    智能检测下一页按钮的选择器
+    返回: (选择器字符串, 下一页URL)
+    """
+    # 常见的下一页按钮文本和选择器模式
+    next_patterns = [
+        # 文本模式
+        ('a:contains("下一页")', 'text'),
+        ('a:contains("下页")', 'text'),
+        ('a:contains("下一页>")', 'text'),
+        ('a:contains("»")', 'text'),
+        ('a:contains("Next")', 'text'),
+        ('li.next a', 'class'),
+        ('a.next', 'class'),
+        ('a[aria-label="next"]', 'attr'),
+        ('a[aria-label="Next"]', 'attr'),
+        ('.pagination .next a', 'class'),
+        ('.pager .next a', 'class'),
+    ]
+
+    for pattern, mode in next_patterns:
+        if mode == 'text':
+            # 查找包含特定文本的链接
+            for keyword in ['下一页', '下页', 'Next', 'next', '»', '>']:
+                links = soup.find_all('a', string=lambda text: text and keyword in text)
+                if links:
+                    return 'a', urljoin(url, links[0].get('href', ''))
+        elif mode == 'class':
+            elements = soup.select(pattern)
+            if elements:
+                return pattern, urljoin(url, elements[0].get('href', ''))
+        elif mode == 'attr':
+            elements = soup.select(pattern)
+            if elements:
+                return pattern, urljoin(url, elements[0].get('href', ''))
+
+    # 尝试查找分页容器中的最后一个链接
+    pagination_containers = soup.select('.pagination, .pager, .page, .pagenav')
+    for container in pagination_containers:
+        links = container.find_all('a', href=True)
+        if links:
+            # 返回最后一个链接
+            return f'.{container.get("class", [""])[0]} a:last-child', urljoin(url, links[-1]['href'])
+
+    return None, None
+
+
+def crawl(source, selectors, base_url=None, pagination_config=None):
+    """
+    根据选择器抓取网页数据（支持多页抓取）
+    :param source: URL 或 本地文件路径
+    :param selectors: 选择器配置
+    :param base_url: 用于解析相对链接的基础 URL (如果 source 是文件)
+    :param pagination_config: 分页配置 {"enabled": bool, "next_selector": str, "max_pages": int}
     """
     try:
-        headers = {
-            'User-Agent': random.choice(USER_AGENTS),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Referer': url
-        }
-        
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        
-        # 优化编码识别逻辑
-        if response.encoding == 'ISO-8859-1':
-            response.encoding = response.apparent_encoding or 'utf-8'
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        container_selector = selectors.get('container')
-        fields = selectors.get('fields', {})
-        
-        results = []
-        
-        def parse_selector(sel):
-            """解析选择器，支持 ::attr(name) 和 :first-of-type 兼容"""
-            attr = None
-            if not sel:
-                return sel, attr
-            
-            # 处理 Scrapy 风格的属性提取 a::attr(href)
-            if '::attr(' in sel:
-                match = re.search(r'(.*?)::attr\((.*?)\)', sel)
-                if match:
-                    sel = match.group(1).strip()
-                    attr = match.group(2).strip()
-            
-            # 处理 BS4 不支持的伪类（简单移除作为兜底，或者改为 select 逻辑）
-            if ':first-of-type' in sel:
-                sel = sel.replace(':first-of-type', '')
-            
-            return sel, attr
+        html_content = ""
+        actual_url = base_url if base_url else source
+        all_results = []
+        current_url = source
+        page_count = 0
+        max_pages = pagination_config.get('max_pages', 1) if pagination_config else 1
+        pagination_enabled = pagination_config.get('enabled', False) if pagination_config else False
 
-        if container_selector:
-            # 列表抓取模式
-            containers = soup.select(container_selector)
-            for item in containers:
-                data = {}
-                for field_name, selector in fields.items():
-                    sel, attr = parse_selector(selector)
-                    try:
-                        element = item.select_one(sel) if sel else item
-                        # 传入 item 作为 container，以便在 element 为空时进行启发式兜底
-                        data[field_name] = get_field_data(element, attr, url, field_name, item)
-                    except:
-                        data[field_name] = ""
-                results.append(data)
-        else:
-            # 单页面抓取模式
-            data = {}
-            for field_name, selector in fields.items():
-                sel, attr = parse_selector(selector)
-                try:
-                    element = soup.select_one(sel) if sel else None
-                    # 单页面模式下，soup 即为最高的 container
-                    data[field_name] = get_field_data(element, attr, url, field_name, soup)
-                except:
-                    data[field_name] = ""
-            results.append(data)
-            
+        while True:
+            page_count += 1
+
+            # 获取当前页的 HTML
+            if os.path.exists(current_url) and os.path.isfile(current_url):
+                # 从本地文件读取
+                with open(current_url, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+            else:
+                # 直接请求 URL
+                headers = {
+                    'User-Agent': random.choice(USER_AGENTS),
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Referer': actual_url
+                }
+
+                response = requests.get(current_url, headers=headers, timeout=15)
+                response.raise_for_status()
+
+                if response.encoding == 'ISO-8859-1':
+                    response.encoding = response.apparent_encoding or 'utf-8'
+                html_content = response.text
+
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            container_selector = selectors.get('container')
+            fields = selectors.get('fields', {})
+
+            def parse_selector(sel):
+                """解析选择器，支持 ::attr(name) 和 :first-of-type 兼容"""
+                attr = None
+                if not sel:
+                    return sel, attr
+
+                # 处理 Scrapy 风格的属性提取 a::attr(href)
+                if '::attr(' in sel:
+                    match = re.search(r'(.*?)::attr\((.*?)\)', sel)
+                    if match:
+                        sel = match.group(1).strip()
+                        attr = match.group(2).strip()
+
+                # 处理 BS4 不支持的伪类
+                if ':first-of-type' in sel:
+                    sel = sel.replace(':first-of-type', '')
+
+                return sel, attr
+
+            # 提取当前页数据
+            if container_selector:
+                containers = soup.select(container_selector)
+                for item in containers:
+                    data = {}
+                    for field_name, selector in fields.items():
+                        sel, attr = parse_selector(selector)
+                        try:
+                            element = item.select_one(sel) if sel else item
+                            data[field_name] = get_field_data(element, attr, actual_url, field_name, item)
+                        except:
+                            data[field_name] = ""
+                    all_results.append(data)
+
+            # 检查是否需要继续抓取下一页
+            if not pagination_enabled or page_count >= max_pages:
+                break
+
+            # 检测下一页链接
+            next_selector, next_url = None, None
+
+            if pagination_config and pagination_config.get('next_selector'):
+                # 使用配置的选择器
+                next_selector = pagination_config['next_selector']
+                next_elem = soup.select_one(next_selector)
+                if next_elem and next_elem.get('href'):
+                    next_url = urljoin(actual_url, next_elem['href'])
+            else:
+                # 自动检测
+                next_selector, next_url = detect_pagination_next(soup, actual_url)
+
+            # 如果没有下一页或URL重复，则停止
+            if not next_url or next_url == current_url:
+                break
+
+            print(f'[Pagination] Crawling page {page_count + 1}: {next_url}')
+            current_url = next_url
+
+        # 过滤无效行
+        all_results = [r for r in all_results if r.get('标题') or r.get('链接')]
+
         return {
             "success": True,
-            "data": results,
-            "count": len(results)
+            "data": all_results,
+            "count": len(all_results),
+            "pages_crawled": page_count
         }
-        
+
     except Exception as e:
         import traceback
         return {
@@ -281,10 +392,12 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         print(json.dumps({"success": False, "error": "Arguments missing"}))
         sys.exit(1)
-        
-    url_arg = sys.argv[1]
+
+    source_arg = sys.argv[1]
     selectors_arg = json.loads(sys.argv[2])
-    
-    result = crawl(url_arg, selectors_arg)
+    base_url_arg = sys.argv[3] if len(sys.argv) > 3 else None
+    pagination_arg = json.loads(sys.argv[4]) if len(sys.argv) > 4 else None
+
+    result = crawl(source_arg, selectors_arg, base_url_arg, pagination_arg)
     # 使用默认 ensure_ascii=True 以输出 \uXXXX 转义序列，避免终端编码导致的乱码
-    print(json.dumps(result))
+    print(json.dumps(result, ensure_ascii=True))

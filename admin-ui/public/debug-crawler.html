@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>爬虫 API 调试工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; margin-bottom: 20px; }
+        h2 { color: #666; margin-top: 30px; margin-bottom: 15px; font-size: 18px; }
+        .section {
+            border: 1px solid #e0e0e0;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        button {
+            background: #1890ff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover { background: #40a9ff; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        pre {
+            background: #f6f8fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .info-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .info-label {
+            font-weight: 600;
+            width: 150px;
+            color: #666;
+        }
+        .info-value {
+            flex: 1;
+            color: #333;
+        }
+        #results { margin-top: 20px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        th { background: #f5f5f5; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 爬虫 API 调试工具</h1>
+
+        <!-- 认证状态 -->
+        <div class="section">
+            <h2>1️⃣ 认证状态</h2>
+            <div id="authStatus"></div>
+        </div>
+
+        <!-- API 测试 -->
+        <div class="section">
+            <h2>2️⃣ API 测试</h2>
+            <button onclick="testGetTemplates()">测试获取模板</button>
+            <button onclick="testGetTasks()">测试获取任务</button>
+            <button onclick="testGetResults()">测试获取采集记录 ⭐</button>
+            <button onclick="testAll()">全部测试</button>
+            <div id="apiResults"></div>
+        </div>
+
+        <!-- 用户信息 -->
+        <div class="section">
+            <h2>3️⃣ 当前用户信息</h2>
+            <div id="userInfo"></div>
+        </div>
+
+        <!-- 错误日志 -->
+        <div class="section">
+            <h2>4️⃣ 请求日志</h2>
+            <div id="logs"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let logs = [];
+
+        function addLog(type, message, data) {
+            const timestamp = new Date().toLocaleTimeString();
+            logs.unshift({ timestamp, type, message, data });
+            renderLogs();
+        }
+
+        function renderLogs() {
+            const container = document.getElementById('logs');
+            if (logs.length === 0) {
+                container.innerHTML = '<p style="color: #999;">暂无日志</p>';
+                return;
+            }
+            container.innerHTML = logs.map(log => {
+                const statusClass = log.type === 'error' ? 'error' : log.type === 'success' ? 'success' : 'info';
+                return `
+                    <div class="info-row">
+                        <span class="info-label">${log.timestamp}</span>
+                        <span class="status ${statusClass}" style="margin-right: 10px;">${log.type.toUpperCase()}</span>
+                        <span class="info-value">${log.message}</span>
+                    </div>
+                    ${log.data ? `<pre style="margin-top: 10px;">${JSON.stringify(log.data, null, 2)}</pre>` : ''}
+                `;
+            }).join('');
+        }
+
+        function getAuthHeader() {
+            const token = localStorage.getItem('token');
+            if (!token) return {};
+            return { 'Authorization': `Bearer ${token}` };
+        }
+
+        function checkAuthStatus() {
+            const token = localStorage.getItem('token');
+            const container = document.getElementById('authStatus');
+
+            if (token) {
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    container.innerHTML = `
+                        <div class="info-row">
+                            <span class="info-label">认证状态:</span>
+                            <span class="status success">✅ 已认证</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">用户ID:</span>
+                            <span class="info-value">${payload.id || '未知'}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">用户名:</span>
+                            <span class="info-value">${payload.username || '未知'}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Token前缀:</span>
+                            <span class="info-value">${token.substring(0, 20)}...</span>
+                        </div>
+                    `;
+                    showUserInfo(payload);
+                } catch (e) {
+                    container.innerHTML = '<span class="status error">❌ Token 格式错误</span>';
+                }
+            } else {
+                container.innerHTML = '<span class="status error">❌ 未登录</span>';
+            }
+        }
+
+        function showUserInfo(payload) {
+            const container = document.getElementById('userInfo');
+            container.innerHTML = `
+                <div class="info-row">
+                    <span class="info-label">用户ID:</span>
+                    <span class="info-value">${payload.id}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">用户名:</span>
+                    <span class="info-value">${payload.username}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">角色:</span>
+                    <span class="info-value">${payload.role || '未知'}</span>
+                </div>
+            `;
+        }
+
+        async function apiCall(url, options = {}) {
+            const response = await fetch(API_BASE + url, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...getAuthHeader(),
+                    ...options.headers
+                }
+            });
+            const data = await response.json();
+            return { status: response.status, data };
+        }
+
+        async function testGetTemplates() {
+            addLog('info', '测试获取模板...');
+            try {
+                const result = await apiCall('/skills/crawler/templates');
+                if (result.status === 200 && result.data.success) {
+                    addLog('success', `获取模板成功，共 ${result.data.data.length} 个`, result.data);
+                } else {
+                    addLog('error', '获取模板失败', result);
+                }
+            } catch (error) {
+                addLog('error', '请求失败', { error: error.message });
+            }
+        }
+
+        async function testGetTasks() {
+            addLog('info', '测试获取任务...');
+            try {
+                const result = await apiCall('/skills/crawler/tasks');
+                if (result.status === 200 && result.data.success) {
+                    addLog('success', `获取任务成功，共 ${result.data.data.length} 个`, result.data);
+                } else {
+                    addLog('error', '获取任务失败', result);
+                }
+            } catch (error) {
+                addLog('error', '请求失败', { error: error.message });
+            }
+        }
+
+        async function testGetResults() {
+            addLog('info', '测试获取采集记录...');
+            try {
+                const result = await apiCall('/skills/crawler/results');
+                if (result.status === 200 && result.data.success) {
+                    addLog('success', `获取采集记录成功，共 ${result.data.data.length} 条`, result.data);
+                    renderResultsTable(result.data.data);
+                } else {
+                    addLog('error', '获取采集记录失败', result);
+                }
+            } catch (error) {
+                addLog('error', '请求失败', { error: error.message });
+            }
+        }
+
+        function renderResultsTable(data) {
+            const container = document.getElementById('apiResults');
+            if (!data || data.length === 0) {
+                container.innerHTML = '<p style="color: #999; margin-top: 20px;">暂无数据</p>';
+                return;
+            }
+            const columns = Object.keys(data[0]);
+            container.innerHTML = `
+                <table style="margin-top: 20px;">
+                    <thead>
+                        <tr>${columns.map(col => `<th>${col}</th>`).join('')}</tr>
+                    </thead>
+                    <tbody>
+                        ${data.map(row => `
+                            <tr>${columns.map(col => `<td>${row[col] || '-'}</td>`).join('')}</tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        async function testAll() {
+            await testGetTemplates();
+            await testGetTasks();
+            await testGetResults();
+        }
+
+        // 初始化
+        checkAuthStatus();
+        addLog('info', '调试工具已就绪，请点击按钮测试 API');
+    </script>
+</body>
+</html>

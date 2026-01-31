@@ -47,8 +47,13 @@ export function decrypt(encryptedText: string): string {
       // 解密结果为空，返回占位符
       console.error('SM4 decryption returned empty result');
       return '[解密失败-请重新配置]';
-    } catch (error) {
-      console.error('SM4 decryption failed:', error);
+    } catch (error: any) {
+      if (error.message?.includes('padding is invalid')) {
+        // 常见的密钥不匹配错误，只打印警告，不打印堆栈
+        console.warn(`[Crypto] SM4 解密失败: 密文补位无效（Padding invalid）。这通常是因为环境变量 FILE_ENCRYPTION_KEY 被修改，导致旧数据无法解密。请在 UI 中重新保存配置。`);
+      } else {
+        console.error('SM4 decryption failed:', error);
+      }
       // 解密失败，返回占位符而不是原文
       return '[解密失败-请重新配置]';
     }

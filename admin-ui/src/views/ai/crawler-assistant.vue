@@ -24,7 +24,7 @@
         </div>
 
         <!-- 消息列表 -->
-        <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role === 'user' ? 'user-message' : 'ai-message']">
+        <div v-for="(msg, index) in messages" :key="msg.id || index" :class="['message', msg.role === 'user' ? 'user-message' : 'ai-message']">
           <div v-if="msg.role === 'ai'" class="message-avatar">
             <span class="ai-avatar">🤖</span>
           </div>
@@ -36,28 +36,90 @@
             </div>
             <div v-else-if="msg.type === 'selectors'" class="message-selectors">
               <div class="selectors-header">
-                <h4>识别的选择器</h4>
+                <h4>✅ 识别结果</h4>
                 <a-button size="small" @click="handleEditSelectors">编辑</a-button>
               </div>
-              <div class="selectors-list">
-                <div v-for="(selector, key) in msg.content.selectors" :key="key" class="selector-item">
-                  <div class="selector-label">{{ key }}</div>
-                  <a-tag color="blue">{{ selector }}</a-tag>
+
+              <!-- 网站信息 -->
+              <div class="site-info-box">
+                <div class="info-item">
+                  <span class="info-label">网址:</span>
+                  <a class="info-value info-link" :href="msg.content.url" target="_blank">{{ truncateUrl(msg.content.url) }}</a>
+                </div>
+                <div v-if="msg.content.department" class="info-item">
+                  <span class="info-label">识别部门:</span>
+                  <a-tag color="orange">{{ msg.content.department }}</a-tag>
+                </div>
+                <div v-if="msg.content.confidence" class="info-item">
+                  <span class="info-label">置信度:</span>
+                  <a-tag :color="msg.content.confidence >= 80 ? 'green' : msg.content.confidence >= 60 ? 'orange' : 'red'">
+                    {{ msg.content.confidence }}%
+                  </a-tag>
+                </div>
+                <div v-if="msg.content.pageType" class="info-item">
+                  <span class="info-label">页面类型:</span>
+                  <a-tag :color="msg.content.pageType === 'dynamic' ? 'purple' : 'blue'">
+                    {{ msg.content.pageType === 'dynamic' ? '动态页面' : '静态页面' }}
+                  </a-tag>
                 </div>
               </div>
-              <div v-if="msg.content.department" class="selector-item department-item">
-                <div class="selector-label">归属部门</div>
-                <a-tag color="orange">{{ msg.content.department }}</a-tag>
+
+              <!-- 选择器配置 -->
+              <div class="selectors-header" style="margin-top: 16px;">
+                <h4>CSS选择器</h4>
               </div>
+              <div class="selectors-list">
+                <!-- 容器选择器 -->
+                <div v-if="msg.content.selectors.container" class="selector-item">
+                  <div class="selector-label">container</div>
+                  <a-tag color="blue" style="font-family: monospace;">{{ msg.content.selectors.container }}</a-tag>
+                </div>
+                <!-- 字段选择器 -->
+                <template v-if="msg.content.selectors.fields">
+                  <div v-for="(selector, fieldName) in msg.content.selectors.fields" :key="fieldName" class="selector-item">
+                    <div class="selector-label">{{ fieldName }}</div>
+                    <a-tag color="cyan" style="font-family: monospace;">{{ selector }}</a-tag>
+                  </div>
+                </template>
+                <!-- 其他可能的顶级字段 -->
+                <template v-for="(val, key) in msg.content.selectors" :key="key">
+                  <div v-if="key !== 'container' && key !== 'fields' && typeof val === 'string'" class="selector-item">
+                    <div class="selector-label">{{ key }}</div>
+                    <a-tag color="blue" style="font-family: monospace;">{{ val }}</a-tag>
+                  </div>
+                </template>
+              </div>
+
               <div class="selectors-actions">
                 <a-space>
-                  <a-button type="primary" size="small" @click="handlePreviewSelectors(msg.content)">预览效果</a-button>
+                  <a-button type="primary" size="small" @click="handlePreviewSelectors(msg.content)">预览数据</a-button>
                   <a-button size="small" @click="handleSaveTemplate">保存为模板</a-button>
                 </a-space>
+              </div>
+
+              <!-- 快捷追问按钮 -->
+              <div class="quick-questions">
+                <div class="quick-questions-label">💬 您可能想问：</div>
+                <div class="quick-questions-buttons">
+                  <a-button
+                    v-for="(question, qIdx) in getQuickQuestions(msg)"
+                    :key="qIdx"
+                    size="small"
+                    type="link"
+                    @click="handleQuickQuestion(msg.id!, question)"
+                  >
+                    {{ question }}
+                  </a-button>
+                </div>
               </div>
             </div>
             <div v-else-if="msg.type === 'error'" class="message-error">
               <a-alert :message="msg.content" type="error" />
+            </div>
+
+            <!-- 追问回复 -->
+            <div v-if="msg.parentId && getParentMessage(msg.parentId)" class="message-context">
+              <a-tag color="blue" size="small">↩️ 回复上条消息</a-tag>
             </div>
           </div>
           <div v-if="msg.role === 'user'" class="message-avatar user-avatar">
@@ -161,7 +223,7 @@
     >
       <a-form :model="editedSelectors" layout="vertical">
         <a-form-item
-          v-for="(selector, key) in editedSelectors"
+          v-for="(_, key) in editedSelectors"
           :key="key"
           :label="key"
         >
@@ -212,17 +274,28 @@
 import { ref, nextTick, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { aiApi } from '@/api/ai'
+import { useUserStore } from '@/stores/user'
+
+const userStore = useUserStore()
 
 interface Message {
   role: 'user' | 'ai'
   type: 'text' | 'analyzing' | 'selectors' | 'error'
   content: any
+  id?: string
+  parentId?: string // 父消息ID，用于对话上下文
+  timestamp?: number
 }
 
 const messages = ref<Message[]>([])
 const inputMessage = ref('')
 const isAnalyzing = ref(false)
 const messagesContainer = ref<HTMLElement>()
+
+// 生成唯一ID
+function generateId(): string {
+  return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+}
 
 // 预览相关
 const activePreviewTab = ref('webpage')
@@ -250,15 +323,20 @@ const userAvatar = computed(() => {
 })
 
 // 发送消息
-async function handleSend() {
+async function handleSend(parentMsgId?: string) {
   const content = inputMessage.value.trim()
   if (!content) return
 
+  const userMsgId = generateId()
+
   // 添加用户消息
   messages.value.push({
+    id: userMsgId,
     role: 'user',
     type: 'text',
-    content
+    content,
+    parentId: parentMsgId,
+    timestamp: Date.now()
   })
   inputMessage.value = ''
 
@@ -266,88 +344,204 @@ async function handleSend() {
   await nextTick()
   scrollToBottom()
 
-  // 分析消息中的网址
-  const urlMatch = content.match(/(https?:\/\/[^\s]+)/)
-  if (!urlMatch) {
-    messages.value.push({
-      role: 'ai',
-      type: 'error',
-      content: '请提供有效的网址（以 http:// 或 https:// 开头）'
-    })
-    await nextTick()
-    scrollToBottom()
-    return
-  }
-
-  const url = urlMatch[1]
-  const description = content.replace(url, '').trim()
-
-  // 开始分析
+  // 开始处理
   isAnalyzing.value = true
+  const analyzingMsgId = generateId()
   messages.value.push({
+    id: analyzingMsgId,
     role: 'ai',
     type: 'analyzing',
-    content: null
+    content: null,
+    parentId: userMsgId,
+    timestamp: Date.now()
   })
   await nextTick()
   scrollToBottom()
 
   try {
-    // 调用 AI 分析接口
-    const response = await aiApi.analyzeCrawler(url, description || '提取页面主要内容')
+    // 准备上下文消息（最近15条）
+    const contextMessages = messages.value
+      .filter(m => m.type !== 'analyzing')
+      .slice(-15)
+      .map(m => ({
+        role: m.role,
+        content: m.type === 'selectors' ? 
+          `已分析网址: ${m.content.url}, 选择器配置: ${JSON.stringify(m.content.selectors)}` : 
+          String(m.content)
+      }))
 
-    // 移除分析中消息
-    messages.value.pop()
+    // 调用智能爬虫对话接口 (流式输出，逐个确认)
+    const token = userStore.token || localStorage.getItem('token')
+    const response = await fetch('/api/admin/ai/crawler/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        messages: contextMessages,
+        stream: true
+      })
+    })
 
-    if (response.success && response.data) {
-      // 显示选择器
-      previewUrl.value = `/api/admin/ai/crawler/proxy?url=${encodeURIComponent(url)}`
-      currentSelectors.value = response.data.selectors
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
 
-      messages.value.push({
-        role: 'ai',
-        type: 'selectors',
-        content: {
-          url,
-          description,
-          selectors: response.data.selectors,
-          department: response.data.department
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('ReadableStream not supported')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    
+    // 移除分析中占位
+    messages.value = messages.value.filter(m => m.id !== analyzingMsgId)
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.substring(6).trim()
+          if (!dataStr) continue
+          
+          try {
+            const data = JSON.parse(dataStr)
+            
+            if (data.type === 'done') {
+              console.log('[CrawlerAssistant] Streaming completed')
+              continue
+            }
+
+            if (data.type === 'error') {
+              messages.value.push({
+                id: generateId(),
+                role: 'ai',
+                type: 'error',
+                content: data.content,
+                parentId: userMsgId,
+                timestamp: Date.now()
+              })
+              continue
+            }
+
+            if (data.type === 'text') {
+              messages.value.push({
+                id: generateId(),
+                role: 'ai',
+                type: 'text',
+                content: data.content,
+                parentId: userMsgId,
+                timestamp: Date.now()
+              })
+              continue
+            }
+
+            if (data.type === 'result') {
+              const res = data.content
+              if (res.error) {
+                messages.value.push({
+                  id: generateId(),
+                  role: 'ai',
+                  type: 'error',
+                  content: `网址 ${res.url} 分析失败: ${res.error}`,
+                  parentId: userMsgId,
+                  timestamp: Date.now()
+                })
+              } else {
+                const url = res.url
+                // 设置为当前预览
+                previewUrl.value = `/api/admin/ai/crawler/proxy?url=${encodeURIComponent(url)}${token ? `&token=${token}` : ''}`
+                currentSelectors.value = res.selectors
+
+                messages.value.push({
+                  id: generateId(),
+                  role: 'ai',
+                  type: 'selectors',
+                  content: {
+                    url,
+                    selectors: res.selectors,
+                    department: res.department,
+                    confidence: res.confidence,
+                    pageType: res.pageType,
+                    preview: res.preview
+                  },
+                  parentId: userMsgId,
+                  timestamp: Date.now()
+                })
+
+                // 如果有预览数据，更新表格
+                if (res.preview && res.preview.length > 0) {
+                  previewData.value = res.preview
+                  const fields = Object.keys(res.preview[0] || {})
+                  previewColumns.value = fields.map(f => ({
+                    title: f,
+                    dataIndex: f,
+                    key: f,
+                    ellipsis: true
+                  }))
+                  activePreviewTab.value = 'data'
+                }
+              }
+              // 自动滚动到底部
+              nextTick(() => {
+                const container = document.querySelector('.messages-container')
+                if (container) container.scrollTop = container.scrollHeight
+              })
+            }
+          } catch (e) {
+            console.error('[CrawlerAssistant] Failed to parse SSE chunk:', dataStr, e)
+          }
         }
-      })
-
-      // 如果有预览数据，也显示
-      if (response.data.preview) {
-        previewData.value = response.data.preview
-        const fields = Object.keys(response.data.preview[0] || {})
-        previewColumns.value = fields.map(f => ({
-          title: f,
-          dataIndex: f,
-          key: f,
-          ellipsis: true
-        }))
-        activePreviewTab.value = 'data'
-      } else {
-        activePreviewTab.value = 'webpage'
       }
-    } else {
-      messages.value.push({
-        role: 'ai',
-        type: 'error',
-        content: response.error?.message || '分析失败，请重试'
-      })
     }
   } catch (error: any) {
-    messages.value.pop()
+    messages.value = messages.value.filter(m => m.id !== analyzingMsgId)
     messages.value.push({
+      id: generateId(),
       role: 'ai',
       type: 'error',
-      content: `分析失败: ${error.message || '未知错误'}`
+      content: `系统异常: ${error.message || '未知错误'}`,
+      parentId: userMsgId,
+      timestamp: Date.now()
     })
   } finally {
     isAnalyzing.value = false
-    await nextTick()
-    scrollToBottom()
+    nextTick(() => {
+      const container = document.querySelector('.messages-container')
+      if (container) container.scrollTop = container.scrollHeight
+    })
   }
+}
+
+// 获取快捷追问问题
+function getQuickQuestions(msg: Message): string[] {
+  if (msg.type === 'selectors') {
+    const questions = [
+      '只抓取前10条数据',
+      '同时抓取所有分页',
+      '帮我提取发布日期字段',
+      '检查选择器是否正确'
+    ]
+    return questions
+  }
+  return []
+}
+
+// 处理快捷提问
+async function handleQuickQuestion(parentMsgId: string, question: string) {
+  inputMessage.value = question
+  await handleSend(parentMsgId)
+}
+
+// 获取父消息
+function getParentMessage(parentId: string): Message | undefined {
+  return messages.value.find(m => m.id === parentId)
 }
 
 // 编辑选择器
@@ -468,6 +662,12 @@ function copySelector(selector: string) {
   navigator.clipboard.writeText(selector).then(() => {
     message.success('已复制到剪贴板')
   })
+}
+
+// 截断URL显示
+function truncateUrl(url: string, maxLength: number = 50): string {
+  if (url.length <= maxLength) return url
+  return url.substring(0, maxLength) + '...'
 }
 
 // 滚动到底部
@@ -794,5 +994,46 @@ function scrollToBottom() {
 .messages-container::-webkit-scrollbar-thumb:hover,
 .preview-panel :deep(.ant-tabs-content-holder)::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
+}
+
+/* 快捷追问样式 */
+.quick-questions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.quick-questions-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.quick-questions-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-questions-buttons .ant-btn-link {
+  padding: 4px 8px;
+  font-size: 12px;
+  height: auto;
+  color: #3b82f6;
+  background: #eff6ff;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.quick-questions-buttons .ant-btn-link:hover {
+  background: #3b82f6;
+  color: white;
+}
+
+/* 消息上下文标签 */
+.message-context {
+  margin-top: 8px;
+  font-size: 12px;
 }
 </style>

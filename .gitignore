@@ -6,3 +6,5 @@ node_modules/
 dist/
 .DS_Store
 public/downloads/*.pptx
+uploads/
+admin-ui/nul

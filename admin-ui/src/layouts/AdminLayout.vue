@@ -111,7 +111,30 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { message } from 'ant-design-vue'
 import { menuApi } from '@/api/menu'
-import * as AntIcons from '@ant-design/icons-vue'
+import { 
+  RobotOutlined, 
+  MenuUnfoldOutlined, 
+  MenuFoldOutlined, 
+  BellOutlined, 
+  UserOutlined, 
+  LogoutOutlined,
+  DashboardOutlined,
+  DatabaseOutlined,
+  SettingOutlined,
+  ToolOutlined,
+  BarChartOutlined,
+  TeamOutlined,
+  MenuOutlined,
+  MessageOutlined,
+  BookOutlined,
+  HistoryOutlined,
+  GlobalOutlined,
+  AuditOutlined,
+  ScanOutlined,
+  FileTextOutlined,
+  EditOutlined,
+  QuestionOutlined
+} from '@ant-design/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -119,28 +142,28 @@ const userStore = useUserStore()
 
 // 图标映射
 const iconMap: Record<string, any> = {
-  DashboardOutlined: AntIcons.DashboardOutlined,
-  RobotOutlined: AntIcons.RobotOutlined,
-  DatabaseOutlined: AntIcons.DatabaseOutlined,
-  SettingOutlined: AntIcons.SettingOutlined,
-  BellOutlined: AntIcons.BellOutlined,
-  ToolOutlined: AntIcons.ToolOutlined,
-  BarChartOutlined: AntIcons.BarChartOutlined,
-  UserOutlined: AntIcons.UserOutlined,
-  TeamOutlined: AntIcons.TeamOutlined,
-  MenuOutlined: AntIcons.MenuOutlined,
-  MessageOutlined: AntIcons.MessageOutlined,
-  BookOutlined: AntIcons.BookOutlined,
-  HistoryOutlined: AntIcons.HistoryOutlined,
-  GlobalOutlined: AntIcons.GlobalOutlined,
-  AuditOutlined: AntIcons.AuditOutlined,
-  ScanOutlined: AntIcons.ScanOutlined,
-  FileTextOutlined: AntIcons.FileTextOutlined,
-  EditOutlined: AntIcons.EditOutlined
+  DashboardOutlined,
+  RobotOutlined,
+  DatabaseOutlined,
+  SettingOutlined,
+  BellOutlined,
+  ToolOutlined,
+  BarChartOutlined,
+  UserOutlined,
+  TeamOutlined,
+  MenuOutlined,
+  MessageOutlined,
+  BookOutlined,
+  HistoryOutlined,
+  GlobalOutlined,
+  AuditOutlined,
+  ScanOutlined,
+  FileTextOutlined,
+  EditOutlined
 }
 
 const getIcon = (iconName: string | undefined) => {
-  return iconName ? iconMap[iconName] || AntIcons.QuestionOutlined : AntIcons.MenuOutlined
+  return iconName ? iconMap[iconName] || QuestionOutlined : MenuOutlined
 }
 
 const collapsed = ref(false)

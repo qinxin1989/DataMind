@@ -6,10 +6,18 @@
     </div>
 
     <a-card :bordered="false" class="main-card">
+      <div class="filter-bar">
+        <a-space>
+          <a-input v-model:value="filterForm.department" placeholder="按部门筛选" allow-clear style="width: 180px" />
+          <a-input v-model:value="filterForm.dataType" placeholder="按数据类型筛选" allow-clear style="width: 180px" />
+          <a-button @click="resetFilters">重置</a-button>
+        </a-space>
+      </div>
+
       <a-tabs v-model:activeKey="activeTab">
         <!-- 采集模板 -->
         <a-tab-pane key="templates" tab="采集模板">
-          <a-table :columns="templateColumns" :data-source="templates" :loading="loading" row-key="id">
+          <a-table :columns="templateColumns" :data-source="filteredTemplates" :loading="loading" row-key="id">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'url'">
                 <a :href="record.url" target="_blank" class="url-link">{{ record.url }}</a>
@@ -54,7 +62,7 @@
 
         <!-- 采集结果 -->
         <a-tab-pane key="results" tab="采集记录">
-          <a-table :columns="resultColumns" :data-source="results" :loading="loading" row-key="id">
+          <a-table :columns="resultColumns" :data-source="filteredResults" :loading="loading" row-key="id">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'createdAt'">
                 {{ formatDate(record.created_at) }}
@@ -73,13 +81,21 @@
 
     <a-modal v-model:open="detailVisible" :title="`采集明细 - ${currentResult?.template_name || ''}`" width="1000px">
       <template #footer>
-        <a-space>
-          <a-button @click="detailVisible = false">关闭</a-button>
-          <a-button type="primary" :disabled="selectedRowKeys.length === 0" @click="handleExportExcel">
-            <template #icon><DownloadOutlined /></template>
-            导出选中 ({{ selectedRowKeys.length }})
-          </a-button>
-        </a-space>
+        <div class="modal-footer-content">
+          <div class="selection-info">
+            <a-checkbox v-model:checked="isSelectAllAll" @change="handleSelectAllAll">全选所有记录 (跨分页)</a-checkbox>
+            <span v-if="selectedRowKeys.length > 0" class="selection-text">
+              已选中 {{ isSelectAllAll ? detailData.length : selectedRowKeys.length }} 条记录
+            </span>
+          </div>
+          <a-space>
+            <a-button @click="detailVisible = false">关闭</a-button>
+            <a-button type="primary" :disabled="selectedRowKeys.length === 0 && !isSelectAllAll" @click="handleExportExcel">
+              <template #icon><DownloadOutlined /></template>
+              导出 ({{ isSelectAllAll ? detailData.length : selectedRowKeys.length }})
+            </a-button>
+          </a-space>
+        </div>
       </template>
       <div v-if="detailLoading" class="loading-box">
         <a-spin tips="加载中..." />
@@ -112,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownloadOutlined } from '@ant-design/icons-vue'
 import { aiApi } from '@/api/ai'
@@ -125,21 +141,55 @@ const templates = ref<any[]>([])
 const tasks = ref<any[]>([])
 const results = ref<any[]>([])
 
+// 筛选相关
+const filterForm = ref({
+  department: '',
+  dataType: ''
+})
+
+const filteredTemplates = computed(() => {
+  return templates.value.filter(item => {
+    const matchDept = !filterForm.value.department || (item.department && item.department.toLowerCase().includes(filterForm.value.department.toLowerCase()))
+    const matchType = !filterForm.value.dataType || (item.data_type && item.data_type.toLowerCase().includes(filterForm.value.dataType.toLowerCase()))
+    return matchDept && matchType
+  })
+})
+
+const filteredResults = computed(() => {
+  return results.value.filter(item => {
+    const matchDept = !filterForm.value.department || (item.department && item.department.toLowerCase().includes(filterForm.value.department.toLowerCase()))
+    const matchType = !filterForm.value.dataType || (item.data_type && item.data_type.toLowerCase().includes(filterForm.value.dataType.toLowerCase()))
+    return matchDept && matchType
+  })
+})
+
+function resetFilters() {
+  filterForm.value.department = ''
+  filterForm.value.dataType = ''
+}
+
 // 详情相关
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailData = ref<any[]>([])
 const dynamicColumns = ref<any[]>([])
 const currentResult = ref<any>(null)
-const selectedRowKeys = ref<string[]>([])
-const rowSelection = ref({
-  selectedRowKeys: selectedRowKeys,
+const selectedRowKeys = ref<any[]>([])
+const isSelectAllAll = ref(false)
+const rowSelection = computed(() => ({
+  selectedRowKeys: selectedRowKeys.value,
   onChange: (keys: any[]) => {
     selectedRowKeys.value = keys
+    if (keys.length < detailData.value.length) {
+      isSelectAllAll.value = false
+    } else if (keys.length === detailData.value.length) {
+      isSelectAllAll.value = true
+    }
   }
-})
+}))
 
 const templateColumns = [
+  { title: '归属部门', dataIndex: 'department', key: 'department' },
   { title: '模板名称', dataIndex: 'name', key: 'name' },
   { title: '数据类型', dataIndex: 'data_type', key: 'data_type' },
   { title: '目标URL', dataIndex: 'url', key: 'url', ellipsis: true },
@@ -158,6 +208,8 @@ const taskColumns = [
 
 const resultColumns = [
   { title: '采集批次', dataIndex: 'id', key: 'id', ellipsis: true },
+  { title: '归属部门', dataIndex: 'department', key: 'department' },
+  { title: '数据类型', dataIndex: 'data_type', key: 'data_type' },
   { title: '所属模板', dataIndex: 'template_name', key: 'template_name' },
   { title: '采集时间', dataIndex: 'created_at', key: 'createdAt' },
   { title: '操作', key: 'action', width: 180 }
@@ -207,18 +259,27 @@ async function handleViewDetails(record: any) {
   detailVisible.value = true
   detailLoading.value = true
   selectedRowKeys.value = [] // 重置选择项
+  isSelectAllAll.value = false
   try {
     const res = await aiApi.getCrawlerResultDetails(record.id)
     if (res.data && res.data.length > 0) {
-      detailData.value = res.data
+      // 注入归属部门
+      detailData.value = res.data.map(row => ({
+        ...row,
+        _department: record.department || '-'
+      }))
+      
       // 动态生成列表头
       const fields = Object.keys(res.data[0]).filter(k => k !== 'id' && k !== 'created_at')
-      dynamicColumns.value = fields.map(f => ({
-        title: f,
-        dataIndex: f,
-        key: f,
-        minWidth: 150
-      }))
+      dynamicColumns.value = [
+        { title: '归属部门', dataIndex: '_department', key: '_department', width: 150, fixed: 'left' },
+        ...fields.map(f => ({
+          title: f,
+          dataIndex: f,
+          key: f,
+          minWidth: 150
+        }))
+      ]
     } else {
       detailData.value = []
       dynamicColumns.value = []
@@ -227,6 +288,14 @@ async function handleViewDetails(record: any) {
     message.error('获取明细失败')
   } finally {
     detailLoading.value = false
+  }
+}
+
+function handleSelectAllAll() {
+  if (isSelectAllAll.value) {
+    selectedRowKeys.value = detailData.value.map(item => item.id)
+  } else {
+    selectedRowKeys.value = []
   }
 }
 
@@ -295,14 +364,21 @@ async function handleDeleteResult(id: string) {
 }
 
 function handleExportExcel() {
-  if (selectedRowKeys.value.length === 0) return
+  if (selectedRowKeys.value.length === 0 && !isSelectAllAll.value) return
 
-  const dataToExport = detailData.value.filter(row => selectedRowKeys.value.includes(row.id))
+  const dataToExport = isSelectAllAll.value 
+    ? detailData.value 
+    : detailData.value.filter(row => selectedRowKeys.value.includes(row.id))
   
-  // 移除无关字段
+  // 移除无关字段，保留部门
   const cleanedData = dataToExport.map(row => {
     const { id, created_at, ...rest } = row
-    return rest
+    // 将 _department 映射回“归属部门”
+    const { _department, ...fields } = rest
+    return {
+      '归属部门': _department,
+      ...fields
+    }
   })
 
   const worksheet = XLSX.utils.json_to_sheet(cleanedData)
@@ -369,6 +445,11 @@ async function post(url: string, data: any) {
   border-radius: 12px;
 }
 
+.filter-bar {
+  margin-bottom: 16px;
+  padding: 0 4px;
+}
+
 .url-link {
   color: #2563eb;
   font-size: 13px;
@@ -417,5 +498,22 @@ async function post(url: string, data: any) {
 
 .detail-link:hover {
   text-decoration: underline;
+}
+.modal-footer-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.selection-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.selection-text {
+  color: #6b7280;
+  font-size: 13px;
 }
 </style>

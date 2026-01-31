@@ -7,6 +7,8 @@ import axios from 'axios';
 import { exec } from 'child_process';
 import * as path from 'path';
 import { crawlerService } from './service';
+import { TemplateAnalyzer, AnalyzedTemplate } from './TemplateAnalyzer';
+import { CrawlerTemplate, CrawlerTemplateData } from './CrawlerTemplate';
 
 // 常见的 User-Agent 列表
 const USER_AGENTS = [
@@ -128,10 +130,43 @@ const extractWebData: SkillDefinition = {
             const enginePath = path.join(__dirname, 'engine.py');
             const safeSelectors = JSON.stringify(selectors).replace(/"/g, '\\"');
 
+            console.log(`[Crawler] Fetching content using DynamicEngine...`);
+            let sourceArg = url;
+            let baseUrlArg = '';
+            let tempFilePath = '';
+
+            try {
+                // 尝试使用动态引擎抓取
+                const { DynamicEngine } = require('./dynamic_engine');
+                const htmlContent = await DynamicEngine.fetchHtml(url);
+
+                // 将 HTML 保存到临时文件
+                const fs = require('fs');
+                const os = require('os');
+                const tempDir = os.tmpdir();
+                tempFilePath = path.join(tempDir, `crawler_${Date.now()}.html`);
+                fs.writeFileSync(tempFilePath, htmlContent);
+
+                sourceArg = tempFilePath;
+                baseUrlArg = url; // 传递原始 URL 用于解析相对链接
+                console.log(`[Crawler] Dynamic content saved to: ${tempFilePath}`);
+
+            } catch (err: any) {
+                console.warn(`[Crawler] Dynamic fetch failed (${err.message}), falling back to static crawl.`);
+                // Keep sourceArg as url to let python engine do the static fetch
+            }
+
             console.log(`[Crawler] Starting Python engine...`);
 
             const result: any = await new Promise((resolve) => {
-                exec(`"${pythonPath}" "${enginePath}" "${url}" "${safeSelectors}"`, (error, stdout) => {
+                // 传递 3 个参数: source, selectors, base_url (optional)
+                const command = `"${pythonPath}" "${enginePath}" "${sourceArg}" "${safeSelectors}" "${baseUrlArg}"`;
+                exec(command, (error, stdout) => {
+                    // 清理临时文件
+                    if (tempFilePath && require('fs').existsSync(tempFilePath)) {
+                        try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
+                    }
+
                     if (error) {
                         resolve({ success: false, message: `引擎执行失败: ${error.message}` });
                         return;
@@ -139,6 +174,7 @@ const extractWebData: SkillDefinition = {
                     try {
                         resolve(JSON.parse(stdout));
                     } catch (e) {
+                        console.error('Engine output:', stdout);
                         resolve({ success: false, message: '解析引擎输出失败' });
                     }
                 });
@@ -241,6 +277,278 @@ const extractWebData: SkillDefinition = {
     }
 };
 
+// 智能爬虫分析技能
+const analyzeCrawler: SkillDefinition = {
+    name: 'crawler.analyze',
+    category: 'crawler',
+    displayName: '智能爬虫分析',
+    description: '分析网址并自动生成爬虫模板选择器',
+    parameters: [
+        { name: 'url', type: 'string', description: '目标网页地址', required: true },
+        { name: 'description', type: 'string', description: '需要提取的内容描述（可选）', required: false }
+    ],
+    execute: async (params, context): Promise<SkillResult> => {
+        const { url, description } = params;
+
+        if (!url || !url.startsWith('http')) {
+            return { success: false, message: '无效的网址，请确保以 http 或 https 开头' };
+        }
+
+        try {
+            // 使用 TemplateAnalyzer 分析网页
+            const analyzed = await TemplateAnalyzer.analyze(url, description);
+
+            // 验证模板
+            const validation = await TemplateAnalyzer.validateTemplate(analyzed);
+
+            return {
+                success: true,
+                data: {
+                    template: analyzed,
+                    validation,
+                    recommendation: {
+                        canSave: validation.valid,
+                        suggestedName: analyzed.name,
+                        fields: analyzed.fields.map(f => `${f.name}: ${f.selector}`).join('\n')
+                    }
+                },
+                message: `分析完成！置信度: ${analyzed.confidence}%\n` +
+                    `页面类型: ${analyzed.pageType}\n` +
+                    `容器选择器: ${analyzed.containerSelector}\n` +
+                    `字段数量: ${analyzed.fields.length}\n` +
+                    (validation.issues.length > 0 ? `\n注意事项:\n${validation.issues.join('\n')}` : '')
+            };
+        } catch (error: any) {
+            console.error(`[Crawler.Analyze] Error: ${error.message}`);
+            return { success: false, message: `分析失败: ${error.message}` };
+        }
+    }
+};
+
+// 使用模板提取数据技能
+const extractWithTemplate: SkillDefinition = {
+    name: 'crawler.extract',
+    category: 'crawler',
+    displayName: '爬虫数据提取',
+    description: '使用模板从网址提取数据（如果没有模板会自动分析）',
+    parameters: [
+        { name: 'url', type: 'string', description: '目标网页地址', required: true },
+        { name: 'templateId', type: 'string', description: '模板ID（可选，不提供则自动分析）', required: false },
+        { name: 'saveTemplate', type: 'boolean', description: '是否将自动分析的模板保存', required: false },
+        { name: 'templateName', type: 'string', description: '保存模板的名称（如果saveTemplate为true）', required: false }
+    ],
+    execute: async (params, context): Promise<SkillResult> => {
+        const { url, templateId, saveTemplate, templateName } = params;
+        const { userId } = context;
+
+        if (!url || !url.startsWith('http')) {
+            return { success: false, message: '无效的网址' };
+        }
+
+        try {
+            let selectors: any;
+            let usedTemplate: CrawlerTemplateData | null = null;
+
+            // 1. 加载或创建模板
+            if (templateId) {
+                // 使用已有模板
+                const template = await crawlerService.getTemplate(templateId);
+                if (template) {
+                    selectors = {
+                        container: template.containerSelector || '',
+                        fields: template.fields.reduce((acc: any, f) => ({ ...acc, [f.name]: f.selector }), {})
+                    };
+                    usedTemplate = {
+                        ...template,
+                        containerSelector: template.containerSelector || ''
+                    };
+                    console.log(`[Crawler] Using template: ${templateId}`);
+                } else {
+                    return { success: false, message: `未找到模板: ${templateId}` };
+                }
+            } else {
+                // 自动分析并生成模板
+                const analyzed = await TemplateAnalyzer.analyze(url);
+
+                selectors = {
+                    container: analyzed.containerSelector,
+                    fields: analyzed.fields.reduce((acc: any, f) => ({ ...acc, [f.name]: f.selector }), {})
+                };
+
+                // 保存模板（如果需要）
+                if (saveTemplate && userId) {
+                    const templateData: CrawlerTemplateData = {
+                        userId,
+                        name: templateName || analyzed.name,
+                        url,
+                        pageType: analyzed.pageType,
+                        containerSelector: analyzed.containerSelector,
+                        fields: analyzed.fields,
+                        autoGenerated: true,
+                        tags: analyzed.metadata.suggestedTags,
+                        confidence: analyzed.confidence
+                    };
+
+                    const newTemplateId = await crawlerService.saveTemplate(templateData);
+                    console.log(`[Crawler] Saved auto-generated template: ${newTemplateId}`);
+                }
+            }
+
+            // 2. 执行爬取
+            const pythonPath = process.env.PYTHON_PATH || path.join(process.cwd(), '.venv', 'Scripts', 'python');
+            const enginePath = path.join(__dirname, 'engine.py');
+            const safeSelectors = JSON.stringify(selectors).replace(/"/g, '\\"');
+
+            console.log(`[Crawler] Extracting data from: ${url}`);
+
+            // 判断是否需要动态渲染
+            const needDynamic = usedTemplate?.pageType === 'dynamic' ||
+                (!templateId && url.includes('.gov.cn'));
+
+            let sourceArg = url;
+            let baseUrlArg = '';
+            let tempFilePath = '';
+
+            if (needDynamic) {
+                try {
+                    const { DynamicEngine } = require('./dynamic_engine');
+                    const { getProvinceConfigByUrl } = require('./provinces.config');
+                    const config = getProvinceConfigByUrl(url);
+
+                    const htmlContent = await DynamicEngine.fetchHtml(url, {
+                        cookies: config?.cookies,
+                        headers: config?.headers,
+                        waitSelector: config?.waitSelector
+                    });
+
+                    const fs = require('fs');
+                    const os = require('os');
+                    const tempDir = os.tmpdir();
+                    tempFilePath = path.join(tempDir, `crawler_${Date.now()}.html`);
+                    fs.writeFileSync(tempFilePath, htmlContent);
+
+                    sourceArg = tempFilePath;
+                    baseUrlArg = url;
+                    console.log(`[Crawler] Using dynamic engine`);
+                } catch (err: any) {
+                    console.warn(`[Crawler] Dynamic fetch failed: ${err.message}, using static`);
+                }
+            }
+
+            const result: any = await new Promise((resolve) => {
+                // 准备分页配置
+                const paginationConfig = usedTemplate?.paginationEnabled ? {
+                    enabled: true,
+                    next_selector: usedTemplate.paginationNextSelector || undefined,
+                    max_pages: usedTemplate.paginationMaxPages || 5
+                } : null;
+
+                const paginationArg = paginationConfig ? JSON.stringify(paginationConfig).replace(/"/g, '\\"') : 'null';
+                const command = `"${pythonPath}" "${enginePath}" "${sourceArg}" "${safeSelectors}" "${baseUrlArg}" "${paginationArg}"`;
+
+                console.log(`[Crawler] Running with pagination: ${paginationConfig ? 'enabled' : 'disabled'}`);
+
+                exec(command, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+                    if (tempFilePath && require('fs').existsSync(tempFilePath)) {
+                        try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
+                    }
+
+                    if (error) {
+                        resolve({ success: false, error: error.message });
+                        return;
+                    }
+
+                    try {
+                        resolve(JSON.parse(stdout));
+                    } catch (e) {
+                        resolve({ success: false, error: '解析失败' });
+                    }
+                });
+            });
+
+            if (!result.success) {
+                return { success: false, message: `抓取失败: ${result.error || '未知错误'}` };
+            }
+
+            // 3. AI智能分类（如果有OpenAI）
+            const { openai, model } = context;
+            if (openai && result.data.length > 0) {
+                console.log(`[Crawler] AI categorizing ${result.data.length} items...`);
+
+                try {
+                    const itemsToCategorize = result.data.map((item: any, index: number) => ({
+                        index,
+                        title: item['标题'] || item['title'] || '无标题'
+                    }));
+
+                    const aiResponse = await openai.chat.completions.create({
+                        model: model || 'gpt-4o',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: `你是一个内容分类专家。请将标题分类为"政策"、"解读"、"新闻"、"通知"之一。
+
+政策类：通知、公告、意见、办法、规定、印发、发布、决定、命令、规划、方案
+解读类：解读、解析、回答、专家谈、访谈、图解、问答、说明
+新闻类：新闻、动态、资讯、报道
+通知类：公示、公告、通告
+
+返回JSON: {"categories": ["类型1", "类型2", ...]}`
+                            },
+                            {
+                                role: 'user',
+                                content: `标题列表：\n${itemsToCategorize.map((it: any) => `${it.index + 1}. ${it.title}`).join('\n')}`
+                            }
+                        ],
+                        temperature: 0.1,
+                        response_format: { type: 'json_object' }
+                    });
+
+                    const categories = JSON.parse(aiResponse.choices[0].message.content || '{}').categories;
+                    if (Array.isArray(categories)) {
+                        result.data.forEach((item: any, index: number) => {
+                            if (categories[index]) {
+                                item['类型'] = categories[index];
+                            }
+                        });
+                    }
+                } catch (catError) {
+                    console.error('[Crawler] AI categorization failed:', catError);
+                }
+            }
+
+            // 4. 保存结果
+            if (userId && result.data.length > 0) {
+                const resultId = await crawlerService.saveResults(
+                    userId,
+                    templateId || 'auto_extraction',
+                    result.data
+                );
+                console.log(`[Crawler] Results saved: ${resultId}`);
+            }
+
+            // 5. 返回结果
+            const fields = Object.keys(result.data[0] || {});
+            const htmlOutput = crawlerService.renderHtml(fields, result.data);
+
+            return {
+                success: true,
+                data: result.data,
+                message: `成功抓取 ${result.count} 条数据`,
+                visualization: {
+                    type: 'html',
+                    content: htmlOutput
+                }
+            };
+
+        } catch (error: any) {
+            console.error(`[Crawler.Extract] Error: ${error.message}`);
+            return { success: false, message: `抓取失败: ${error.message}` };
+        }
+    }
+};
+
 export const crawlerSkills: SkillDefinition[] = [
-    extractWebData
+    analyzeCrawler,
+    extractWithTemplate
 ];

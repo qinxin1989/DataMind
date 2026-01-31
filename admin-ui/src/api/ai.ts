@@ -1,4 +1,4 @@
-import { get, post, put, del } from './request'
+import { get, post, put, del, aiPost } from './request'
 import type { AIConfig, PaginatedResponse } from '@/types'
 
 export interface AIUsageStats {
@@ -110,13 +110,21 @@ export const aiApi = {
   // --- AI 爬虫助手相关 ---
   // 分析网页并生成选择器
   analyzeCrawler: (url: string, description: string) =>
-    post<any>('/admin/ai/crawler/analyze', { url, description }),
+    aiPost<any>('/admin/ai/crawler/analyze', { url, description }),
 
   // 预览爬虫效果
   previewCrawler: (url: string, selectors: any) =>
-    post<any>('/admin/ai/crawler/preview', { url, selectors }),
+    aiPost<any>('/admin/ai/crawler/preview', { url, selectors }),
 
   // 保存爬虫模板
   saveCrawlerTemplate: (data: { name: string; description: string; url: string; department?: string; data_type?: string; selectors: any }) =>
     post<any>('/skills/crawler/templates', data),
+
+  // AI对话接口（支持上下文追问）
+  chat: (data: { messages: Array<{ role: string; content: string }> }) =>
+    aiPost<any>('/admin/ai/chat', data),
+
+  // 智能爬虫助手对话（支持多网址与上下文反馈）
+  crawlerChat: (data: { messages: Array<{ role: string; content: string }> }) =>
+    aiPost<any>('/admin/ai/crawler/chat', data),
 }

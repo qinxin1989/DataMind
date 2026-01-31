@@ -352,7 +352,7 @@ const columns = [
 ]
 
 // 自定义行属性，支持拖拽
-function customRow(record: AIConfig, index: number) {
+function customRow(_record: AIConfig, index: number) {
   return {
     draggable: true,
     style: { cursor: 'move' },
@@ -428,7 +428,7 @@ function onProviderChange(provider: AIConfig['provider']) {
     }
     if (!editingConfig.value) {
       formState.model = config.defaultModel
-      formState.embeddingModel = config.defaultEmbeddingModel
+      formState.embeddingModel = config.defaultEmbeddingModel || ''
       formState.name = config.label
     }
   }

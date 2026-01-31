@@ -10,6 +10,10 @@ export interface CrawlerTemplate {
     data_type?: string;
     containerSelector?: string;
     fields: { name: string; selector: string }[];
+    // 分页配置
+    paginationEnabled?: boolean;
+    paginationNextSelector?: string;
+    paginationMaxPages?: number;
 }
 
 export class CrawlerService {
@@ -68,8 +72,11 @@ export class CrawlerService {
             url: row.url,
             department: row.department,
             data_type: row.data_type,
-            containerSelector: row.container_selector,
-            fields: fields as any[]
+            containerSelector: row.container_selector || '',
+            fields: fields as any[],
+            paginationEnabled: Boolean(row.pagination_enabled),
+            paginationNextSelector: row.pagination_next_selector || undefined,
+            paginationMaxPages: row.pagination_max_pages || 1
         };
     }
 
@@ -96,7 +103,10 @@ export class CrawlerService {
                 department: row.department,
                 data_type: row.data_type,
                 containerSelector: row.container_selector,
-                fields: fields as any[]
+                fields: fields as any[],
+                paginationEnabled: Boolean(row.pagination_enabled),
+                paginationNextSelector: row.pagination_next_selector || undefined,
+                paginationMaxPages: row.pagination_max_pages || 1
             });
         }
         return templates;
@@ -132,7 +142,10 @@ export class CrawlerService {
      */
     async getRecentResults(userId: string, limit: number = 20): Promise<any[]> {
         const [rows]: any = await pool.query(
-            `SELECT r.*, COALESCE(t.name, '未知模板') as template_name
+            `SELECT r.*, 
+                    COALESCE(t.name, '未知模板') as template_name,
+                    t.department,
+                    t.data_type
        FROM crawler_results r
        LEFT JOIN crawler_templates t ON r.template_id = t.id
        WHERE r.user_id = ?
@@ -281,12 +294,15 @@ export class CrawlerService {
     }
 
     /**
-     * 生成渲染后的 HTML (带 CSS 样式)
+     * 生成渲染后的 HTML (带 CSS 样式和标题)
      */
-    renderHtml(fields: string[], data: any[]): string {
+    renderHtml(fields: string[], data: any[], title?: string, subtitle?: string): string {
         const style = `
       <style>
         .crawler-container { font-family: 'Inter', system-ui, sans-serif; padding: 20px; color: #1f2937; line-height: 1.5; }
+        .crawler-header { margin-bottom: 20px; }
+        .crawler-title { font-size: 24px; font-weight: 700; color: #111827; margin: 0 0 8px 0; }
+        .crawler-subtitle { font-size: 14px; color: #6b7280; margin: 0; }
         .crawler-table { width: 100%; border-collapse: collapse; margin-top: 15px; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .crawler-table th { background: #f9fafb; padding: 12px 16px; text-align: left; font-size: 13px; font-weight: 600; color: #4b5563; border-bottom: 1px solid #e5e7eb; }
         .crawler-table td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
@@ -298,7 +314,14 @@ export class CrawlerService {
       </style>
     `;
 
-        const tableHeaders = fields.map(f => `<th>${f}</th>`).join('');
+        const headerHtml = `
+      <div class="crawler-header">
+        ${title ? `<h1 class="crawler-title">${this.escapeHtml(title)}</h1>` : ''}
+        ${subtitle ? `<p class="crawler-subtitle">${this.escapeHtml(subtitle)}</p>` : ''}
+      </div>
+    `;
+
+        const tableHeaders = fields.map(f => `<th>${this.escapeHtml(f)}</th>`).join('');
         const tableRows = data.map(row => {
             const cells = fields.map(f => {
                 const val = row[f] || '';
@@ -311,12 +334,27 @@ export class CrawlerService {
         return `
       <div class="crawler-container">
         ${style}
+        ${headerHtml}
         <table class="crawler-table">
           <thead><tr>${tableHeaders}</tr></thead>
           <tbody>${tableRows}</tbody>
         </table>
       </div>
     `;
+    }
+
+    /**
+     * HTML 转义工具
+     */
+    private escapeHtml(text: string): string {
+        const map: Record<string, string> = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
     }
 }
 
