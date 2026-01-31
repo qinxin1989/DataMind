@@ -4,7 +4,7 @@
 
 import { SkillDefinition, SkillContext, SkillResult } from '../registry';
 import axios from 'axios';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import * as path from 'path';
 import { crawlerService } from './service';
 import { TemplateAnalyzer, AnalyzedTemplate } from './TemplateAnalyzer';
@@ -159,24 +159,50 @@ const extractWebData: SkillDefinition = {
             console.log(`[Crawler] Starting Python engine...`);
 
             const result: any = await new Promise((resolve) => {
-                // 传递 3 个参数: source, selectors, base_url (optional)
-                const command = `"${pythonPath}" "${enginePath}" "${sourceArg}" "${safeSelectors}" "${baseUrlArg}"`;
-                exec(command, (error, stdout) => {
+                // 使用 spawn 代替 exec，避免路径问题
+                const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg];
+                const pythonProcess = spawn(pythonPath, args, {
+                    cwd: process.cwd(),
+                    windowsHide: true
+                });
+
+                let stdout = '';
+                let stderr = '';
+
+                pythonProcess.stdout.on('data', (data) => {
+                    stdout += data.toString();
+                });
+
+                pythonProcess.stderr.on('data', (data) => {
+                    stderr += data.toString();
+                });
+
+                pythonProcess.on('close', (code) => {
                     // 清理临时文件
                     if (tempFilePath && require('fs').existsSync(tempFilePath)) {
                         try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
                     }
 
-                    if (error) {
-                        resolve({ success: false, message: `引擎执行失败: ${error.message}` });
+                    if (code !== 0) {
+                        console.error('[Crawler] Python stderr:', stderr);
+                        resolve({ success: false, message: `引擎执行失败 (exit code ${code}): ${stderr}` });
                         return;
                     }
+
                     try {
                         resolve(JSON.parse(stdout));
                     } catch (e) {
-                        console.error('Engine output:', stdout);
+                        console.error('[Crawler] Engine output:', stdout);
                         resolve({ success: false, message: '解析引擎输出失败' });
                     }
+                });
+
+                pythonProcess.on('error', (error) => {
+                    // 清理临时文件
+                    if (tempFilePath && require('fs').existsSync(tempFilePath)) {
+                        try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
+                    }
+                    resolve({ success: false, message: `启动 Python 失败: ${error.message}` });
                 });
             });
 
@@ -436,33 +462,64 @@ const extractWithTemplate: SkillDefinition = {
             }
 
             const result: any = await new Promise((resolve) => {
-                // 准备分页配置
-                const paginationConfig = usedTemplate?.paginationEnabled ? {
+                // 准备分页配置 - 默认启用全页采集
+                const paginationConfig = {
                     enabled: true,
-                    next_selector: usedTemplate.paginationNextSelector || undefined,
-                    max_pages: usedTemplate.paginationMaxPages || 5
-                } : null;
+                    next_selector: usedTemplate?.paginationNextSelector || undefined,
+                    max_pages: usedTemplate?.paginationMaxPages || 50  // 默认最多50页
+                };
 
-                const paginationArg = paginationConfig ? JSON.stringify(paginationConfig).replace(/"/g, '\\"') : 'null';
-                const command = `"${pythonPath}" "${enginePath}" "${sourceArg}" "${safeSelectors}" "${baseUrlArg}" "${paginationArg}"`;
+                console.log(`[Crawler] Running with pagination: enabled, max_pages: ${paginationConfig.max_pages}`);
 
-                console.log(`[Crawler] Running with pagination: ${paginationConfig ? 'enabled' : 'disabled'}`);
+                // 使用 spawn 代替 exec
+                const args = [
+                    enginePath,
+                    sourceArg,
+                    JSON.stringify(selectors),
+                    baseUrlArg,
+                    JSON.stringify(paginationConfig)
+                ];
 
-                exec(command, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+                const pythonProcess = spawn(pythonPath, args, {
+                    cwd: process.cwd(),
+                    windowsHide: true
+                });
+
+                let stdout = '';
+                let stderr = '';
+
+                pythonProcess.stdout.on('data', (data) => {
+                    stdout += data.toString();
+                });
+
+                pythonProcess.stderr.on('data', (data) => {
+                    stderr += data.toString();
+                });
+
+                pythonProcess.on('close', (code) => {
                     if (tempFilePath && require('fs').existsSync(tempFilePath)) {
                         try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
                     }
 
-                    if (error) {
-                        resolve({ success: false, error: error.message });
+                    if (code !== 0) {
+                        console.error('[Crawler] Python stderr:', stderr);
+                        resolve({ success: false, error: `执行失败 (exit code ${code}): ${stderr}` });
                         return;
                     }
 
                     try {
                         resolve(JSON.parse(stdout));
                     } catch (e) {
+                        console.error('[Crawler] Engine output:', stdout);
                         resolve({ success: false, error: '解析失败' });
                     }
+                });
+
+                pythonProcess.on('error', (error) => {
+                    if (tempFilePath && require('fs').existsSync(tempFilePath)) {
+                        try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
+                    }
+                    resolve({ success: false, error: `启动 Python 失败: ${error.message}` });
                 });
             });
 

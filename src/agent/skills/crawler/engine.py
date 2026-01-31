@@ -6,6 +6,7 @@ import random
 import re
 import os
 from urllib.parse import urljoin
+from datetime import datetime
 
 # 常见的 User-Agent 列表
 USER_AGENTS = [
@@ -14,6 +15,39 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 ]
+
+def normalize_date(date_str):
+    """
+    将各种日期格式统一转换为 YYYY-MM-DD 格式
+    """
+    if not date_str:
+        return ""
+    
+    date_str = date_str.strip()
+    
+    # 尝试各种日期格式
+    patterns = [
+        (r'(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})', '%Y-%m-%d'),  # 2025-01-09, 2025.01.09, 2025/01/09
+        (r'(\d{4})年(\d{1,2})月(\d{1,2})日', '%Y-%m-%d'),      # 2025年01月09日
+        (r'(\d{4})\.(\d{1,2})\.(\d{1,2})', '%Y-%m-%d'),       # 2025.01.09
+        (r'(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})', '%d-%m-%Y'), # 09-01-2025
+    ]
+    
+    for pattern, fmt in patterns:
+        match = re.search(pattern, date_str)
+        if match:
+            try:
+                if fmt == '%Y-%m-%d':
+                    year, month, day = match.groups()
+                    return f"{year}-{int(month):02d}-{int(day):02d}"
+                elif fmt == '%d-%m-%Y':
+                    day, month, year = match.groups()
+                    return f"{year}-{int(month):02d}-{int(day):02d}"
+            except:
+                pass
+    
+    # 如果无法解析，返回原始字符串
+    return date_str
 
 def clean_html_content(element):
     """
@@ -372,6 +406,12 @@ def crawl(source, selectors, base_url=None, pagination_config=None):
 
         # 过滤无效行
         all_results = [r for r in all_results if r.get('标题') or r.get('链接')]
+
+        # 格式化日期字段为 YYYY-MM-DD
+        for item in all_results:
+            for key, value in item.items():
+                if ('日期' in key or '时间' in key) and value:
+                    item[key] = normalize_date(str(value))
 
         return {
             "success": True,

@@ -60,7 +60,7 @@ export class DynamicEngine {
                 '--disable-extensions',
                 '--hide-scrollbars'
             ]
-        }).then(b => {
+        }).then((b: Browser) => {
             this.browser = b;
             this.launchPromise = null;
 
@@ -70,7 +70,7 @@ export class DynamicEngine {
             });
 
             return b;
-        }).catch(err => {
+        }).catch((err: Error) => {
             this.launchPromise = null;
             console.error('[DynamicEngine] Failed to launch browser:', err);
             throw err;

@@ -61,8 +61,18 @@ AI 自动设计并生成可视化大屏，支持多种图表类型和主题风�
 ### 1. 核心服务 (Backend)
 
 ```bash
-# 安装依赖
+# 安装 Node.js 依赖
 npm install
+
+# 安装 Python 依赖（用于 AI 爬虫功能）
+# 方式 1: 使用虚拟环境（推荐）
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
+pip install -r requirements.txt
+
+# 方式 2: 全局安装
+pip install requests beautifulsoup4 lxml
 
 # 配置环境变量
 cp .env.example .env

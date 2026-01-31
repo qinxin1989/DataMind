@@ -1,16 +1,16 @@
 [
   {
-    "datasourceId": "0a565908-2f13-4c22-b157-c4ccbeb6f198",
-    "totalQueries": 4,
-    "successQueries": 0,
+    "datasourceId": "fb17e68e-0eea-48b7-a77c-acb74d239d10",
+    "totalQueries": 9,
+    "successQueries": 5,
     "failedQueries": 4,
-    "avgResponseTime": 783,
+    "avgResponseTime": 445.44444444444446,
     "queriesByDay": [
       {
-        "date": "2026-01-13",
-        "count": 4
+        "date": "2026-01-31",
+        "count": 9
       }
     ],
-    "lastQueryAt": 1768286773582
+    "lastQueryAt": 1769862861969
   }
 ]

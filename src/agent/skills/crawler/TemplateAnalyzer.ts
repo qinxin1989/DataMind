@@ -253,7 +253,7 @@ export class TemplateAnalyzer {
    * 分析HTML结构，生成候选选择器
    */
   private static analyzeHtmlStructure(
-    $: cheerio.CheerioAPI,
+    $: any,
     url: string,
     pageType: 'static' | 'dynamic'
   ): PageAnalysis {
@@ -301,8 +301,8 @@ export class TemplateAnalyzer {
    * 从容器中提取字段选择器
    */
   private static extractFieldsFromContainer(
-    $: cheerio.CheerioAPI,
-    $container: cheerio.Cheerio<any>
+    $: any,
+    $container: any
   ): Record<string, string> {
     const fields: Record<string, string> = {};
 
@@ -343,8 +343,8 @@ export class TemplateAnalyzer {
    * 在容器内查找最佳选择器
    */
   private static findBestSelector(
-    $: cheerio.CheerioAPI,
-    $container: cheerio.Cheerio<any>,
+    $: any,
+    $container: any,
     selectors: string[]
   ): string | null {
     for (const selector of selectors) {
@@ -360,7 +360,7 @@ export class TemplateAnalyzer {
    * 计算推荐置信度
    */
   private static calculateConfidence(
-    $containers: cheerio.Cheerio<any>,
+    $containers: any,
     fields: Record<string, string>,
     weight: number
   ): number {
@@ -394,10 +394,10 @@ export class TemplateAnalyzer {
     if ($links.length < 3) return null;
 
     // 找到链接最多的父级元素
-    let bestParent: cheerio.Cheerio<any> | null = null;
+    let bestParent: any | null = null;
     let maxCount = 0;
 
-    $links.each((_, el) => {
+    $links.each((_: number, el: any) => {
       const $parent = $(el).parent();
       const linkCount = $parent.find('a').length;
 
@@ -434,7 +434,7 @@ export class TemplateAnalyzer {
   /**
    * 生成模板名称
    */
-  private static generateTemplateName(url: string, $: cheerio.CheerioAPI): string {
+  private static generateTemplateName(url: string, $: any): string {
     try {
       const urlObj = new URL(url);
       const hostname = urlObj.hostname.replace('www.', '');
@@ -451,7 +451,7 @@ export class TemplateAnalyzer {
   /**
    * 生成标签建议
    */
-  private static generateTags(url: string, $: cheerio.CheerioAPI): string[] {
+  private static generateTags(url: string, $: any): string[] {
     const tags: string[] = [];
 
     try {

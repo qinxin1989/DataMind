@@ -3,7 +3,19 @@
     <!-- 左侧对话区 -->
     <div class="chat-panel">
       <div class="chat-header">
-        <h2>AI 爬虫助手</h2>
+        <div class="header-top">
+          <h2>AI 爬虫助手</h2>
+          <div class="header-actions">
+            <a-button @click="conversationsVisible = true">
+              <template #icon><HistoryOutlined /></template>
+              历史对话
+            </a-button>
+            <a-button type="primary" @click="handleNewConversation">
+              <template #icon><PlusOutlined /></template>
+              新建对话
+            </a-button>
+          </div>
+        </div>
         <p class="subtitle">告诉我网址和需要爬取的内容，我来帮您生成爬虫模板</p>
       </div>
 
@@ -267,12 +279,46 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 对话历史抽屉 -->
+    <a-drawer
+      v-model:open="conversationsVisible"
+      title="对话历史"
+      placement="right"
+      width="400"
+    >
+      <a-list :data-source="conversations" :loading="false">
+        <template #renderItem="{ item }">
+          <a-list-item>
+            <a-list-item-meta>
+              <template #title>
+                <a @click="loadConversation(item.id)">{{ item.title }}</a>
+              </template>
+              <template #description>
+                {{ formatDate(item.updated_at) }}
+              </template>
+            </a-list-item-meta>
+            <template #actions>
+              <a-popconfirm
+                title="确定删除此对话？"
+                @confirm="deleteConversation(item.id)"
+              >
+                <a-button type="text" danger size="small">
+                  <template #icon><DeleteOutlined /></template>
+                </a-button>
+              </a-popconfirm>
+            </template>
+          </a-list-item>
+        </template>
+      </a-list>
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, computed } from 'vue'
+import { ref, nextTick, computed, onMounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { HistoryOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { aiApi } from '@/api/ai'
 import { useUserStore } from '@/stores/user'
 
@@ -321,6 +367,150 @@ const templateForm = ref({
 const userAvatar = computed(() => {
   return 'U'
 })
+
+// 对话历史相关
+const conversations = ref<any[]>([])
+const currentConversationId = ref<string | null>(null)
+const conversationsVisible = ref(false)
+let saveTimer: any = null
+
+// 加载对话列表
+async function loadConversations() {
+  try {
+    const res = await aiApi.getCrawlerConversations()
+    if (res.success && res.data) {
+      conversations.value = res.data
+    }
+  } catch (error) {
+    console.error('加载对话列表失败:', error)
+  }
+}
+
+// 加载最新对话
+async function loadLatestConversation() {
+  try {
+    const res = await aiApi.getLatestCrawlerConversation()
+    if (res.success && res.data) {
+      currentConversationId.value = res.data.id
+      messages.value = res.data.messages || []
+      await nextTick()
+      scrollToBottom()
+    }
+  } catch (error) {
+    console.error('加载最新对话失败:', error)
+  }
+}
+
+// 新建对话
+async function handleNewConversation() {
+  try {
+    // 如果当前有对话且有消息，先保存
+    if (currentConversationId.value && messages.value.length > 0) {
+      await saveCurrentConversation()
+    }
+    
+    // 创建新对话
+    const res = await aiApi.createCrawlerConversation({
+      title: '新对话',
+      messages: []
+    })
+    
+    if (res.success && res.data) {
+      currentConversationId.value = res.data.id
+      messages.value = []
+      message.success('已创建新对话')
+    }
+  } catch (error) {
+    message.error('创建对话失败')
+  }
+}
+
+// 保存当前对话
+async function saveCurrentConversation() {
+  if (!currentConversationId.value) return
+  
+  try {
+    // 生成标题（使用第一条用户消息）
+    const firstUserMsg = messages.value.find(m => m.role === 'user')
+    const title = firstUserMsg ? 
+      firstUserMsg.content.substring(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '') : 
+      '新对话'
+    
+    await aiApi.updateCrawlerConversation(currentConversationId.value, {
+      title,
+      messages: messages.value
+    })
+  } catch (error) {
+    console.error('保存对话失败:', error)
+  }
+}
+
+// 加载指定对话
+async function loadConversation(id: string) {
+  try {
+    const res = await aiApi.getCrawlerConversation(id)
+    if (res.success && res.data) {
+      currentConversationId.value = res.data.id
+      messages.value = res.data.messages || []
+      conversationsVisible.value = false
+      await nextTick()
+      scrollToBottom()
+    }
+  } catch (error) {
+    message.error('加载对话失败')
+  }
+}
+
+// 删除对话
+async function deleteConversation(id: string) {
+  try {
+    await aiApi.deleteCrawlerConversation(id)
+    message.success('删除成功')
+    loadConversations()
+    
+    // 如果删除的是当前对话，创建新对话
+    if (id === currentConversationId.value) {
+      handleNewConversation()
+    }
+  } catch (error) {
+    message.error('删除失败')
+  }
+}
+
+// 格式化日期
+function formatDate(dateStr: string) {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  
+  if (days === 0) {
+    return '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  } else if (days === 1) {
+    return '昨天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  } else if (days < 7) {
+    return days + '天前'
+  } else {
+    return date.toLocaleDateString('zh-CN')
+  }
+}
+
+// 在组件挂载时加载最新对话
+onMounted(async () => {
+  await loadLatestConversation()
+  await loadConversations()
+})
+
+// 监听消息变化，自动保存
+watch(messages, () => {
+  if (currentConversationId.value && messages.value.length > 0) {
+    // 防抖保存
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      saveCurrentConversation()
+    }, 2000)
+  }
+}, { deep: true })
 
 // 发送消息
 async function handleSend(parentMsgId?: string) {
@@ -631,11 +821,23 @@ async function handleConfirmSaveTemplate() {
       message.success('模板保存成功！')
       saveModalVisible.value = false
 
-      // 添加成功消息
+      // 添加成功消息，包含跳转链接
       messages.value.push({
         role: 'ai',
         type: 'text',
-        content: `✅ 模板"${templateForm.value.name}"已保存成功！<br>您可以在"爬虫管理"页面查看和管理此模板。`
+        content: `✅ 模板"${templateForm.value.name}"已保存成功！<br><br>
+          <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-left: 3px solid #1890ff; border-radius: 4px;">
+            <div style="margin-bottom: 8px;">📋 您可以在以下位置管理此模板：</div>
+            <div style="display: flex; gap: 8px;">
+              <a href="#/ai/crawler-template-config" style="color: #1890ff; text-decoration: none; font-weight: 500;">
+                → 采集模板配置
+              </a>
+              <span style="color: #999;">|</span>
+              <a href="#/ai/crawler" style="color: #1890ff; text-decoration: none; font-weight: 500;">
+                → 爬虫管理
+              </a>
+            </div>
+          </div>`
       })
       await nextTick()
       scrollToBottom()
@@ -703,6 +905,38 @@ function scrollToBottom() {
   border-bottom: 1px solid #e5e7eb;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
+}
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.header-actions .ant-btn {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.header-actions .ant-btn:hover {
+  border-color: white;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.header-actions .ant-btn-primary {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: white;
+}
+
+.header-actions .ant-btn-primary:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .chat-header h2 {
@@ -848,6 +1082,10 @@ function scrollToBottom() {
 
 .input-container textarea {
   flex: 1;
+}
+
+.input-container .ant-btn-primary {
+  color: white;
 }
 
 /* 右侧预览区 */

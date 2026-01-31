@@ -261,14 +261,54 @@ export class CrawlerService {
         try {
             await connection.beginTransaction();
 
+            // 0. 去重：检查已存在的数据（基于标题和链接）
+            const uniqueData: any[] = [];
+            for (const rowData of data) {
+                const title = rowData['标题'] || rowData['title'] || '';
+                const link = rowData['链接'] || rowData['link'] || '';
+                
+                if (!title && !link) {
+                    continue; // 跳过无效数据
+                }
+
+                // 检查是否已存在相同的标题或链接
+                const [existing] = await connection.execute(`
+                    SELECT COUNT(*) as count 
+                    FROM crawler_result_items 
+                    WHERE row_id IN (
+                        SELECT id FROM crawler_result_rows 
+                        WHERE result_id IN (
+                            SELECT id FROM crawler_results 
+                            WHERE template_id = ?
+                        )
+                    )
+                    AND (
+                        (field_name IN ('标题', 'title') AND field_value = ?)
+                        OR (field_name IN ('链接', 'link') AND field_value = ?)
+                    )
+                `, [templateId, title, link]);
+
+                const count = (existing as any[])[0]?.count || 0;
+                if (count === 0) {
+                    uniqueData.push(rowData);
+                }
+            }
+
+            console.log(`[CrawlerService] 去重后: ${uniqueData.length}/${data.length} 条新数据`);
+
+            if (uniqueData.length === 0) {
+                await connection.rollback();
+                return resultId; // 返回空结果ID
+            }
+
             // 1. 创建批次记录
             await connection.execute(
                 'INSERT INTO crawler_results (id, task_id, template_id, user_id) VALUES (?, ?, ?, ?)',
                 [resultId, taskId || null, templateId, userId]
             );
 
-            // 2. 批量插入行和明细
-            for (const rowData of data) {
+            // 2. 批量插入行和明细（只插入去重后的数据）
+            for (const rowData of uniqueData) {
                 const rowId = uuidv4();
                 await connection.execute(
                     'INSERT INTO crawler_result_rows (id, result_id) VALUES (?, ?)',

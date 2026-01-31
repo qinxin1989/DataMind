@@ -118,5 +118,13 @@
     "description": "Test",
     "group": "test",
     "editable": true
+  },
+  {
+    "key": "test.boolean.1769862861538",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
   }
 ]

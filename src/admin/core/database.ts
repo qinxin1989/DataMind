@@ -363,6 +363,34 @@ export async function initAdminTables(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    // 爬虫助手对话历史表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_assistant_conversations (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        title VARCHAR(255) DEFAULT '新对话',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_updated (updated_at),
+        FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 爬虫助手消息表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crawler_assistant_messages (
+        id VARCHAR(36) PRIMARY KEY,
+        conversation_id VARCHAR(36) NOT NULL,
+        role ENUM('user', 'ai') NOT NULL,
+        type VARCHAR(50) NOT NULL DEFAULT 'text',
+        content TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_conversation_id (conversation_id),
+        INDEX idx_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
     // 初始化默认数据
     await initDefaultData(connection);
 

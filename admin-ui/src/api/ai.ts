@@ -127,4 +127,50 @@ export const aiApi = {
   // 智能爬虫助手对话（支持多网址与上下文反馈）
   crawlerChat: (data: { messages: Array<{ role: string; content: string }> }) =>
     aiPost<any>('/admin/ai/crawler/chat', data),
+
+  // --- 爬虫助手对话历史 ---
+  // 获取对话列表
+  getCrawlerConversations: () =>
+    get<any[]>('/admin/ai/crawler-conversations'),
+
+  // 获取对话详情
+  getCrawlerConversation: (id: string) =>
+    get<any>(`/admin/ai/crawler-conversations/${id}`),
+
+  // 创建新对话
+  createCrawlerConversation: (data: { title?: string; messages?: any[] }) =>
+    post<any>('/admin/ai/crawler-conversations', data),
+
+  // 更新对话
+  updateCrawlerConversation: (id: string, data: { title?: string; messages?: any[] }) =>
+    put<any>(`/admin/ai/crawler-conversations/${id}`, data),
+
+  // 删除对话
+  deleteCrawlerConversation: (id: string) =>
+    del(`/admin/ai/crawler-conversations/${id}`),
+
+  // 获取最新对话
+  getLatestCrawlerConversation: () =>
+    get<any>('/admin/ai/crawler-conversations-latest'),
+
+  // --- 采集模板配置增强 API ---
+  // 验证CSS选择器
+  validateSelector: (url: string, selector: string) =>
+    aiPost<{ valid: boolean; count: number; message: string }>('/admin/ai/crawler/validate-selector', { url, selector }),
+
+  // 增强的数据预览（支持limit参数）
+  previewCrawlerEnhanced: (url: string, selectors: any, limit?: number) =>
+    aiPost<{ data: any[]; total: number; limit: number }>('/admin/ai/crawler/preview', { url, selectors, limit }),
+
+  // AI失败诊断
+  diagnoseCrawler: (url: string, selectors: any, error?: string) =>
+    aiPost<{ issues: string[]; recommendations: any[] }>('/admin/ai/crawler/diagnose', { url, selectors, error }),
+
+  // 测试爬虫模板
+  testCrawlerTemplate: (url: string, selectors: any, paginationConfig?: any) =>
+    aiPost<{ success: boolean; data: any[]; count: number; message: string }>('/admin/ai/crawler/test', { url, selectors, paginationConfig }),
+
+  // AI智能分析网页（生成字段推荐）
+  analyzeWebpage: (url: string, description?: string) =>
+    aiPost<{ fields: Array<{ name: string; selector: string; confidence: number; description?: string }> }>('/admin/ai/crawler/analyze', { url, description }),
 }

@@ -113,6 +113,12 @@ const routes: RouteRecordRaw[] = [
             meta: { title: '爬虫管理' },
           },
           {
+            path: '/ai/crawler-template-config',
+            name: 'CrawlerTemplateConfig',
+            component: () => import('@/views/ai/crawler-template-config.vue'),
+            meta: { title: '采集模板配置' },
+          },
+          {
             path: '/ai/crawler-assistant',
             name: 'AICrawlerAssistant',
             component: () => import('@/views/ai/crawler-assistant.vue'),

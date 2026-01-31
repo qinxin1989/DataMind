@@ -6,11 +6,10 @@
     "port": 3306,
     "database": "db",
     "tags": [],
-    "id": "0a565908-2f13-4c22-b157-c4ccbeb6f198",
+    "id": "fb17e68e-0eea-48b7-a77c-acb74d239d10",
     "status": "inactive",
-    "createdAt": 1768286773579,
-    "updatedAt": 1768286773579,
-    "ownerId": "admin",
-    "visibility": "private"
+    "visibility": "private",
+    "createdAt": 1769862861966,
+    "updatedAt": 1769862861966
   }
 ]

@@ -104,7 +104,7 @@
         <a-table 
           :columns="dynamicColumns" 
           :data-source="detailData" 
-          :pagination="{ pageSize: 10 }" 
+          :pagination="detailPagination" 
           row-key="id" 
           bordered 
           size="small"
@@ -156,10 +156,17 @@ const filteredTemplates = computed(() => {
 })
 
 const filteredResults = computed(() => {
-  return results.value.filter(item => {
+  const filtered = results.value.filter(item => {
     const matchDept = !filterForm.value.department || (item.department && item.department.toLowerCase().includes(filterForm.value.department.toLowerCase()))
     const matchType = !filterForm.value.dataType || (item.data_type && item.data_type.toLowerCase().includes(filterForm.value.dataType.toLowerCase()))
     return matchDept && matchType
+  })
+  
+  // 按创建时间倒序排序
+  return filtered.sort((a, b) => {
+    const timeA = new Date(a.created_at).getTime()
+    const timeB = new Date(b.created_at).getTime()
+    return timeB - timeA  // 倒序
   })
 })
 
@@ -176,6 +183,17 @@ const dynamicColumns = ref<any[]>([])
 const currentResult = ref<any>(null)
 const selectedRowKeys = ref<any[]>([])
 const isSelectAllAll = ref(false)
+const detailPagination = ref({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+  onChange: (page: number, pageSize: number) => {
+    detailPagination.value.current = page
+    detailPagination.value.pageSize = pageSize
+  }
+})
 const rowSelection = computed(() => ({
   selectedRowKeys: selectedRowKeys.value,
   onChange: (keys: any[]) => {
@@ -260,6 +278,10 @@ async function handleViewDetails(record: any) {
   detailLoading.value = true
   selectedRowKeys.value = [] // 重置选择项
   isSelectAllAll.value = false
+  
+  // 重置分页
+  detailPagination.value.current = 1
+  
   try {
     const res = await aiApi.getCrawlerResultDetails(record.id)
     if (res.data && res.data.length > 0) {
@@ -269,9 +291,23 @@ async function handleViewDetails(record: any) {
         _department: record.department || '-'
       }))
       
-      // 动态生成列表头
+      // 更新分页总数
+      detailPagination.value.total = res.data.length
+      
+      // 动态生成列表头 - 添加序号列
       const fields = Object.keys(res.data[0]).filter(k => k !== 'id' && k !== 'created_at')
       dynamicColumns.value = [
+        { 
+          title: '序号', 
+          key: 'index', 
+          width: 80, 
+          fixed: 'left',
+          customRender: ({ index }: any) => {
+            // 计算跨页序号：当前页码 * 每页条数 + 当前索引 + 1
+            const pagination = detailPagination.value
+            return (pagination.current - 1) * pagination.pageSize + index + 1
+          }
+        },
         { title: '归属部门', dataIndex: '_department', key: '_department', width: 150, fixed: 'left' },
         ...fields.map(f => ({
           title: f,
