@@ -140,7 +140,7 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 
-// 图标映射
+// 图标映射 - 导入所有可能用到的图标
 const iconMap: Record<string, any> = {
   DashboardOutlined,
   RobotOutlined,
@@ -159,7 +159,8 @@ const iconMap: Record<string, any> = {
   AuditOutlined,
   ScanOutlined,
   FileTextOutlined,
-  EditOutlined
+  EditOutlined,
+  QuestionOutlined
 }
 
 const getIcon = (iconName: string | undefined) => {

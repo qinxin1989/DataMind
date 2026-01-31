@@ -239,7 +239,7 @@ const providerConfigs: Record<string, {
   openai: {
     label: 'OpenAI',
     endpoint: 'https://api.openai.com/v1',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'qwen3-32b'],
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'gemini-2.5-flash', 'qwen3-32b'],
     defaultModel: 'gpt-4o',
     embeddingModels: ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'],
     defaultEmbeddingModel: 'text-embedding-3-small',

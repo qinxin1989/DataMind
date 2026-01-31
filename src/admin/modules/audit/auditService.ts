@@ -267,7 +267,7 @@ export class AuditService {
     const [rows] = await pool.query(
       `SELECT ch.*, u.username, dc.name as datasource_name
        FROM chat_history ch
-       LEFT JOIN users u ON ch.user_id = u.id
+       LEFT JOIN sys_users u ON ch.user_id = u.id
        LEFT JOIN datasource_config dc ON ch.datasource_id = dc.id
        WHERE ${whereClause} 
        ORDER BY ch.updated_at DESC`,
