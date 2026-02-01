@@ -8,9 +8,9 @@ import { crawlerManagementService } from './service';
 const router = Router();
 
 /**
- * GET /skills/crawler/templates - 获取模板列表
+ * GET /crawler/templates - 获取模板列表
  */
-router.get('/skills/crawler/templates', async (req: Request, res: Response) => {
+router.get('/crawler/templates', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -26,9 +26,9 @@ router.get('/skills/crawler/templates', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /skills/crawler/templates - 保存模板
+ * POST /crawler/templates - 保存模板
  */
-router.post('/skills/crawler/templates', async (req: Request, res: Response) => {
+router.post('/crawler/templates', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -44,9 +44,9 @@ router.post('/skills/crawler/templates', async (req: Request, res: Response) => 
 });
 
 /**
- * DELETE /skills/crawler/templates/:id - 删除模板
+ * DELETE /crawler/templates/:id - 删除模板
  */
-router.delete('/skills/crawler/templates/:id', async (req: Request, res: Response) => {
+router.delete('/crawler/templates/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -62,9 +62,9 @@ router.delete('/skills/crawler/templates/:id', async (req: Request, res: Respons
 });
 
 /**
- * GET /skills/crawler/tasks - 获取任务列表
+ * GET /crawler/tasks - 获取任务列表
  */
-router.get('/skills/crawler/tasks', async (req: Request, res: Response) => {
+router.get('/crawler/tasks', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -80,9 +80,9 @@ router.get('/skills/crawler/tasks', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /skills/crawler/tasks/:id/toggle - 切换任务状态
+ * POST /crawler/tasks/:id/toggle - 切换任务状态
  */
-router.post('/skills/crawler/tasks/:id/toggle', async (req: Request, res: Response) => {
+router.post('/crawler/tasks/:id/toggle', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -103,9 +103,9 @@ router.post('/skills/crawler/tasks/:id/toggle', async (req: Request, res: Respon
 });
 
 /**
- * GET /skills/crawler/results - 获取采集结果列表
+ * GET /crawler/results - 获取采集结果列表
  */
-router.get('/skills/crawler/results', async (req: Request, res: Response) => {
+router.get('/crawler/results', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -122,9 +122,9 @@ router.get('/skills/crawler/results', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /skills/crawler/results/:id - 获取采集结果详情
+ * GET /crawler/results/:id - 获取采集结果详情
  */
-router.get('/skills/crawler/results/:id', async (req: Request, res: Response) => {
+router.get('/crawler/results/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -142,9 +142,9 @@ router.get('/skills/crawler/results/:id', async (req: Request, res: Response) =>
 });
 
 /**
- * DELETE /skills/crawler/results/:id - 删除采集结果
+ * DELETE /crawler/results/:id - 删除采集结果
  */
-router.delete('/skills/crawler/results/:id', async (req: Request, res: Response) => {
+router.delete('/crawler/results/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -160,9 +160,9 @@ router.delete('/skills/crawler/results/:id', async (req: Request, res: Response)
 });
 
 /**
- * POST /skills/execute - 执行技能
+ * POST /execute - 执行技能
  */
-router.post('/skills/execute', async (req: Request, res: Response) => {
+router.post('/execute', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     if (!userId) {

@@ -45,65 +45,72 @@
       "permission": "crawler_template_view"
     }
   ],
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/admin/ai",
+      "file": "./backend/routes.ts"
+    }
+  },
   "routes": {
     "backend": [
       {
         "method": "GET",
-        "path": "/api/crawler/templates",
+        "path": "/crawler/templates",
         "handler": "getTemplates",
         "permission": "crawler_template_view"
       },
       {
         "method": "GET",
-        "path": "/api/crawler/templates/:id",
+        "path": "/crawler/templates/:id",
         "handler": "getTemplate",
         "permission": "crawler_template_view"
       },
       {
         "method": "POST",
-        "path": "/api/crawler/templates",
+        "path": "/crawler/templates",
         "handler": "createTemplate",
         "permission": "crawler_template_create"
       },
       {
         "method": "PUT",
-        "path": "/api/crawler/templates/:id",
+        "path": "/crawler/templates/:id",
         "handler": "updateTemplate",
         "permission": "crawler_template_edit"
       },
       {
         "method": "DELETE",
-        "path": "/api/crawler/templates/:id",
+        "path": "/crawler/templates/:id",
         "handler": "deleteTemplate",
         "permission": "crawler_template_delete"
       },
       {
         "method": "POST",
-        "path": "/api/crawler/templates/test",
+        "path": "/crawler/templates/test",
         "handler": "testTemplate",
         "permission": "crawler_template_test"
       },
       {
         "method": "POST",
-        "path": "/api/crawler/preview",
+        "path": "/crawler/preview",
         "handler": "previewData",
         "permission": "crawler_template_view"
       },
       {
         "method": "POST",
-        "path": "/api/crawler/validate-selector",
+        "path": "/crawler/validate-selector",
         "handler": "validateSelector",
         "permission": "crawler_template_view"
       },
       {
         "method": "POST",
-        "path": "/api/crawler/ai-analyze",
+        "path": "/crawler/ai-analyze",
         "handler": "aiAnalyze",
         "permission": "crawler_template_view"
       },
       {
         "method": "POST",
-        "path": "/api/crawler/diagnose",
+        "path": "/crawler/diagnose",
         "handler": "diagnose",
         "permission": "crawler_template_view"
       }
@@ -142,5 +149,6 @@
     "afterEnable": "backend/hooks/afterEnable.ts",
     "beforeDisable": "backend/hooks/beforeDisable.ts",
     "afterDisable": "backend/hooks/afterDisable.ts"
-  }
+  },
+  "enabled": true
 }

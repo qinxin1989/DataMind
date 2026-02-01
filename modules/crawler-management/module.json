@@ -36,59 +36,66 @@
       "permission": "crawler:view"
     }
   ],
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/admin/ai",
+      "file": "./backend/routes.ts"
+    }
+  },
   "routes": {
     "backend": [
       {
         "method": "GET",
-        "path": "/skills/crawler/templates",
+        "path": "/crawler/templates",
         "handler": "getTemplates",
         "permission": "crawler:view"
       },
       {
         "method": "POST",
-        "path": "/skills/crawler/templates",
+        "path": "/crawler/templates",
         "handler": "saveTemplate",
         "permission": "crawler:manage"
       },
       {
         "method": "DELETE",
-        "path": "/skills/crawler/templates/:id",
+        "path": "/crawler/templates/:id",
         "handler": "deleteTemplate",
         "permission": "crawler:manage"
       },
       {
         "method": "GET",
-        "path": "/skills/crawler/tasks",
+        "path": "/crawler/tasks",
         "handler": "getTasks",
         "permission": "crawler:view"
       },
       {
         "method": "POST",
-        "path": "/skills/crawler/tasks/:id/toggle",
+        "path": "/crawler/tasks/:id/toggle",
         "handler": "toggleTask",
         "permission": "crawler:execute"
       },
       {
         "method": "GET",
-        "path": "/skills/crawler/results",
+        "path": "/crawler/results",
         "handler": "getResults",
         "permission": "crawler:view"
       },
       {
         "method": "GET",
-        "path": "/skills/crawler/results/:id",
+        "path": "/crawler/results/:id",
         "handler": "getResultDetails",
         "permission": "crawler:view"
       },
       {
         "method": "DELETE",
-        "path": "/skills/crawler/results/:id",
+        "path": "/crawler/results/:id",
         "handler": "deleteResult",
         "permission": "crawler:manage"
       },
       {
         "method": "POST",
-        "path": "/skills/execute",
+        "path": "/execute",
         "handler": "executeSkill",
         "permission": "crawler:execute"
       }
@@ -118,5 +125,6 @@
     "afterEnable": true,
     "beforeDisable": true,
     "afterDisable": true
-  }
+  },
+  "enabled": true
 }

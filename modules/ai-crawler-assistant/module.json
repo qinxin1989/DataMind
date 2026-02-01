@@ -22,7 +22,7 @@
   "backend": {
     "entry": "./backend/index.ts",
     "routes": {
-      "prefix": "/ai",
+      "prefix": "/admin/ai",
       "file": "./backend/routes.ts"
     }
   },
@@ -188,6 +188,6 @@
     ]
   },
   
-  "enabled": false,
+  "enabled": true,
   "installed": false
 }

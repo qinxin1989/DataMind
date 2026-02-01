@@ -12,7 +12,7 @@ const service = new CrawlerTemplateConfigService();
 /**
  * 获取所有采集模板
  */
-router.get('/api/crawler/templates', async (req: Request, res: Response) => {
+router.get('/crawler/templates', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const templates = await service.getTemplates(connection);
@@ -33,7 +33,7 @@ router.get('/api/crawler/templates', async (req: Request, res: Response) => {
 /**
  * 根据ID获取采集模板
  */
-router.get('/api/crawler/templates/:id', async (req: Request, res: Response) => {
+router.get('/crawler/templates/:id', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const id = parseInt(req.params.id);
@@ -64,7 +64,7 @@ router.get('/api/crawler/templates/:id', async (req: Request, res: Response) => 
 /**
  * 创建采集模板
  */
-router.post('/api/crawler/templates', async (req: Request, res: Response) => {
+router.post('/crawler/templates', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const userId = (req as any).user?.id || 1;
@@ -88,7 +88,7 @@ router.post('/api/crawler/templates', async (req: Request, res: Response) => {
 /**
  * 更新采集模板
  */
-router.put('/api/crawler/templates/:id', async (req: Request, res: Response) => {
+router.put('/crawler/templates/:id', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const id = parseInt(req.params.id);
@@ -112,7 +112,7 @@ router.put('/api/crawler/templates/:id', async (req: Request, res: Response) => 
 /**
  * 删除采集模板
  */
-router.delete('/api/crawler/templates/:id', async (req: Request, res: Response) => {
+router.delete('/crawler/templates/:id', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const id = parseInt(req.params.id);
@@ -135,7 +135,7 @@ router.delete('/api/crawler/templates/:id', async (req: Request, res: Response) 
 /**
  * 测试采集模板
  */
-router.post('/api/crawler/templates/test', async (req: Request, res: Response) => {
+router.post('/crawler/templates/test', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const result = await service.testTemplate(connection, req.body);
@@ -156,7 +156,7 @@ router.post('/api/crawler/templates/test', async (req: Request, res: Response) =
 /**
  * 预览采集数据
  */
-router.post('/api/crawler/preview', async (req: Request, res: Response) => {
+router.post('/crawler/preview', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const result = await service.previewData(connection, req.body);
@@ -177,7 +177,7 @@ router.post('/api/crawler/preview', async (req: Request, res: Response) => {
 /**
  * 验证选择器
  */
-router.post('/api/crawler/validate-selector', async (req: Request, res: Response) => {
+router.post('/crawler/validate-selector', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const result = await service.validateSelector(connection, req.body);
@@ -198,7 +198,7 @@ router.post('/api/crawler/validate-selector', async (req: Request, res: Response
 /**
  * AI智能分析
  */
-router.post('/api/crawler/ai-analyze', async (req: Request, res: Response) => {
+router.post('/crawler/ai-analyze', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const result = await service.aiAnalyze(connection, req.body);
@@ -219,7 +219,7 @@ router.post('/api/crawler/ai-analyze', async (req: Request, res: Response) => {
 /**
  * 诊断采集问题
  */
-router.post('/api/crawler/diagnose', async (req: Request, res: Response) => {
+router.post('/crawler/diagnose', async (req: Request, res: Response) => {
   const connection = await getConnection();
   try {
     const result = await service.diagnose(connection, req.body);

@@ -117,6 +117,40 @@ Phase 4: 优化和完善 (88%)
 
 ---
 
+### ✅ 爬虫模块路由修复 (100%)
+
+**完成时间**: 2026-02-01  
+**耗时**: 1小时
+
+**问题**:
+- 三个爬虫模块路由配置不一致
+- `crawler-template-config`: 使用 `/api/crawler/*`
+- `crawler-management`: 使用 `/skills/crawler/*`
+- 所有模块都未启用 (`enabled: false`)
+
+**修复内容**:
+- ✅ 统一路由前缀为 `/admin/ai`
+- ✅ 统一路由路径为 `/crawler/*`
+- ✅ 启用所有三个爬虫模块
+- ✅ 更新 `crawler-management` 的 9 个路由
+- ✅ 更新 `crawler-template-config` 的 10 个路由
+- ✅ 验证 `ai-crawler-assistant` 的 18 个路由
+
+**验证结果**:
+- ✅ 所有模块已启用
+- ✅ 路由前缀统一为 `/admin/ai`
+- ✅ 路由路径格式正确
+- ✅ JSON配置文件格式正确
+- ✅ TypeScript文件无语法错误
+
+**最终路由格式**: `/admin/ai/crawler/*`
+
+**文档**:
+- `CRAWLER_ROUTES_FIXED.md` - 修复完成报告
+- `.kiro/specs/modular-architecture/crawler-routes-fix-summary.md` - 详细总结
+
+---
+
 ## 系统状态
 
 ### 功能状态 ✅
