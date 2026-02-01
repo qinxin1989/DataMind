@@ -1,0 +1,78 @@
+{
+  "id": "file-tools",
+  "name": "文件工具",
+  "version": "1.0.0",
+  "description": "提供文件格式转换、PDF合并、图片压缩等实用工具",
+  "author": "System",
+  "license": "MIT",
+  "main": "backend/index.ts",
+  "frontend": "frontend/index.ts",
+  "dependencies": [],
+  "permissions": [
+    {
+      "code": "file-tools:view",
+      "name": "查看文件工具",
+      "description": "允许访问文件工具页面"
+    },
+    {
+      "code": "file-tools:convert",
+      "name": "文件转换",
+      "description": "允许使用文件格式转换功能"
+    },
+    {
+      "code": "file-tools:merge",
+      "name": "PDF合并",
+      "description": "允许使用PDF合并功能"
+    },
+    {
+      "code": "file-tools:compress",
+      "name": "图片压缩",
+      "description": "允许使用图片压缩功能"
+    },
+    {
+      "code": "file-tools:history",
+      "name": "查看历史",
+      "description": "允许查看文件转换历史记录"
+    }
+  ],
+  "menus": [
+    {
+      "id": "file-tools-main",
+      "title": "文件工具",
+      "path": "/tools/file",
+      "icon": "FileTextOutlined",
+      "parentId": null,
+      "sort": 100,
+      "permission": "file-tools:view"
+    }
+  ],
+  "routes": {
+    "backend": [
+      {
+        "path": "/api/modules/file-tools",
+        "method": "all"
+      }
+    ],
+    "frontend": [
+      {
+        "path": "/tools/file",
+        "component": "views/FileTools.vue",
+        "name": "FileTools",
+        "meta": {
+          "title": "文件工具",
+          "permission": "file-tools:view"
+        }
+      }
+    ]
+  },
+  "config": {
+    "schema": "config/schema.json",
+    "default": "config/default.json"
+  },
+  "migrations": [
+    {
+      "version": "1.0.0",
+      "file": "backend/migrations/001_create_file_tools_tables.sql"
+    }
+  ]
+}

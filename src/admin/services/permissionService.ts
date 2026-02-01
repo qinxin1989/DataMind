@@ -24,6 +24,11 @@ export class PermissionService {
   }
 
   async getRoleById(id: string): Promise<Role | null> {
+    // 优先从测试存储获取
+    if (this.testRoles.has(id)) {
+      return this.testRoles.get(id)!;
+    }
+
     const [rows] = await pool.execute('SELECT * FROM sys_roles WHERE id = ?', [id]);
     const roles = rows as any[];
     if (roles.length === 0) return null;
@@ -138,7 +143,27 @@ export class PermissionService {
 
   // ==================== 角色权限 ====================
 
-  async getRolePermissions(roleId: string): Promise<string[]> {
+  async getRolePermissions(roleId: string, visited: Set<string> = new Set()): Promise<string[]> {
+    // 检测循环继承
+    if (visited.has(roleId)) {
+      throw new Error('检测到角色循环继承');
+    }
+    visited.add(roleId);
+
+    // 优先从测试存储获取
+    const testRole = this.testRoles.get(roleId);
+    if (testRole) {
+      const permissions = [...testRole.permissionCodes];
+      
+      // 处理继承
+      if (testRole.parentId) {
+        const parentPerms = await this.getRolePermissions(testRole.parentId, visited);
+        permissions.push(...parentPerms);
+      }
+      
+      return [...new Set(permissions)];
+    }
+
     const [rows] = await pool.execute(
       'SELECT permission_code FROM sys_role_permissions WHERE role_id = ?',
       [roleId]
@@ -185,6 +210,19 @@ export class PermissionService {
   // ==================== 用户角色 ====================
 
   async getUserRoles(userId: string): Promise<Role[]> {
+    // 优先从测试存储获取
+    const testRoleIds = this.testUserRoles.get(userId);
+    if (testRoleIds) {
+      const roles: Role[] = [];
+      for (const roleId of testRoleIds) {
+        const role = await this.getRoleById(roleId);
+        if (role) {
+          roles.push(role);
+        }
+      }
+      return roles;
+    }
+
     const [rows] = await pool.execute(
       `SELECT r.* FROM sys_roles r
        INNER JOIN sys_user_roles ur ON r.id = ur.role_id
@@ -311,6 +349,29 @@ export class PermissionService {
     }
 
     return false;
+  }
+
+  // ==================== 测试辅助 ====================
+
+  // 内存存储用于测试
+  private testRoles = new Map<string, Role>();
+  private testUserRoles = new Map<string, string[]>();
+
+  setRoleForTest(role: Role): void {
+    this.testRoles.set(role.id, role);
+  }
+
+  setUserRolesForTest(userId: string, roleIds: string[]): void {
+    this.testUserRoles.set(userId, roleIds);
+  }
+
+  async clearAll(): Promise<void> {
+    this.testRoles.clear();
+    this.testUserRoles.clear();
+    await pool.execute('DELETE FROM sys_roles WHERE is_system = FALSE');
+    await pool.execute('DELETE FROM sys_role_permissions');
+    await pool.execute('DELETE FROM sys_role_menus');
+    await pool.execute('DELETE FROM sys_user_roles');
   }
 }
 

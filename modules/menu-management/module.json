@@ -1,0 +1,154 @@
+{
+  "name": "menu-management",
+  "displayName": "菜单管理",
+  "version": "1.0.0",
+  "description": "系统菜单管理模块，包含菜单CRUD、树形结构、排序、可见性控制等功能",
+  "author": "System Team",
+  "license": "MIT",
+  
+  "type": "business",
+  "category": "system",
+  "tags": ["menu", "navigation", "management"],
+  
+  "dependencies": {
+    "role-management": "^1.0.0"
+  },
+  
+  "peerDependencies": {
+    "node": ">=18.0.0",
+    "vue": "^3.0.0"
+  },
+  
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/menus",
+      "file": "./backend/routes.ts"
+    },
+    "migrations": {
+      "directory": "./backend/migrations",
+      "tableName": "module_migrations"
+    }
+  },
+  
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts",
+    "components": {
+      "MenuList": "./frontend/views/MenuList.vue",
+      "MenuForm": "./frontend/components/MenuForm.vue"
+    }
+  },
+  
+  "menus": [
+    {
+      "id": "menu-management-menu",
+      "title": "菜单管理",
+      "path": "/menu",
+      "icon": "MenuOutlined",
+      "parentId": "system-management",
+      "sortOrder": 3,
+      "permission": "menu:view"
+    }
+  ],
+  
+  "permissions": [
+    {
+      "code": "menu:view",
+      "name": "查看菜单",
+      "description": "查看菜单列表和详情"
+    },
+    {
+      "code": "menu:create",
+      "name": "创建菜单",
+      "description": "创建新菜单"
+    },
+    {
+      "code": "menu:update",
+      "name": "更新菜单",
+      "description": "更新菜单信息"
+    },
+    {
+      "code": "menu:delete",
+      "name": "删除菜单",
+      "description": "删除菜单"
+    }
+  ],
+  
+  "config": {
+    "schema": "./config/schema.json",
+    "defaults": "./config/default.json"
+  },
+  
+  "hooks": {
+    "beforeInstall": "./backend/hooks/beforeInstall.ts",
+    "afterInstall": "./backend/hooks/afterInstall.ts",
+    "beforeUninstall": "./backend/hooks/beforeUninstall.ts",
+    "afterUninstall": "./backend/hooks/afterUninstall.ts",
+    "beforeEnable": "./backend/hooks/beforeEnable.ts",
+    "afterEnable": "./backend/hooks/afterEnable.ts",
+    "beforeDisable": "./backend/hooks/beforeDisable.ts",
+    "afterDisable": "./backend/hooks/afterDisable.ts"
+  },
+  
+  "database": {
+    "tables": ["sys_menus"],
+    "version": "1.0.0"
+  },
+  
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/menus",
+        "description": "获取所有菜单",
+        "permission": "menu:view"
+      },
+      {
+        "method": "GET",
+        "path": "/menus/tree",
+        "description": "获取菜单树",
+        "permission": "menu:view"
+      },
+      {
+        "method": "GET",
+        "path": "/menus/:id",
+        "description": "获取菜单详情",
+        "permission": "menu:view"
+      },
+      {
+        "method": "POST",
+        "path": "/menus",
+        "description": "创建菜单",
+        "permission": "menu:create"
+      },
+      {
+        "method": "PUT",
+        "path": "/menus/:id",
+        "description": "更新菜单",
+        "permission": "menu:update"
+      },
+      {
+        "method": "DELETE",
+        "path": "/menus/:id",
+        "description": "删除菜单",
+        "permission": "menu:delete"
+      },
+      {
+        "method": "PUT",
+        "path": "/menus/:id/visibility",
+        "description": "切换菜单可见性",
+        "permission": "menu:update"
+      },
+      {
+        "method": "PUT",
+        "path": "/menus/sort",
+        "description": "更新菜单排序",
+        "permission": "menu:update"
+      }
+    ]
+  },
+  
+  "enabled": false,
+  "installed": false
+}

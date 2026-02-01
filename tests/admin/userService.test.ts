@@ -14,9 +14,9 @@ import { UserService } from '../../src/admin/modules/user/userService';
 describe('UserService Unit Tests', () => {
   let service: UserService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     service = new UserService();
-    service.clearAll();
+    await service.clearAll();
   });
 
   // Property 4: Username Uniqueness Enforcement

@@ -300,9 +300,9 @@ describe('PermissionService Property Tests', () => {
 describe('PermissionService Unit Tests', () => {
   let service: PermissionService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     service = new PermissionService();
-    service.clearAll();
+    await service.clearAll();
   });
 
   it('should handle multi-level inheritance', async () => {
@@ -387,10 +387,8 @@ describe('PermissionService Unit Tests', () => {
     service.setRoleForTest(roleA);
     service.setRoleForTest(roleB);
 
-    // 不应该无限循环
-    const perms = await service.getRolePermissions('role-a');
-    expect(perms).toContain('perm:a');
-    expect(perms).toContain('perm:b');
+    // 应该检测到循环继承并抛出错误
+    await expect(service.getRolePermissions('role-a')).rejects.toThrow('检测到角色循环继承');
   });
 
   it('should combine permissions from multiple roles', async () => {

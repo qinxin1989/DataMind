@@ -1,0 +1,78 @@
+{
+  "id": "efficiency-tools",
+  "name": "效率工具",
+  "version": "1.0.0",
+  "description": "提供SQL格式化、数据转换、正则助手等开发效率工具",
+  "author": "System",
+  "license": "MIT",
+  "main": "backend/index.ts",
+  "frontend": "frontend/index.ts",
+  "dependencies": [],
+  "permissions": [
+    {
+      "code": "efficiency-tools:view",
+      "name": "查看效率工具",
+      "description": "允许访问效率工具页面"
+    },
+    {
+      "code": "efficiency-tools:sql-format",
+      "name": "SQL格式化",
+      "description": "允许使用SQL格式化功能"
+    },
+    {
+      "code": "efficiency-tools:data-convert",
+      "name": "数据转换",
+      "description": "允许使用数据转换功能"
+    },
+    {
+      "code": "efficiency-tools:regex",
+      "name": "正则助手",
+      "description": "允许使用正则表达式助手"
+    },
+    {
+      "code": "efficiency-tools:template",
+      "name": "模板管理",
+      "description": "允许管理常用模板"
+    }
+  ],
+  "menus": [
+    {
+      "id": "efficiency-tools-main",
+      "title": "效率工具",
+      "path": "/tools/efficiency",
+      "icon": "ThunderboltOutlined",
+      "parentId": null,
+      "sort": 110,
+      "permission": "efficiency-tools:view"
+    }
+  ],
+  "routes": {
+    "backend": [
+      {
+        "path": "/api/modules/efficiency-tools",
+        "method": "all"
+      }
+    ],
+    "frontend": [
+      {
+        "path": "/tools/efficiency",
+        "component": "views/EfficiencyTools.vue",
+        "name": "EfficiencyTools",
+        "meta": {
+          "title": "效率工具",
+          "permission": "efficiency-tools:view"
+        }
+      }
+    ]
+  },
+  "config": {
+    "schema": "config/schema.json",
+    "default": "config/default.json"
+  },
+  "migrations": [
+    {
+      "version": "1.0.0",
+      "file": "backend/migrations/001_create_efficiency_templates.sql"
+    }
+  ]
+}

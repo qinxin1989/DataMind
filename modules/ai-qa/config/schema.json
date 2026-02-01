@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "rag": {
+      "type": "object",
+      "properties": {
+        "chunkSize": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "maximum": 2000,
+          "description": "RAG文档分块大小（字符数）"
+        },
+        "chunkOverlap": {
+          "type": "number",
+          "default": 50,
+          "minimum": 0,
+          "maximum": 500,
+          "description": "RAG文档分块重叠大小（字符数）"
+        },
+        "topK": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "RAG检索返回的最相关文档数量"
+        },
+        "similarityThreshold": {
+          "type": "number",
+          "default": 0.6,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "RAG相似度阈值"
+        }
+      }
+    },
+    "qa": {
+      "type": "object",
+      "properties": {
+        "maxHistoryMessages": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "会话历史最大消息数"
+        },
+        "timeout": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "maximum": 120000,
+          "description": "AI问答超时时间（毫秒）"
+        },
+        "enableDataMasking": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否启用数据脱敏"
+        }
+      }
+    },
+    "article": {
+      "type": "object",
+      "properties": {
+        "maxConcurrentTasks": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "文章生成最大并发任务数"
+        },
+        "maxStoredTasks": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 200,
+          "description": "最大存储任务数"
+        },
+        "taskTimeout": {
+          "type": "number",
+          "default": 600000,
+          "minimum": 60000,
+          "maximum": 3600000,
+          "description": "任务超时时间（毫秒）"
+        }
+      }
+    },
+    "upload": {
+      "type": "object",
+      "properties": {
+        "maxFileSize": {
+          "type": "number",
+          "default": 20971520,
+          "description": "最大文件上传大小（字节，默认20MB）"
+        },
+        "allowedExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [".pdf", ".txt", ".md", ".json", ".csv", ".doc", ".docx", ".xls", ".xlsx"],
+          "description": "允许上传的文件扩展名"
+        }
+      }
+    }
+  }
+}

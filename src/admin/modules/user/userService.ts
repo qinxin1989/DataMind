@@ -22,9 +22,27 @@ export class UserService {
 
   validatePassword(password: string): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
-    if (password.length < 6) {
-      errors.push('密码长度至少 6 位');
+    
+    // 长度检查
+    if (password.length < 8) {
+      errors.push('密码长度至少 8 位');
     }
+    
+    // 必须包含大写字母
+    if (!/[A-Z]/.test(password)) {
+      errors.push('密码必须包含至少一个大写字母');
+    }
+    
+    // 必须包含小写字母
+    if (!/[a-z]/.test(password)) {
+      errors.push('密码必须包含至少一个小写字母');
+    }
+    
+    // 必须包含数字
+    if (!/[0-9]/.test(password)) {
+      errors.push('密码必须包含至少一个数字');
+    }
+    
     return { valid: errors.length === 0, errors };
   }
 
@@ -227,6 +245,13 @@ export class UserService {
       'UPDATE sys_users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?',
       [ip, id]
     );
+  }
+
+  // ==================== 测试辅助 ====================
+
+  async clearAll(): Promise<void> {
+    await pool.execute('DELETE FROM sys_users');
+    await pool.execute('DELETE FROM sys_user_roles');
   }
 }
 

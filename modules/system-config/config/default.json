@@ -1,0 +1,5 @@
+{
+  "enableMonitoring": true,
+  "monitoringInterval": 30000,
+  "maxConfigHistoryDays": 90
+}

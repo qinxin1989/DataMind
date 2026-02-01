@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "pythonPath": {
+      "type": "string",
+      "title": "Python路径",
+      "description": "Python解释器的路径，用于执行爬虫引擎",
+      "default": ""
+    },
+    "maxConcurrentTasks": {
+      "type": "number",
+      "title": "最大并发任务数",
+      "description": "同时执行的最大爬虫任务数量",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 10
+    },
+    "taskTimeout": {
+      "type": "number",
+      "title": "任务超时时间",
+      "description": "单个爬虫任务的超时时间（毫秒）",
+      "default": 300000,
+      "minimum": 10000
+    },
+    "resultRetentionDays": {
+      "type": "number",
+      "title": "结果保留天数",
+      "description": "采集结果的保留天数，超过此天数的结果将被自动清理",
+      "default": 30,
+      "minimum": 1
+    },
+    "enableAutoCleanup": {
+      "type": "boolean",
+      "title": "启用自动清理",
+      "description": "是否自动清理过期的采集结果",
+      "default": true
+    }
+  }
+}

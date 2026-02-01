@@ -1,0 +1,7 @@
+{
+  "maxMenuDepth": 3,
+  "defaultVisible": true,
+  "enableDragSort": true,
+  "cacheMenuTree": true,
+  "cacheTTL": 300
+}

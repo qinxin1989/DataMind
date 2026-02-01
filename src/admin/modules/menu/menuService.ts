@@ -157,7 +157,37 @@ export class MenuService {
 
   // ==================== 菜单 CRUD ====================
 
+  /**
+   * 获取菜单的层级深度
+   */
+  private async getMenuDepth(menuId: string): Promise<number> {
+    let depth = 0;
+    let currentId: string | undefined = menuId;
+    
+    while (currentId) {
+      const menu = await this.getMenuById(currentId);
+      if (!menu) break;
+      depth++;
+      currentId = menu.parentId;
+      
+      // 防止无限循环
+      if (depth > 10) {
+        throw new Error('菜单层级异常，可能存在循环引用');
+      }
+    }
+    
+    return depth;
+  }
+
   async createMenu(data: CreateMenuRequest): Promise<Menu> {
+    // 检查层级限制（最多3层）
+    if (data.parentId) {
+      const parentDepth = await this.getMenuDepth(data.parentId);
+      if (parentDepth >= 3) {
+        throw new Error('菜单层级不能超过3层');
+      }
+    }
+
     const id = uuidv4();
 
     await pool.execute(
@@ -210,8 +240,17 @@ export class MenuService {
       throw new Error('系统菜单不能删除');
     }
 
-    // 删除子菜单
-    await pool.execute('DELETE FROM sys_menus WHERE parent_id = ?', [id]);
+    // 检查是否有子菜单
+    const [childRows] = await pool.execute(
+      'SELECT COUNT(*) as count FROM sys_menus WHERE parent_id = ?',
+      [id]
+    );
+    const childCount = (childRows as any)[0].count;
+    if (childCount > 0) {
+      throw new Error('不能删除有子菜单的菜单，请先删除子菜单');
+    }
+
+    // 删除菜单
     await pool.execute('DELETE FROM sys_menus WHERE id = ?', [id]);
   }
 
@@ -249,6 +288,12 @@ export class MenuService {
 
     await pool.execute('UPDATE sys_menus SET visible = ? WHERE id = ?', [visible, id]);
     return this.getMenuById(id) as Promise<Menu>;
+  }
+
+  // ==================== 测试辅助 ====================
+
+  async clearAll(): Promise<void> {
+    await pool.execute('DELETE FROM sys_menus WHERE is_system = FALSE');
   }
 }
 

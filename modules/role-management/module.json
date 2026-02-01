@@ -1,0 +1,142 @@
+{
+  "name": "role-management",
+  "displayName": "角色管理",
+  "version": "1.0.0",
+  "description": "角色权限管理模块，包含角色CRUD、权限配置、菜单分配等功能",
+  "author": "System Team",
+  "license": "MIT",
+  
+  "type": "business",
+  "category": "system",
+  "tags": ["role", "permission", "auth", "management"],
+  
+  "dependencies": {
+    "user-management": "^1.0.0"
+  },
+  
+  "peerDependencies": {
+    "node": ">=18.0.0",
+    "vue": "^3.0.0"
+  },
+  
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/roles",
+      "file": "./backend/routes.ts"
+    },
+    "migrations": {
+      "directory": "./backend/migrations",
+      "tableName": "module_migrations"
+    }
+  },
+  
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts",
+    "components": {
+      "RoleList": "./frontend/views/RoleList.vue",
+      "RoleForm": "./frontend/components/RoleForm.vue"
+    }
+  },
+  
+  "menus": [
+    {
+      "id": "role-management-menu",
+      "title": "角色管理",
+      "path": "/role",
+      "icon": "TeamOutlined",
+      "parentId": "system-management",
+      "sortOrder": 2,
+      "permission": "role:view"
+    }
+  ],
+  
+  "permissions": [
+    {
+      "code": "role:view",
+      "name": "查看角色",
+      "description": "查看角色列表和详情"
+    },
+    {
+      "code": "role:create",
+      "name": "创建角色",
+      "description": "创建新角色"
+    },
+    {
+      "code": "role:update",
+      "name": "更新角色",
+      "description": "更新角色信息和权限配置"
+    },
+    {
+      "code": "role:delete",
+      "name": "删除角色",
+      "description": "删除角色"
+    }
+  ],
+  
+  "config": {
+    "schema": "./config/schema.json",
+    "defaults": "./config/default.json"
+  },
+  
+  "hooks": {
+    "beforeInstall": "./backend/hooks/beforeInstall.ts",
+    "afterInstall": "./backend/hooks/afterInstall.ts",
+    "beforeUninstall": "./backend/hooks/beforeUninstall.ts",
+    "afterUninstall": "./backend/hooks/afterUninstall.ts",
+    "beforeEnable": "./backend/hooks/beforeEnable.ts",
+    "afterEnable": "./backend/hooks/afterEnable.ts",
+    "beforeDisable": "./backend/hooks/beforeDisable.ts",
+    "afterDisable": "./backend/hooks/afterDisable.ts"
+  },
+  
+  "database": {
+    "tables": ["sys_roles", "sys_role_permissions", "sys_role_menus", "sys_user_roles"],
+    "version": "1.0.0"
+  },
+  
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/roles",
+        "description": "获取角色列表",
+        "permission": "role:view"
+      },
+      {
+        "method": "GET",
+        "path": "/roles/:id",
+        "description": "获取角色详情",
+        "permission": "role:view"
+      },
+      {
+        "method": "POST",
+        "path": "/roles",
+        "description": "创建角色",
+        "permission": "role:create"
+      },
+      {
+        "method": "PUT",
+        "path": "/roles/:id",
+        "description": "更新角色",
+        "permission": "role:update"
+      },
+      {
+        "method": "DELETE",
+        "path": "/roles/:id",
+        "description": "删除角色",
+        "permission": "role:delete"
+      },
+      {
+        "method": "GET",
+        "path": "/permissions/all",
+        "description": "获取所有权限列表",
+        "permission": "role:view"
+      }
+    ]
+  },
+  
+  "enabled": false,
+  "installed": false
+}

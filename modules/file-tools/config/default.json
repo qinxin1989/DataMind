@@ -1,0 +1,8 @@
+{
+  "maxFileSize": 104857600,
+  "allowedFormats": ["word", "excel", "image", "pdf", "txt", "csv", "json"],
+  "uploadDir": "uploads/file-tools",
+  "tempDir": "uploads/temp",
+  "retentionDays": 7,
+  "enableHistory": true
+}

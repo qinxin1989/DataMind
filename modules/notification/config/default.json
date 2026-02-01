@@ -1,0 +1,6 @@
+{
+  "maxNotificationsPerUser": 1000,
+  "defaultPageSize": 10,
+  "autoDeleteReadAfterDays": 30,
+  "enableBroadcast": true
+}

@@ -1,0 +1,68 @@
+{
+  "id": "audit-log",
+  "name": "审计日志",
+  "version": "1.0.0",
+  "description": "提供审计日志记录、查询、导出和统计功能",
+  "author": "System",
+  "license": "MIT",
+  "main": "backend/index.ts",
+  "frontend": "frontend/index.ts",
+  "dependencies": [],
+  "permissions": [
+    {
+      "code": "audit-log:view",
+      "name": "查看审计日志",
+      "description": "允许查看审计日志"
+    },
+    {
+      "code": "audit-log:export",
+      "name": "导出审计日志",
+      "description": "允许导出审计日志"
+    },
+    {
+      "code": "audit-log:manage",
+      "name": "管理审计日志",
+      "description": "允许删除和清理审计日志"
+    }
+  ],
+  "menus": [
+    {
+      "id": "audit-log-main",
+      "title": "审计日志",
+      "path": "/system/audit-log",
+      "icon": "FileSearchOutlined",
+      "parentId": null,
+      "sort": 902,
+      "permission": "audit-log:view"
+    }
+  ],
+  "routes": {
+    "backend": [
+      {
+        "path": "/api/modules/audit-log",
+        "method": "all"
+      }
+    ],
+    "frontend": [
+      {
+        "path": "/system/audit-log",
+        "component": "views/AuditLog.vue",
+        "name": "AuditLog",
+        "meta": {
+          "title": "审计日志",
+          "permission": "audit-log:view"
+        }
+      }
+    ]
+  },
+  "config": {
+    "schema": "config/schema.json",
+    "default": "config/default.json"
+  },
+  "migrations": [
+    {
+      "version": "1.0.0",
+      "file": "backend/migrations/001_create_audit_log_tables.sql"
+    }
+  ]
+}

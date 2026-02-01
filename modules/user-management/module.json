@@ -1,0 +1,158 @@
+{
+  "name": "user-management",
+  "displayName": "用户管理",
+  "version": "1.0.0",
+  "description": "用户账户管理模块，包含用户CRUD、状态管理、密码管理等功能",
+  "author": "System Team",
+  "license": "MIT",
+  
+  "type": "business",
+  "category": "system",
+  "tags": ["user", "auth", "management"],
+  
+  "dependencies": {},
+  
+  "peerDependencies": {
+    "node": ">=18.0.0",
+    "vue": "^3.0.0"
+  },
+  
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/users",
+      "file": "./backend/routes.ts"
+    },
+    "migrations": {
+      "directory": "./backend/migrations",
+      "tableName": "module_migrations"
+    }
+  },
+  
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts",
+    "components": {
+      "UserList": "./frontend/views/UserList.vue",
+      "UserForm": "./frontend/components/UserForm.vue"
+    }
+  },
+  
+  "menus": [
+    {
+      "id": "user-management-menu",
+      "title": "用户管理",
+      "path": "/user",
+      "icon": "UserOutlined",
+      "parentId": "system-management",
+      "sortOrder": 1,
+      "permission": "user:view"
+    }
+  ],
+  
+  "permissions": [
+    {
+      "code": "user:view",
+      "name": "查看用户",
+      "description": "查看用户列表和详情"
+    },
+    {
+      "code": "user:create",
+      "name": "创建用户",
+      "description": "创建新用户"
+    },
+    {
+      "code": "user:update",
+      "name": "更新用户",
+      "description": "更新用户信息"
+    },
+    {
+      "code": "user:delete",
+      "name": "删除用户",
+      "description": "删除用户"
+    }
+  ],
+  
+  "config": {
+    "schema": "./config/schema.json",
+    "defaults": "./config/default.json"
+  },
+  
+  "hooks": {
+    "beforeInstall": "./backend/hooks/beforeInstall.ts",
+    "afterInstall": "./backend/hooks/afterInstall.ts",
+    "beforeUninstall": "./backend/hooks/beforeUninstall.ts",
+    "afterUninstall": "./backend/hooks/afterUninstall.ts",
+    "beforeEnable": "./backend/hooks/beforeEnable.ts",
+    "afterEnable": "./backend/hooks/afterEnable.ts",
+    "beforeDisable": "./backend/hooks/beforeDisable.ts",
+    "afterDisable": "./backend/hooks/afterDisable.ts"
+  },
+  
+  "database": {
+    "tables": ["sys_users", "sys_user_roles"],
+    "version": "1.0.0"
+  },
+  
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/users",
+        "description": "获取用户列表",
+        "permission": "user:view"
+      },
+      {
+        "method": "GET",
+        "path": "/users/:id",
+        "description": "获取用户详情",
+        "permission": "user:view"
+      },
+      {
+        "method": "POST",
+        "path": "/users",
+        "description": "创建用户",
+        "permission": "user:create"
+      },
+      {
+        "method": "PUT",
+        "path": "/users/:id",
+        "description": "更新用户",
+        "permission": "user:update"
+      },
+      {
+        "method": "DELETE",
+        "path": "/users/:id",
+        "description": "删除用户",
+        "permission": "user:delete"
+      },
+      {
+        "method": "PUT",
+        "path": "/users/:id/status",
+        "description": "更新用户状态",
+        "permission": "user:update"
+      },
+      {
+        "method": "POST",
+        "path": "/users/batch/status",
+        "description": "批量更新状态",
+        "permission": "user:update"
+      },
+      {
+        "method": "POST",
+        "path": "/users/batch/delete",
+        "description": "批量删除",
+        "permission": "user:delete"
+      },
+      {
+        "method": "POST",
+        "path": "/users/:id/reset-password",
+        "description": "重置密码",
+        "permission": "user:update"
+      }
+    ]
+  },
+  
+  "enabled": false,
+  "installed": false
+}

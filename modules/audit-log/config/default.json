@@ -1,0 +1,6 @@
+{
+  "retentionDays": 90,
+  "maxLogsPerQuery": 1000,
+  "enableAutoCleanup": true,
+  "autoCleanupInterval": 86400000
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "pageSize": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "每页显示的记录数"
+    },
+    "enableCache": {
+      "type": "boolean",
+      "description": "是否启用缓存"
+    },
+    "cacheExpiration": {
+      "type": "number",
+      "minimum": 0,
+      "description": "缓存过期时间（秒）"
+    },
+    "maxItemsPerUser": {
+      "type": "number",
+      "minimum": 1,
+      "description": "每个用户最多可创建的记录数"
+    }
+  },
+  "required": ["pageSize", "enableCache"]
+}

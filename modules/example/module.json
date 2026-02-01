@@ -1,0 +1,128 @@
+{
+  "name": "example",
+  "displayName": "示例模块",
+  "version": "1.0.0",
+  "description": "一个简单的示例模块，展示模块化架构的基本用法",
+  "author": "System Team",
+  "license": "MIT",
+  
+  "type": "business",
+  "category": "example",
+  "tags": ["example", "demo", "tutorial"],
+  
+  "dependencies": {},
+  
+  "peerDependencies": {
+    "node": ">=18.0.0",
+    "vue": "^3.0.0"
+  },
+  
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/example",
+      "file": "./backend/routes.ts"
+    },
+    "migrations": {
+      "directory": "./backend/migrations",
+      "tableName": "module_migrations"
+    }
+  },
+  
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts",
+    "components": {
+      "ExampleList": "./frontend/views/ExampleList.vue",
+      "ExampleForm": "./frontend/views/ExampleForm.vue"
+    }
+  },
+  
+  "menus": [
+    {
+      "id": "example-menu",
+      "title": "示例模块",
+      "path": "/example",
+      "icon": "ExperimentOutlined",
+      "parentId": null,
+      "sortOrder": 999,
+      "permission": "example:view"
+    }
+  ],
+  
+  "permissions": [
+    {
+      "code": "example:view",
+      "name": "查看示例",
+      "description": "查看示例列表和详情"
+    },
+    {
+      "code": "example:create",
+      "name": "创建示例",
+      "description": "创建新示例"
+    },
+    {
+      "code": "example:update",
+      "name": "更新示例",
+      "description": "更新示例信息"
+    },
+    {
+      "code": "example:delete",
+      "name": "删除示例",
+      "description": "删除示例"
+    }
+  ],
+  
+  "config": {
+    "schema": "./config/schema.json",
+    "defaults": "./config/default.json"
+  },
+  
+  "hooks": {
+    "beforeInstall": "./backend/hooks/beforeInstall.ts",
+    "afterInstall": "./backend/hooks/afterInstall.ts",
+    "beforeUninstall": "./backend/hooks/beforeUninstall.ts",
+    "afterUninstall": "./backend/hooks/afterUninstall.ts",
+    "beforeEnable": "./backend/hooks/beforeEnable.ts",
+    "afterEnable": "./backend/hooks/afterEnable.ts",
+    "beforeDisable": "./backend/hooks/beforeDisable.ts",
+    "afterDisable": "./backend/hooks/afterDisable.ts"
+  },
+  
+  "database": {
+    "tables": ["example_items"],
+    "version": "1.0.0"
+  },
+  
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/example",
+        "description": "获取示例列表",
+        "permission": "example:view"
+      },
+      {
+        "method": "POST",
+        "path": "/example",
+        "description": "创建示例",
+        "permission": "example:create"
+      },
+      {
+        "method": "PUT",
+        "path": "/example/:id",
+        "description": "更新示例",
+        "permission": "example:update"
+      },
+      {
+        "method": "DELETE",
+        "path": "/example/:id",
+        "description": "删除示例",
+        "permission": "example:delete"
+      }
+    ]
+  },
+  
+  "enabled": false,
+  "installed": false
+}

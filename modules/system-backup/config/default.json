@@ -1,0 +1,6 @@
+{
+  "backupDir": "data/backups",
+  "maxBackups": 50,
+  "autoCleanup": true,
+  "retentionDays": 30
+}

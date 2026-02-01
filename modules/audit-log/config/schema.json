@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "retentionDays": {
+      "type": "number",
+      "description": "日志保留天数",
+      "default": 90,
+      "minimum": 7,
+      "maximum": 365
+    },
+    "maxLogsPerQuery": {
+      "type": "number",
+      "description": "单次查询最大日志数",
+      "default": 1000,
+      "minimum": 100,
+      "maximum": 10000
+    },
+    "enableAutoCleanup": {
+      "type": "boolean",
+      "description": "是否启用自动清理",
+      "default": true
+    },
+    "autoCleanupInterval": {
+      "type": "number",
+      "description": "自动清理间隔（毫秒）",
+      "default": 86400000,
+      "minimum": 3600000,
+      "maximum": 604800000
+    }
+  },
+  "required": ["retentionDays", "maxLogsPerQuery", "enableAutoCleanup", "autoCleanupInterval"]
+}

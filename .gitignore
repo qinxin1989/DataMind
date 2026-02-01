@@ -1,10 +1,53 @@
+# Dependencies
 node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Environment files
 .env
+.env.local
 !.env.example
+!.env.production.example
+!.env.staging.example
 !.env.encrypted
+
+# Logs
 *.log
+npm-debug.log*
+
+# Build outputs
 dist/
+build/
+admin-ui/dist/
+
+# OS files
 .DS_Store
-public/downloads/*.pptx
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Uploads and downloads
 uploads/
+public/downloads/*.pptx
+data/
+
+# Test results
+test-results/
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
 admin-ui/nul
+
+# Database
+*.db
+*.sqlite
+
+# Kiro specs (optional - 如果不想上传开发文档可以取消注释)
+# .kiro/

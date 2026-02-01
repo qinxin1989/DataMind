@@ -1,0 +1,11 @@
+{
+  "passwordMinLength": 6,
+  "passwordRequireUppercase": false,
+  "passwordRequireNumber": false,
+  "passwordRequireSpecialChar": false,
+  "maxLoginAttempts": 5,
+  "lockoutDuration": 1800,
+  "sessionTimeout": 3600,
+  "enableEmailVerification": false,
+  "enableTwoFactor": false
+}

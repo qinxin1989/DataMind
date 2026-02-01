@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "AI爬虫助手配置",
+  "description": "AI驱动的智能爬虫助手配置选项",
+  "properties": {
+    "maxConcurrency": {
+      "type": "number",
+      "title": "最大并发数",
+      "description": "同时分析的URL数量上限",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 10
+    },
+    "htmlCleanLimit": {
+      "type": "number",
+      "title": "HTML清理长度限制",
+      "description": "清理后HTML的最大字符数",
+      "default": 40000,
+      "minimum": 10000,
+      "maximum": 100000
+    },
+    "previewTimeout": {
+      "type": "number",
+      "title": "预览超时时间",
+      "description": "预览抓取的超时时间（毫秒）",
+      "default": 60000,
+      "minimum": 10000,
+      "maximum": 300000
+    },
+    "enableDynamicEngine": {
+      "type": "boolean",
+      "title": "启用动态引擎",
+      "description": "是否优先使用动态引擎抓取（支持JS渲染）",
+      "default": true
+    },
+    "pythonPath": {
+      "type": "string",
+      "title": "Python路径",
+      "description": "Python解释器路径（留空则使用环境变量或默认路径）",
+      "default": ""
+    },
+    "conversationHistoryLimit": {
+      "type": "number",
+      "title": "对话历史数量限制",
+      "description": "保存的对话历史数量上限",
+      "default": 50,
+      "minimum": 10,
+      "maximum": 200
+    },
+    "aiTemperature": {
+      "type": "number",
+      "title": "AI温度参数",
+      "description": "AI生成选择器时的温度参数（0-1，越低越确定）",
+      "default": 0.1,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "enableAIDiagnosis": {
+      "type": "boolean",
+      "title": "启用AI诊断",
+      "description": "失败时是否使用AI进行诊断分析",
+      "default": true
+    }
+  },
+  "required": []
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "passwordMinLength": {
+      "type": "number",
+      "minimum": 6,
+      "maximum": 32,
+      "description": "密码最小长度"
+    },
+    "passwordRequireUppercase": {
+      "type": "boolean",
+      "description": "密码是否需要大写字母"
+    },
+    "passwordRequireNumber": {
+      "type": "boolean",
+      "description": "密码是否需要数字"
+    },
+    "passwordRequireSpecialChar": {
+      "type": "boolean",
+      "description": "密码是否需要特殊字符"
+    },
+    "maxLoginAttempts": {
+      "type": "number",
+      "minimum": 3,
+      "maximum": 10,
+      "description": "最大登录尝试次数"
+    },
+    "lockoutDuration": {
+      "type": "number",
+      "minimum": 300,
+      "maximum": 86400,
+      "description": "锁定时长（秒）"
+    },
+    "sessionTimeout": {
+      "type": "number",
+      "minimum": 300,
+      "maximum": 86400,
+      "description": "会话超时时间（秒）"
+    },
+    "enableEmailVerification": {
+      "type": "boolean",
+      "description": "是否启用邮箱验证"
+    },
+    "enableTwoFactor": {
+      "type": "boolean",
+      "description": "是否启用双因素认证"
+    }
+  },
+  "required": ["passwordMinLength"]
+}

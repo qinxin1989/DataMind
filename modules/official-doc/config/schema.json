@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "enableAI": {
+      "type": "boolean",
+      "description": "是否启用 AI 生成功能",
+      "default": true
+    },
+    "aiModel": {
+      "type": "string",
+      "description": "AI 模型名称",
+      "default": "gpt-3.5-turbo"
+    },
+    "maxPointsLength": {
+      "type": "number",
+      "description": "核心要点最大长度",
+      "default": 5000,
+      "minimum": 100,
+      "maximum": 10000
+    },
+    "maxHistoryDays": {
+      "type": "number",
+      "description": "历史记录保留天数",
+      "default": 90,
+      "minimum": 7,
+      "maximum": 365
+    },
+    "enableExport": {
+      "type": "boolean",
+      "description": "是否启用导出功能",
+      "default": true
+    },
+    "enableTemplates": {
+      "type": "boolean",
+      "description": "是否启用模板功能",
+      "default": true
+    }
+  },
+  "required": ["enableAI", "maxPointsLength", "maxHistoryDays"]
+}

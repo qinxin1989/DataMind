@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "maxFileSize": {
+      "type": "number",
+      "description": "最大文件大小（字节）",
+      "default": 104857600,
+      "minimum": 1048576,
+      "maximum": 1073741824
+    },
+    "allowedFormats": {
+      "type": "array",
+      "description": "允许的文件格式",
+      "items": {
+        "type": "string",
+        "enum": ["word", "excel", "image", "pdf", "txt", "csv", "json"]
+      },
+      "default": ["word", "excel", "image", "pdf", "txt", "csv", "json"]
+    },
+    "uploadDir": {
+      "type": "string",
+      "description": "上传目录路径",
+      "default": "uploads/file-tools"
+    },
+    "tempDir": {
+      "type": "string",
+      "description": "临时目录路径",
+      "default": "uploads/temp"
+    },
+    "retentionDays": {
+      "type": "number",
+      "description": "文件保留天数",
+      "default": 7,
+      "minimum": 1,
+      "maximum": 365
+    },
+    "enableHistory": {
+      "type": "boolean",
+      "description": "是否启用历史记录",
+      "default": true
+    }
+  },
+  "required": []
+}

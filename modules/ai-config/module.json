@@ -1,0 +1,136 @@
+{
+  "name": "ai-config",
+  "displayName": "AI配置管理",
+  "version": "1.0.0",
+  "description": "AI服务配置管理模块，支持多提供商配置、API Key加密存储、优先级管理",
+  "author": "System Team",
+  "license": "MIT",
+  
+  "type": "business",
+  "category": "ai",
+  "tags": ["ai", "config", "llm", "provider"],
+  
+  "dependencies": {},
+  
+  "peerDependencies": {
+    "node": ">=18.0.0",
+    "vue": "^3.0.0"
+  },
+  
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/ai",
+      "file": "./backend/routes.ts"
+    }
+  },
+  
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts",
+    "components": {
+      "AIConfigList": "./frontend/views/ConfigList.vue"
+    }
+  },
+  
+  "menus": [
+    {
+      "id": "ai-config-menu",
+      "title": "AI配置",
+      "path": "/ai/config",
+      "icon": "SettingOutlined",
+      "parentId": "ai-menu",
+      "sortOrder": 1,
+      "permission": "ai:view"
+    }
+  ],
+  
+  "permissions": [
+    {
+      "code": "ai:view",
+      "name": "查看AI配置",
+      "description": "查看AI配置列表和详情"
+    },
+    {
+      "code": "ai:config",
+      "name": "管理AI配置",
+      "description": "创建、更新、删除AI配置"
+    }
+  ],
+  
+  "config": {
+    "schema": "./config/schema.json"
+  },
+  
+  "hooks": {
+    "beforeInstall": "./backend/hooks/beforeInstall.ts",
+    "afterInstall": "./backend/hooks/afterInstall.ts",
+    "beforeUninstall": "./backend/hooks/beforeUninstall.ts",
+    "afterUninstall": "./backend/hooks/afterUninstall.ts",
+    "beforeEnable": "./backend/hooks/beforeEnable.ts",
+    "afterEnable": "./backend/hooks/afterEnable.ts",
+    "beforeDisable": "./backend/hooks/beforeDisable.ts",
+    "afterDisable": "./backend/hooks/afterDisable.ts"
+  },
+  
+  "database": {
+    "tables": ["sys_ai_configs"],
+    "version": "1.0.0"
+  },
+  
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/ai/configs",
+        "description": "获取AI配置列表",
+        "permission": "ai:view"
+      },
+      {
+        "method": "GET",
+        "path": "/ai/configs/:id",
+        "description": "获取单个AI配置",
+        "permission": "ai:view"
+      },
+      {
+        "method": "POST",
+        "path": "/ai/configs",
+        "description": "创建AI配置",
+        "permission": "ai:config"
+      },
+      {
+        "method": "PUT",
+        "path": "/ai/configs/:id",
+        "description": "更新AI配置",
+        "permission": "ai:config"
+      },
+      {
+        "method": "DELETE",
+        "path": "/ai/configs/:id",
+        "description": "删除AI配置",
+        "permission": "ai:config"
+      },
+      {
+        "method": "PUT",
+        "path": "/ai/configs/:id/default",
+        "description": "设置默认配置",
+        "permission": "ai:config"
+      },
+      {
+        "method": "PUT",
+        "path": "/ai/configs/priorities",
+        "description": "更新优先级",
+        "permission": "ai:config"
+      },
+      {
+        "method": "POST",
+        "path": "/ai/configs/validate",
+        "description": "验证API Key",
+        "permission": "ai:config"
+      }
+    ]
+  },
+  
+  "enabled": false,
+  "installed": false
+}

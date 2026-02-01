@@ -1,0 +1,146 @@
+{
+  "id": "crawler-template-config",
+  "name": "采集模板配置",
+  "version": "1.0.0",
+  "description": "网页采集模板配置和管理模块，支持AI智能分析、选择器验证、数据预览等功能",
+  "author": "System",
+  "category": "data-collection",
+  "keywords": ["crawler", "template", "config", "ai-analysis", "selector"],
+  "dependencies": [],
+  "permissions": [
+    {
+      "code": "crawler_template_view",
+      "name": "查看采集模板",
+      "description": "查看采集模板列表和详情"
+    },
+    {
+      "code": "crawler_template_create",
+      "name": "创建采集模板",
+      "description": "创建新的采集模板"
+    },
+    {
+      "code": "crawler_template_edit",
+      "name": "编辑采集模板",
+      "description": "编辑现有采集模板"
+    },
+    {
+      "code": "crawler_template_delete",
+      "name": "删除采集模板",
+      "description": "删除采集模板"
+    },
+    {
+      "code": "crawler_template_test",
+      "name": "测试采集模板",
+      "description": "测试采集模板配置"
+    }
+  ],
+  "menus": [
+    {
+      "id": "crawler-template-config",
+      "parentId": "data-collection",
+      "name": "采集模板配置",
+      "path": "/ai/crawler-template-config",
+      "icon": "SettingOutlined",
+      "order": 3,
+      "permission": "crawler_template_view"
+    }
+  ],
+  "routes": {
+    "backend": [
+      {
+        "method": "GET",
+        "path": "/api/crawler/templates",
+        "handler": "getTemplates",
+        "permission": "crawler_template_view"
+      },
+      {
+        "method": "GET",
+        "path": "/api/crawler/templates/:id",
+        "handler": "getTemplate",
+        "permission": "crawler_template_view"
+      },
+      {
+        "method": "POST",
+        "path": "/api/crawler/templates",
+        "handler": "createTemplate",
+        "permission": "crawler_template_create"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/crawler/templates/:id",
+        "handler": "updateTemplate",
+        "permission": "crawler_template_edit"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/crawler/templates/:id",
+        "handler": "deleteTemplate",
+        "permission": "crawler_template_delete"
+      },
+      {
+        "method": "POST",
+        "path": "/api/crawler/templates/test",
+        "handler": "testTemplate",
+        "permission": "crawler_template_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/crawler/preview",
+        "handler": "previewData",
+        "permission": "crawler_template_view"
+      },
+      {
+        "method": "POST",
+        "path": "/api/crawler/validate-selector",
+        "handler": "validateSelector",
+        "permission": "crawler_template_view"
+      },
+      {
+        "method": "POST",
+        "path": "/api/crawler/ai-analyze",
+        "handler": "aiAnalyze",
+        "permission": "crawler_template_view"
+      },
+      {
+        "method": "POST",
+        "path": "/api/crawler/diagnose",
+        "handler": "diagnose",
+        "permission": "crawler_template_view"
+      }
+    ],
+    "frontend": [
+      {
+        "path": "/ai/crawler-template-config",
+        "component": "views/CrawlerTemplateConfig.vue",
+        "name": "CrawlerTemplateConfig",
+        "meta": {
+          "title": "采集模板配置",
+          "permission": "crawler_template_view"
+        }
+      }
+    ]
+  },
+  "config": {
+    "schema": "config/schema.json",
+    "default": {
+      "maxTemplates": 100,
+      "defaultMaxPages": 50,
+      "previewLimit": 10,
+      "enableAIAnalysis": true,
+      "enableSelectorValidation": true
+    }
+  },
+  "database": {
+    "migrations": []
+  },
+  "lifecycle": {
+    "beforeInstall": "backend/hooks/beforeInstall.ts",
+    "afterInstall": "backend/hooks/afterInstall.ts",
+    "beforeUninstall": "backend/hooks/beforeUninstall.ts",
+    "afterUninstall": "backend/hooks/afterUninstall.ts",
+    "beforeEnable": "backend/hooks/beforeEnable.ts",
+    "afterEnable": "backend/hooks/afterEnable.ts",
+    "beforeDisable": "backend/hooks/beforeDisable.ts",
+    "afterDisable": "backend/hooks/afterDisable.ts"
+  }
+}

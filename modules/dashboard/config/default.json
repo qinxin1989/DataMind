@@ -1,0 +1,9 @@
+{
+  "maxDashboardsPerUser": 50,
+  "maxChartsPerDashboard": 20,
+  "defaultTheme": "dark",
+  "autoSaveInterval": 30,
+  "enablePreview": true,
+  "enableExport": true,
+  "defaultRefreshInterval": 60
+}

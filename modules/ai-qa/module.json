@@ -1,0 +1,102 @@
+{
+  "name": "ai-qa",
+  "displayName": "AI智能问答",
+  "version": "1.0.0",
+  "description": "AI智能问答模块，提供自然语言问答、知识库管理、RAG检索等功能",
+  "author": "System Team",
+  "license": "MIT",
+  "category": "ai",
+  "dependencies": {
+    "ai-config": "^1.0.0"
+  },
+  "backend": {
+    "entry": "backend/index.ts",
+    "routes": "/admin/ai-qa"
+  },
+  "frontend": {
+    "entry": "frontend/index.ts",
+    "routes": [
+      {
+        "path": "/ai/qa",
+        "name": "AIQAManagement",
+        "component": "views/QAManagement.vue",
+        "meta": {
+          "title": "智能问答",
+          "icon": "QuestionCircleOutlined",
+          "permission": "ai-qa:view"
+        }
+      },
+      {
+        "path": "/ai/knowledge-base",
+        "name": "KnowledgeBase",
+        "component": "views/KnowledgeBase.vue",
+        "meta": {
+          "title": "知识库",
+          "icon": "BookOutlined",
+          "permission": "ai-qa:knowledge:view"
+        }
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "code": "ai-qa:view",
+      "name": "查看AI问答",
+      "description": "查看AI问答功能",
+      "category": "AI服务"
+    },
+    {
+      "code": "ai-qa:ask",
+      "name": "使用AI问答",
+      "description": "使用AI进行自然语言问答",
+      "category": "AI服务"
+    },
+    {
+      "code": "ai-qa:knowledge:view",
+      "name": "查看知识库",
+      "description": "查看知识库文档",
+      "category": "AI服务"
+    },
+    {
+      "code": "ai-qa:knowledge:manage",
+      "name": "管理知识库",
+      "description": "添加、编辑、删除知识库文档",
+      "category": "AI服务"
+    },
+    {
+      "code": "ai-qa:datasource:manage",
+      "name": "管理数据源",
+      "description": "管理AI问答数据源",
+      "category": "AI服务"
+    },
+    {
+      "code": "ai-qa:category:manage",
+      "name": "管理知识库分类",
+      "description": "管理知识库分类",
+      "category": "AI服务"
+    }
+  ],
+  "menus": [
+    {
+      "name": "AI智能问答",
+      "path": "/ai/qa",
+      "icon": "QuestionCircleOutlined",
+      "permission": "ai-qa:view",
+      "order": 30
+    },
+    {
+      "name": "知识库管理",
+      "path": "/ai/knowledge-base",
+      "icon": "BookOutlined",
+      "permission": "ai-qa:knowledge:view",
+      "order": 31
+    }
+  ],
+  "config": {
+    "schema": "config/schema.json",
+    "default": "config/default.json"
+  },
+  "migrations": {
+    "directory": "backend/migrations"
+  }
+}

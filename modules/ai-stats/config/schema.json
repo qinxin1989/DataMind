@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "AI统计模块配置",
+  "description": "AI使用统计和对话历史管理配置",
+  "properties": {
+    "statsRetentionDays": {
+      "type": "number",
+      "title": "统计数据保留天数",
+      "description": "统计数据保留的天数，超过此天数的数据将被清理",
+      "default": 90,
+      "minimum": 1,
+      "maximum": 365
+    },
+    "conversationRetentionDays": {
+      "type": "number",
+      "title": "对话历史保留天数",
+      "description": "对话历史保留的天数，超过此天数的对话将被清理",
+      "default": 180,
+      "minimum": 1,
+      "maximum": 730
+    },
+    "defaultPageSize": {
+      "type": "number",
+      "title": "默认分页大小",
+      "description": "查询对话历史时的默认分页大小",
+      "default": 20,
+      "minimum": 10,
+      "maximum": 100
+    },
+    "costPerThousandTokens": {
+      "type": "number",
+      "title": "每千Token成本（美元）",
+      "description": "用于估算AI使用成本的单价",
+      "default": 0.002,
+      "minimum": 0
+    },
+    "enableAutoCleanup": {
+      "type": "boolean",
+      "title": "启用自动清理",
+      "description": "是否自动清理过期的统计数据和对话历史",
+      "default": true
+    },
+    "topUsersLimit": {
+      "type": "number",
+      "title": "Top用户数量",
+      "description": "统计报表中显示的Top用户数量",
+      "default": 10,
+      "minimum": 5,
+      "maximum": 50
+    }
+  },
+  "required": []
+}

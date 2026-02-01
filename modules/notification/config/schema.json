@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "maxNotificationsPerUser": {
+      "type": "number",
+      "description": "每个用户最多保留的通知数量",
+      "default": 1000,
+      "minimum": 100,
+      "maximum": 10000
+    },
+    "defaultPageSize": {
+      "type": "number",
+      "description": "默认分页大小",
+      "default": 10,
+      "minimum": 5,
+      "maximum": 100
+    },
+    "autoDeleteReadAfterDays": {
+      "type": "number",
+      "description": "自动删除已读通知的天数（0表示不自动删除）",
+      "default": 30,
+      "minimum": 0,
+      "maximum": 365
+    },
+    "enableBroadcast": {
+      "type": "boolean",
+      "description": "是否启用广播功能",
+      "default": true
+    }
+  },
+  "required": []
+}

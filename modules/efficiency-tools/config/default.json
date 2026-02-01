@@ -1,0 +1,9 @@
+{
+  "enableSqlFormatter": true,
+  "enableDataConverter": true,
+  "enableRegexHelper": true,
+  "enableTemplates": true,
+  "maxInputSize": 10485760,
+  "defaultSqlLanguage": "mysql",
+  "defaultIndent": "  "
+}

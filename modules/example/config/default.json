@@ -1,0 +1,6 @@
+{
+  "pageSize": 10,
+  "enableCache": true,
+  "cacheExpiration": 3600,
+  "maxItemsPerUser": 100
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "encryption": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["aes-256-cbc"],
+          "default": "aes-256-cbc",
+          "description": "API Key加密算法"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "timeout": {
+          "type": "number",
+          "default": 15000,
+          "description": "API Key验证超时时间（毫秒）"
+        },
+        "maxTokens": {
+          "type": "number",
+          "default": 5,
+          "description": "验证时使用的最大token数"
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "default": "siliconflow",
+          "description": "默认提供商"
+        },
+        "maxTokens": {
+          "type": "number",
+          "default": 8192,
+          "description": "默认最大token数"
+        },
+        "temperature": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "默认温度参数"
+        }
+      }
+    }
+  }
+}

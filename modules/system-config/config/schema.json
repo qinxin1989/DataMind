@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "enableMonitoring": {
+      "type": "boolean",
+      "description": "是否启用系统监控",
+      "default": true
+    },
+    "monitoringInterval": {
+      "type": "number",
+      "description": "监控数据刷新间隔（毫秒）",
+      "default": 30000,
+      "minimum": 5000,
+      "maximum": 300000
+    },
+    "maxConfigHistoryDays": {
+      "type": "number",
+      "description": "配置历史保留天数",
+      "default": 90,
+      "minimum": 7,
+      "maximum": 365
+    }
+  },
+  "required": ["enableMonitoring", "monitoringInterval", "maxConfigHistoryDays"]
+}

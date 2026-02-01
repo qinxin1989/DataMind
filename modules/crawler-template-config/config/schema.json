@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "maxTemplates": {
+      "type": "number",
+      "description": "最大模板数量",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 100
+    },
+    "defaultMaxPages": {
+      "type": "number",
+      "description": "默认最大采集页数",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 50
+    },
+    "previewLimit": {
+      "type": "number",
+      "description": "预览数据条数限制",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 10
+    },
+    "enableAIAnalysis": {
+      "type": "boolean",
+      "description": "是否启用AI智能分析",
+      "default": true
+    },
+    "enableSelectorValidation": {
+      "type": "boolean",
+      "description": "是否启用选择器验证",
+      "default": true
+    }
+  },
+  "required": ["maxTemplates", "defaultMaxPages", "previewLimit"]
+}

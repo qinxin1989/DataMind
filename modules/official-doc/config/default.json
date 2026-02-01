@@ -1,0 +1,8 @@
+{
+  "enableAI": true,
+  "aiModel": "gpt-3.5-turbo",
+  "maxPointsLength": 5000,
+  "maxHistoryDays": 90,
+  "enableExport": true,
+  "enableTemplates": true
+}

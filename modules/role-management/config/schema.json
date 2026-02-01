@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "pagination": {
+      "type": "object",
+      "properties": {
+        "defaultPageSize": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "默认每页显示数量"
+        },
+        "pageSizeOptions": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "分页大小选项"
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "enableInheritance": {
+          "type": "boolean",
+          "description": "是否启用权限继承"
+        },
+        "maxDepth": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "角色层级最大深度"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "codePattern": {
+          "type": "string",
+          "description": "角色编码验证正则表达式"
+        },
+        "nameMinLength": {
+          "type": "number",
+          "minimum": 1,
+          "description": "角色名称最小长度"
+        },
+        "nameMaxLength": {
+          "type": "number",
+          "maximum": 200,
+          "description": "角色名称最大长度"
+        }
+      }
+    }
+  }
+}

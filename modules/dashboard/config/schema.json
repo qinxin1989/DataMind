@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "maxDashboardsPerUser": {
+      "type": "number",
+      "description": "每个用户最多可创建的大屏数量",
+      "default": 50,
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "maxChartsPerDashboard": {
+      "type": "number",
+      "description": "每个大屏最多可添加的图表数量",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 100
+    },
+    "defaultTheme": {
+      "type": "string",
+      "description": "默认大屏主题",
+      "enum": ["light", "dark", "blue", "tech"],
+      "default": "dark"
+    },
+    "autoSaveInterval": {
+      "type": "number",
+      "description": "自动保存间隔（秒）",
+      "default": 30,
+      "minimum": 10,
+      "maximum": 300
+    },
+    "enablePreview": {
+      "type": "boolean",
+      "description": "启用大屏预览功能",
+      "default": true
+    },
+    "enableExport": {
+      "type": "boolean",
+      "description": "启用大屏导出功能",
+      "default": true
+    },
+    "defaultRefreshInterval": {
+      "type": "number",
+      "description": "默认数据刷新间隔（秒）",
+      "default": 60,
+      "minimum": 5,
+      "maximum": 3600
+    }
+  },
+  "required": []
+}

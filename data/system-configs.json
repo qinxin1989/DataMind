@@ -126,5 +126,37 @@
     "description": "Test",
     "group": "test",
     "editable": true
+  },
+  {
+    "key": "test.boolean.1769871837701",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  },
+  {
+    "key": "test.boolean.1769872130405",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  },
+  {
+    "key": "test.boolean.1769929663425",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
+  },
+  {
+    "key": "test.boolean.1769949662051",
+    "value": "true",
+    "type": "boolean",
+    "description": "Test",
+    "group": "test",
+    "editable": true
   }
 ]

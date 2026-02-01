@@ -1,0 +1,78 @@
+{
+  "id": "official-doc",
+  "name": "公文写作",
+  "version": "1.0.0",
+  "description": "AI辅助公文写作工具，支持工作报告、通知公告、会议纪要等多种公文类型",
+  "author": "System",
+  "license": "MIT",
+  "main": "backend/index.ts",
+  "frontend": "frontend/index.ts",
+  "dependencies": ["ai-config"],
+  "permissions": [
+    {
+      "code": "official-doc:view",
+      "name": "查看公文写作",
+      "description": "允许访问公文写作页面"
+    },
+    {
+      "code": "official-doc:generate",
+      "name": "生成公文",
+      "description": "允许使用AI生成公文"
+    },
+    {
+      "code": "official-doc:template",
+      "name": "模板管理",
+      "description": "允许管理公文模板"
+    },
+    {
+      "code": "official-doc:history",
+      "name": "查看历史",
+      "description": "允许查看公文生成历史"
+    },
+    {
+      "code": "official-doc:export",
+      "name": "导出公文",
+      "description": "允许导出公文为Word格式"
+    }
+  ],
+  "menus": [
+    {
+      "id": "official-doc-main",
+      "title": "公文写作",
+      "path": "/tools/official-doc",
+      "icon": "FileTextOutlined",
+      "parentId": null,
+      "sort": 120,
+      "permission": "official-doc:view"
+    }
+  ],
+  "routes": {
+    "backend": [
+      {
+        "path": "/api/modules/official-doc",
+        "method": "all"
+      }
+    ],
+    "frontend": [
+      {
+        "path": "/tools/official-doc",
+        "component": "views/OfficialDoc.vue",
+        "name": "OfficialDoc",
+        "meta": {
+          "title": "公文写作",
+          "permission": "official-doc:view"
+        }
+      }
+    ]
+  },
+  "config": {
+    "schema": "config/schema.json",
+    "default": "config/default.json"
+  },
+  "migrations": [
+    {
+      "version": "1.0.0",
+      "file": "backend/migrations/001_create_official_doc_tables.sql"
+    }
+  ]
+}

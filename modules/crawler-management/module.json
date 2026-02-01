@@ -1,0 +1,122 @@
+{
+  "id": "crawler-management",
+  "name": "crawler-management",
+  "version": "1.0.0",
+  "displayName": "爬虫管理",
+  "description": "管理网页抓取模板、定时任务及历史采集数据",
+  "author": "System",
+  "category": "data",
+  "tags": ["crawler", "data", "extraction", "template", "task"],
+  "dependencies": [],
+  "permissions": [
+    {
+      "code": "crawler:view",
+      "name": "查看爬虫",
+      "description": "查看爬虫模板、任务和结果"
+    },
+    {
+      "code": "crawler:manage",
+      "name": "管理爬虫",
+      "description": "创建、编辑、删除爬虫模板和任务"
+    },
+    {
+      "code": "crawler:execute",
+      "name": "执行爬虫",
+      "description": "手动执行爬虫任务"
+    }
+  ],
+  "menus": [
+    {
+      "id": "00000000-0000-0000-0000-000000000014",
+      "title": "爬虫管理",
+      "path": "/ai/crawler",
+      "icon": "DatabaseOutlined",
+      "parentId": "00000000-0000-0000-0000-000000000021",
+      "sort": 3,
+      "permission": "crawler:view"
+    }
+  ],
+  "routes": {
+    "backend": [
+      {
+        "method": "GET",
+        "path": "/skills/crawler/templates",
+        "handler": "getTemplates",
+        "permission": "crawler:view"
+      },
+      {
+        "method": "POST",
+        "path": "/skills/crawler/templates",
+        "handler": "saveTemplate",
+        "permission": "crawler:manage"
+      },
+      {
+        "method": "DELETE",
+        "path": "/skills/crawler/templates/:id",
+        "handler": "deleteTemplate",
+        "permission": "crawler:manage"
+      },
+      {
+        "method": "GET",
+        "path": "/skills/crawler/tasks",
+        "handler": "getTasks",
+        "permission": "crawler:view"
+      },
+      {
+        "method": "POST",
+        "path": "/skills/crawler/tasks/:id/toggle",
+        "handler": "toggleTask",
+        "permission": "crawler:execute"
+      },
+      {
+        "method": "GET",
+        "path": "/skills/crawler/results",
+        "handler": "getResults",
+        "permission": "crawler:view"
+      },
+      {
+        "method": "GET",
+        "path": "/skills/crawler/results/:id",
+        "handler": "getResultDetails",
+        "permission": "crawler:view"
+      },
+      {
+        "method": "DELETE",
+        "path": "/skills/crawler/results/:id",
+        "handler": "deleteResult",
+        "permission": "crawler:manage"
+      },
+      {
+        "method": "POST",
+        "path": "/skills/execute",
+        "handler": "executeSkill",
+        "permission": "crawler:execute"
+      }
+    ],
+    "frontend": [
+      {
+        "path": "/ai/crawler",
+        "component": "views/CrawlerList.vue",
+        "name": "CrawlerManagement",
+        "meta": {
+          "title": "爬虫管理",
+          "permission": "crawler:view"
+        }
+      }
+    ]
+  },
+  "config": {
+    "schema": "config/schema.json"
+  },
+  "migrations": [],
+  "hooks": {
+    "beforeInstall": true,
+    "afterInstall": true,
+    "beforeUninstall": true,
+    "afterUninstall": true,
+    "beforeEnable": true,
+    "afterEnable": true,
+    "beforeDisable": true,
+    "afterDisable": true
+  }
+}

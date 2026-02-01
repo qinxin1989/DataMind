@@ -1,0 +1,37 @@
+{
+  "rag": {
+    "chunkSize": 500,
+    "chunkOverlap": 50,
+    "topK": 3,
+    "similarityThreshold": 0.6
+  },
+  "qa": {
+    "maxHistoryMessages": 10,
+    "timeout": 30000,
+    "enableDataMasking": true
+  },
+  "article": {
+    "maxConcurrentTasks": 2,
+    "maxStoredTasks": 50,
+    "taskTimeout": 600000
+  },
+  "upload": {
+    "maxFileSize": 20971520,
+    "allowedExtensions": [
+      ".pdf",
+      ".txt",
+      ".md",
+      ".json",
+      ".csv",
+      ".doc",
+      ".docx",
+      ".xls",
+      ".xlsx",
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".bmp",
+      ".gif"
+    ]
+  }
+}

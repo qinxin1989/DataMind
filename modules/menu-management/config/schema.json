@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "maxMenuDepth": {
+      "type": "number",
+      "description": "最大菜单层级深度",
+      "minimum": 1,
+      "maximum": 5,
+      "default": 3
+    },
+    "defaultVisible": {
+      "type": "boolean",
+      "description": "新建菜单默认是否可见",
+      "default": true
+    },
+    "enableDragSort": {
+      "type": "boolean",
+      "description": "是否启用拖拽排序",
+      "default": true
+    },
+    "cacheMenuTree": {
+      "type": "boolean",
+      "description": "是否缓存菜单树",
+      "default": true
+    },
+    "cacheTTL": {
+      "type": "number",
+      "description": "缓存过期时间(秒)",
+      "minimum": 0,
+      "default": 300
+    }
+  },
+  "required": ["maxMenuDepth", "defaultVisible"]
+}

@@ -179,6 +179,12 @@ export class AIConfigService {
       await pool.execute('UPDATE sys_ai_configs SET priority = ? WHERE id = ?', [item.priority, item.id]);
     }
   }
+
+  // ==================== 测试辅助 ====================
+
+  async clearAll(): Promise<void> {
+    await pool.execute('DELETE FROM sys_ai_configs');
+  }
 }
 
 // 创建实例并添加别名方法以兼容路由
@@ -222,14 +228,22 @@ export const aiConfigService = {
       model: data.model,
       embeddingModel: data.embeddingModel,
       apiKey: data.apiKey,
-      baseUrl: data.apiEndpoint,
+      baseUrl: data.apiEndpoint || data.baseUrl,
       isDefault: data.isDefault,
       status: data.status,
     });
   },
   updateProviderConfig: service.updateConfig.bind(service),
-  deleteProviderConfig: service.deleteConfig.bind(service),
+  deleteProviderConfig: async (id: string) => {
+    const config = await service.getConfigById(id);
+    if (!config) throw new Error('AI配置不存在');
+    if (config.isDefault) throw new Error('不能删除默认配置');
+    await service.deleteConfig(id);
+  },
   setDefaultProvider: service.setDefaultConfig.bind(service),
+
+  // 测试辅助
+  clearAll: service.clearAll.bind(service),
 
   // 验证 API Key - 真正调用 API 测试
   validateApiKey: async (provider: string, apiKey: string, apiEndpoint?: string, model?: string) => {

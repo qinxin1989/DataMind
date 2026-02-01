@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "enableSqlFormatter": {
+      "type": "boolean",
+      "title": "启用SQL格式化",
+      "description": "是否启用SQL格式化功能",
+      "default": true
+    },
+    "enableDataConverter": {
+      "type": "boolean",
+      "title": "启用数据转换",
+      "description": "是否启用数据转换功能",
+      "default": true
+    },
+    "enableRegexHelper": {
+      "type": "boolean",
+      "title": "启用正则助手",
+      "description": "是否启用正则表达式助手功能",
+      "default": true
+    },
+    "enableTemplates": {
+      "type": "boolean",
+      "title": "启用模板管理",
+      "description": "是否启用用户模板管理功能",
+      "default": true
+    },
+    "maxInputSize": {
+      "type": "number",
+      "title": "最大输入大小",
+      "description": "最大输入内容大小（字节）",
+      "default": 10485760,
+      "minimum": 1048576,
+      "maximum": 104857600
+    },
+    "defaultSqlLanguage": {
+      "type": "string",
+      "title": "默认SQL语言",
+      "description": "SQL格式化的默认语言",
+      "enum": ["mysql", "postgresql", "sqlite", "sql"],
+      "default": "mysql"
+    },
+    "defaultIndent": {
+      "type": "string",
+      "title": "默认缩进",
+      "description": "SQL格式化的默认缩进字符",
+      "default": "  "
+    }
+  },
+  "required": [
+    "enableSqlFormatter",
+    "enableDataConverter",
+    "enableRegexHelper",
+    "enableTemplates",
+    "maxInputSize",
+    "defaultSqlLanguage",
+    "defaultIndent"
+  ]
+}

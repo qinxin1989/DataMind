@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "backupDir": {
+      "type": "string",
+      "description": "备份文件存储目录",
+      "default": "data/backups"
+    },
+    "maxBackups": {
+      "type": "number",
+      "description": "最大备份数量",
+      "default": 50,
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "autoCleanup": {
+      "type": "boolean",
+      "description": "是否启用自动清理",
+      "default": true
+    },
+    "retentionDays": {
+      "type": "number",
+      "description": "备份保留天数",
+      "default": 30,
+      "minimum": 1,
+      "maximum": 365
+    }
+  },
+  "required": ["backupDir", "maxBackups", "autoCleanup", "retentionDays"]
+}

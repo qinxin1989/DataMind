@@ -1,0 +1,55 @@
+{
+  "id": "ai-stats",
+  "name": "AI统计模块",
+  "version": "1.0.0",
+  "description": "AI使用统计、对话历史管理和用户统计功能",
+  "author": "System",
+  "category": "ai",
+  "tags": ["ai", "statistics", "conversation", "analytics"],
+  "dependencies": [],
+  "permissions": [
+    "ai:view",
+    "ai:config"
+  ],
+  "backend": {
+    "entry": "backend/index.ts",
+    "routes": [
+      {
+        "path": "/ai/stats",
+        "method": "GET",
+        "handler": "getUsageStats",
+        "permission": "ai:view"
+      },
+      {
+        "path": "/ai/stats/user/:userId",
+        "method": "GET",
+        "handler": "getUserStats",
+        "permission": "ai:view"
+      },
+      {
+        "path": "/ai/conversations",
+        "method": "GET",
+        "handler": "queryConversations",
+        "permission": "ai:view"
+      },
+      {
+        "path": "/ai/conversations/:userId/:id",
+        "method": "GET",
+        "handler": "getConversationById",
+        "permission": "ai:view"
+      },
+      {
+        "path": "/ai/conversations/:userId/:id",
+        "method": "DELETE",
+        "handler": "deleteConversation",
+        "permission": "ai:config"
+      }
+    ]
+  },
+  "database": {
+    "tables": ["sys_chat_history"]
+  },
+  "config": {
+    "schema": "config/schema.json"
+  }
+}

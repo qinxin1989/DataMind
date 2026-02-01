@@ -1,0 +1,73 @@
+{
+  "id": "system-backup",
+  "name": "系统备份",
+  "version": "1.0.0",
+  "description": "提供系统数据备份、恢复、验证和导出功能",
+  "author": "System",
+  "license": "MIT",
+  "main": "backend/index.ts",
+  "frontend": "frontend/index.ts",
+  "dependencies": [],
+  "permissions": [
+    {
+      "code": "system-backup:view",
+      "name": "查看备份",
+      "description": "允许查看备份列表"
+    },
+    {
+      "code": "system-backup:create",
+      "name": "创建备份",
+      "description": "允许创建系统备份"
+    },
+    {
+      "code": "system-backup:restore",
+      "name": "恢复备份",
+      "description": "允许恢复系统备份"
+    },
+    {
+      "code": "system-backup:delete",
+      "name": "删除备份",
+      "description": "允许删除备份文件"
+    }
+  ],
+  "menus": [
+    {
+      "id": "system-backup-main",
+      "title": "备份恢复",
+      "path": "/system/backup",
+      "icon": "CloudServerOutlined",
+      "parentId": null,
+      "sort": 903,
+      "permission": "system-backup:view"
+    }
+  ],
+  "routes": {
+    "backend": [
+      {
+        "path": "/api/modules/system-backup",
+        "method": "all"
+      }
+    ],
+    "frontend": [
+      {
+        "path": "/system/backup",
+        "component": "views/SystemBackup.vue",
+        "name": "SystemBackup",
+        "meta": {
+          "title": "备份恢复",
+          "permission": "system-backup:view"
+        }
+      }
+    ]
+  },
+  "config": {
+    "schema": "config/schema.json",
+    "default": "config/default.json"
+  },
+  "migrations": [
+    {
+      "version": "1.0.0",
+      "file": "backend/migrations/001_create_backup_tables.sql"
+    }
+  ]
+}
