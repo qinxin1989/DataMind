@@ -109,9 +109,17 @@ async function loadDashboards() {
   loading.value = true;
   try {
     const res = await getDashboards();
-    dashboards.value = Array.isArray(res) ? res : (res as any).data || [];
+    // 处理响应格式
+    if (Array.isArray(res)) {
+      dashboards.value = res;
+    } else if (res && typeof res === 'object') {
+      dashboards.value = (res as any).data || (res as any).items || [];
+    } else {
+      dashboards.value = [];
+    }
   } catch (e: any) {
-    message.error('加载大屏列表失败');
+    message.error('加载大屏列表失败: ' + (e.message || '未知错误'));
+    console.error('Dashboard API error:', e);
   } finally {
     loading.value = false;
   }

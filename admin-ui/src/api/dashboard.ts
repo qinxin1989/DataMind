@@ -26,7 +26,7 @@ export interface Dashboard {
 }
 
 // 获取所有大屏
-export const getDashboards = () => get<Dashboard[]>('/admin/dashboards');
+export const getDashboards = () => get<any>('/admin/dashboards');
 
 // 获取单个大屏
 export const getDashboard = (id: string) => get<Dashboard>(`/admin/dashboards/${id}`);

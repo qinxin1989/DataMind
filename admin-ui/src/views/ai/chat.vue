@@ -1229,7 +1229,7 @@ function scrollToBottom() {
 }
 
 // 切换图表配置
-function updateChartConfig(idx: number, config: Partial<ChartConfig>) {
+async function updateChartConfig(idx: number, config: Partial<ChartConfig>, persist: boolean = false) {
   const msg = messages.value[idx]
   if (!msg.chartConfig) {
     msg.chartConfig = { ...msg.chart?.config }
@@ -1242,6 +1242,15 @@ function updateChartConfig(idx: number, config: Partial<ChartConfig>) {
       renderChart(idx, msg.chart)
     }
   })
+
+  // 如果需要持久化且有会话ID，调用后端接口
+  if (persist && currentSessionId.value) {
+    try {
+      await aiPost(`/chat/session/${currentSessionId.value}/message/${idx}/config`, config)
+    } catch (e) {
+      console.error('Failed to persist chart config:', e)
+    }
+  }
 }
 
 /**
@@ -1273,7 +1282,8 @@ async function translateChartByType(idx: number, mode: 'ai' | 'direct' = 'ai') {
     const res = await aiPost<any>(endpoint, { texts: textsToTranslate })
     const mapping = res.data || res
     if (mapping) {
-      updateChartConfig(idx, { translations: mapping })
+      // 翻译完成后持久化
+      await updateChartConfig(idx, { translations: mapping }, true)
       message.success(mode === 'direct' ? '直接翻译完成' : 'AI 翻译完成')
     }
   } catch (e: any) {

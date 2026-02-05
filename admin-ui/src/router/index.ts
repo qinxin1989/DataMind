@@ -26,24 +26,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/profile/index.vue'),
         meta: { title: '个人设置', icon: 'UserOutlined' },
       },
-      {
-        path: 'user',
-        name: 'UserManagement',
-        component: () => import('@/views/user/index.vue'),
-        meta: { title: '用户管理', icon: 'UserOutlined', permission: 'user:view' },
-      },
-      {
-        path: 'role',
-        name: 'RoleManagement',
-        component: () => import('@/views/role/index.vue'),
-        meta: { title: '角色管理', icon: 'TeamOutlined', permission: 'role:view' },
-      },
-      {
-        path: 'menu',
-        name: 'MenuManagement',
-        component: () => import('@/views/menu/index.vue'),
-        meta: { title: '菜单管理', icon: 'MenuOutlined', permission: 'menu:view' },
-      },
+
       {
         path: 'ai',
         name: 'AIManagement',
@@ -180,6 +163,24 @@ const routes: RouteRecordRaw[] = [
         name: 'SystemManagement',
         meta: { title: '系统管理', icon: 'SettingOutlined' },
         children: [
+          {
+            path: 'users',
+            name: 'UserManagement',
+            component: () => import('@/views/user/index.vue'),
+            meta: { title: '用户管理', icon: 'UserOutlined' },
+          },
+          {
+            path: 'roles',
+            name: 'RoleManagement',
+            component: () => import('@/views/role/index.vue'),
+            meta: { title: '角色管理', icon: 'TeamOutlined' },
+          },
+          {
+            path: 'menus',
+            name: 'MenuManagement',
+            component: () => import('@/views/menu/index.vue'),
+            meta: { title: '菜单管理', icon: 'MenuOutlined' },
+          },
           {
             path: '/system/config',
             name: 'SystemConfig',

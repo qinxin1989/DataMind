@@ -176,7 +176,15 @@ async function handleRAGAsk() {
     if (scope && scope.length > 0 && scope[0] !== 'all') {
       categoryId = scope[0]
       if (scope.length > 1) {
-        documentId = scope[1]
+        const secondValue = scope[1]
+        // 检查是否是 "全部分类" 选项 (格式: categoryId__all)
+        if (secondValue.endsWith('__all')) {
+          // 选择的是整个分类，只使用 categoryId
+          documentId = undefined
+        } else {
+          // 选择的是具体文档
+          documentId = secondValue
+        }
       }
     }
 

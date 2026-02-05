@@ -285,7 +285,7 @@ export const qaScopeOptions = computed(() => {
         return [{
             value: 'all',
             label: '全部知识库',
-            isLeaf: false
+            isLeaf: true  // 可以直接选择
         }]
     }
 
@@ -293,24 +293,38 @@ export const qaScopeOptions = computed(() => {
         {
             value: 'all',
             label: '全部知识库',
-            isLeaf: false
+            isLeaf: true  // 可以直接选择
         }
     ]
 
     categories.value.filter(c => c.id !== 'all').forEach(cat => {
         const categoryDocs = documents.value.filter(d => d.categoryId === cat.id)
+        // 无论有没有子文档，都允许选择分类本身
+        const categoryOption: any = {
+            value: cat.id,
+            label: cat.name,
+            isLeaf: categoryDocs.length === 0,  // 如果没有子文档，则是叶子节点
+        }
+
+        // 如果分类下有文档，添加子选项
         if (categoryDocs.length > 0) {
-            options.push({
-                value: cat.id,
-                label: cat.name,
-                isLeaf: false,
-                children: categoryDocs.map(d => ({
+            categoryOption.children = [
+                // 添加一个"全部"选项来选择整个分类
+                {
+                    value: `${cat.id}__all`,  // 特殊标识：选择整个分类
+                    label: `全部 ${cat.name} (${categoryDocs.length} 篇)`,
+                    isLeaf: true
+                },
+                // 然后是具体文档
+                ...categoryDocs.map(d => ({
                     value: d.id,
                     label: d.title,
                     isLeaf: true
                 }))
-            })
+            ]
         }
+
+        options.push(categoryOption)
     })
 
     return options

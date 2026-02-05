@@ -243,19 +243,22 @@ async function handleFullSearch() {
   try {
     const res = await get<any>('/admin/ai-qa/rag/search', {
       params: {
-        question: fullSearchQuery.value,
-        topK: 10
+        q: fullSearchQuery.value,  // 后端期望的参数是 q 而不是 question
+        limit: 20
       }
     })
-    if (res.success) {
+    if (res.success && Array.isArray(res.data)) {
       fullSearchResults.value = res.data.map((item: any) => ({
-        document: item.payload,
-        score: item.score,
-        content: item.payload?.content?.substring(0, 200) + '...'
+        document: item.payload || item.document || item,
+        score: item.score || 1,
+        content: (item.payload?.content || item.content || '').substring(0, 200) + '...'
       }))
+    } else {
+      fullSearchResults.value = []
     }
   } catch (e) {
     message.error('检索失败')
+    fullSearchResults.value = []
   } finally {
     fullSearchLoading.value = false
   }

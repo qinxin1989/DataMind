@@ -167,17 +167,21 @@
           <div v-if="previewUrl" class="webpage-preview">
             <div class="preview-header">
               <span class="preview-url">{{ previewUrl }}</span>
-              <a-button size="small" @click="openInNewTab">在新窗口打开</a-button>
+              <a-button type="primary" size="small" @click="openInNewTab">
+                在新窗口打开
+              </a-button>
             </div>
             <div class="preview-content" ref="previewContent">
-              <iframe
-                v-if="previewUrl"
-                :src="previewUrl"
-                frameborder="0"
-                @load="handleIframeLoad"
-              ></iframe>
-              <div v-else class="preview-placeholder">
-                <a-empty description="等待分析网页..." />
+              <a-alert 
+                message="网页预览" 
+                description="由于跨域限制，无法在此直接预览。请点击'在新窗口打开'在浏览器中查看原网页。"
+                type="info" 
+                show-icon
+                style="margin-bottom: 16px"
+              />
+              <div class="preview-info">
+                <p><strong>网址：</strong> <a :href="previewUrl" target="_blank">{{ previewUrl }}</a></p>
+                <p><strong>状态：</strong> 点击上方按钮在新窗口打开查看</p>
               </div>
             </div>
           </div>
@@ -230,16 +234,54 @@
     <a-modal
       v-model:open="editModalVisible"
       title="编辑选择器"
-      width="800px"
+      width="900px"
       @ok="handleSaveEditedSelectors"
     >
+      <a-alert 
+        message="选择器编辑说明" 
+        description="请输入 CSS 选择器。例如：container='tr' 表示每行数据，fields.title='td:nth-child(1)' 表示第一列是标题"
+        type="info" 
+        show-icon
+        style="margin-bottom: 16px"
+      />
       <a-form :model="editedSelectors" layout="vertical">
-        <a-form-item
-          v-for="(_, key) in editedSelectors"
+        <a-form-item label="容器选择器（重复行的容器，如 tr 或 li）">
+          <a-input 
+            v-model:value="editedSelectors.container" 
+            placeholder="例如：tr 或 li 或 .item"
+          />
+        </a-form-item>
+        
+        <a-divider>字段选择器</a-divider>
+        
+        <a-form-item label="标题选择器">
+          <a-input 
+            v-model:value="editedSelectors.fields.title" 
+            placeholder="例如：td:nth-child(1) 或 .title 或 a"
+          />
+        </a-form-item>
+        
+        <a-form-item label="链接选择器">
+          <a-input 
+            v-model:value="editedSelectors.fields.link" 
+            placeholder="例如：a::attr(href) 或 td:nth-child(2) a"
+          />
+        </a-form-item>
+        
+        <a-form-item label="发布日期选择器">
+          <a-input 
+            v-model:value="editedSelectors.fields.date" 
+            placeholder="例如：td:nth-child(3) 或 .date 或 span.time"
+          />
+        </a-form-item>
+        
+        <a-form-item 
+          v-for="(_, key) in editedSelectors.fields" 
+          v-if="key !== 'title' && key !== 'link' && key !== 'date'"
           :key="key"
-          :label="key"
+          :label="`${key} 选择器`"
         >
-          <a-input v-model:value="editedSelectors[key]" />
+          <a-input v-model:value="editedSelectors.fields[key]" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -346,6 +388,7 @@ function generateId(): string {
 // 预览相关
 const activePreviewTab = ref('webpage')
 const previewUrl = ref('')
+const iframeLoading = ref(false)
 const currentSelectors = ref<any>(null)
 const previewData = ref<any[]>([])
 const previewColumns = ref<any[]>([])
@@ -646,6 +689,7 @@ async function handleSend(parentMsgId?: string) {
               } else {
                 const url = res.url
                 // 设置为当前预览
+                iframeLoading.value = true
                 previewUrl.value = `/api/admin/ai/crawler/proxy?url=${encodeURIComponent(url)}${token ? `&token=${token}` : ''}`
                 currentSelectors.value = res.selectors
 
@@ -667,14 +711,47 @@ async function handleSend(parentMsgId?: string) {
 
                 // 如果有预览数据，更新表格
                 if (res.preview && res.preview.length > 0) {
-                  previewData.value = res.preview
-                  const fields = Object.keys(res.preview[0] || {})
-                  previewColumns.value = fields.map(f => ({
-                    title: f,
-                    dataIndex: f,
-                    key: f,
-                    ellipsis: true
-                  }))
+                  // 只保留标题、链接、发布日期三个字段
+                  const filteredData = res.preview.map((item: any) => {
+                    const filtered: any = {}
+                    
+                    // 查找标题字段
+                    const titleKey = Object.keys(item).find(k => 
+                      k.toLowerCase().includes('title') || 
+                      k.toLowerCase().includes('标题') ||
+                      k.toLowerCase().includes('name') ||
+                      k.toLowerCase().includes('名称')
+                    )
+                    if (titleKey) filtered['标题'] = item[titleKey]
+                    
+                    // 查找链接字段
+                    const linkKey = Object.keys(item).find(k => 
+                      k.toLowerCase().includes('link') || 
+                      k.toLowerCase().includes('url') ||
+                      k.toLowerCase().includes('href') ||
+                      k.toLowerCase().includes('链接')
+                    )
+                    if (linkKey) filtered['链接'] = item[linkKey]
+                    
+                    // 查找发布日期字段
+                    const dateKey = Object.keys(item).find(k => 
+                      k.toLowerCase().includes('date') || 
+                      k.toLowerCase().includes('time') ||
+                      k.toLowerCase().includes('发布') ||
+                      k.toLowerCase().includes('日期') ||
+                      k.toLowerCase().includes('时间')
+                    )
+                    if (dateKey) filtered['发布日期'] = item[dateKey]
+                    
+                    return filtered
+                  })
+                  
+                  previewData.value = filteredData
+                  previewColumns.value = [
+                    { title: '标题', dataIndex: '标题', key: '标题', ellipsis: true, width: '40%' },
+                    { title: '链接', dataIndex: '链接', key: '链接', ellipsis: true, width: '35%' },
+                    { title: '发布日期', dataIndex: '发布日期', key: '发布日期', ellipsis: true, width: '25%' }
+                  ]
                   activePreviewTab.value = 'data'
                 }
               }
@@ -758,20 +835,75 @@ function handleSaveEditedSelectors() {
 // 预览选择器效果
 async function handlePreviewSelectors(content: any) {
   try {
+    console.log('=== 预览数据开始 ===')
+    console.log('URL:', content.url)
+    console.log('选择器:', JSON.stringify(content.selectors, null, 2))
+    
     const response = await aiApi.previewCrawler(content.url, content.selectors)
+    console.log('预览响应:', response)
+    
     if (response.success && response.data) {
-      previewData.value = response.data
-      const fields = Object.keys(response.data[0] || {})
-      previewColumns.value = fields.map(f => ({
-        title: f,
-        dataIndex: f,
-        key: f,
-        ellipsis: true
-      }))
-      activePreviewTab.value = 'data'
-      message.success('预览数据已更新')
+      // 处理响应格式：可能是 { data: [...], total, ... } 或直接是数组
+      let dataArray = Array.isArray(response.data) ? response.data : (response.data.data || [])
+      
+      console.log('提取的数据数组:', dataArray)
+      console.log('数据条数:', dataArray.length)
+      
+      // 只保留标题、链接、发布日期三个字段
+      const filteredData = dataArray.map((item: any) => {
+        const filtered: any = {}
+        
+        // 查找标题字段（可能的名称）
+        const titleKey = Object.keys(item).find(k => 
+          k.toLowerCase().includes('title') || 
+          k.toLowerCase().includes('标题') ||
+          k.toLowerCase().includes('name') ||
+          k.toLowerCase().includes('名称')
+        )
+        if (titleKey) filtered['标题'] = item[titleKey]
+        
+        // 查找链接字段（可能的名称）
+        const linkKey = Object.keys(item).find(k => 
+          k.toLowerCase().includes('link') || 
+          k.toLowerCase().includes('url') ||
+          k.toLowerCase().includes('href') ||
+          k.toLowerCase().includes('链接')
+        )
+        if (linkKey) filtered['链接'] = item[linkKey]
+        
+        // 查找发布日期字段（可能的名称）
+        const dateKey = Object.keys(item).find(k => 
+          k.toLowerCase().includes('date') || 
+          k.toLowerCase().includes('time') ||
+          k.toLowerCase().includes('发布') ||
+          k.toLowerCase().includes('日期') ||
+          k.toLowerCase().includes('时间')
+        )
+        if (dateKey) filtered['发布日期'] = item[dateKey]
+        
+        return filtered
+      })
+      
+      previewData.value = filteredData
+      
+      if (previewData.value.length > 0) {
+        // 只显示标题、链接、发布日期三列
+        previewColumns.value = [
+          { title: '标题', dataIndex: '标题', key: '标题', ellipsis: true, width: '40%' },
+          { title: '链接', dataIndex: '链接', key: '链接', ellipsis: true, width: '35%' },
+          { title: '发布日期', dataIndex: '发布日期', key: '发布日期', ellipsis: true, width: '25%' }
+        ]
+        activePreviewTab.value = 'data'
+        message.success(`预览数据已更新 (${previewData.value.length} 条)`)
+      } else {
+        message.warning('预览数据为空，请检查选择器是否正确')
+      }
+    } else {
+      message.error('预览失败: ' + (response.error?.message || '未知错误'))
     }
+    console.log('=== 预览数据结束 ===')
   } catch (error: any) {
+    console.error('预览异常:', error)
     message.error('预览失败: ' + (error.message || '未知错误'))
   }
 }
@@ -1090,13 +1222,14 @@ function scrollToBottom() {
 
 /* 右侧预览区 */
 .preview-panel {
-  width: 500px;
+  flex: 1;
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 600px;
 }
 
 .preview-panel :deep(.ant-tabs) {
