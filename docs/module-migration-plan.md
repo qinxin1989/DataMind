@@ -1,54 +1,52 @@
 # 模块化迁移计划
 
-## 迁移状态
+## 迁移状态总览
 
 | 模块 | src 目录代码 | 状态 | 完成日期 |
 |------|-------------|------|----------|
 | rag-service | `src/rag/*` | ✅ 完成 | 2026-02-05 |
 | skills-service | `src/agent/skills/*` | ✅ 完成 | 2026-02-05 |
-| datasource-management | `src/datasource/*` | 🔄 待迁移 | - |
-| auth | `src/services/authService.ts` | 🔄 待迁移 | - |
-| file-tools | `src/services/fileEncryption.ts` | 🔄 待迁移 | - |
+| datasource-management | `src/datasource/*` | ✅ 完成 | 2026-02-05 |
+| auth | `src/services/authService.ts` | ✅ 完成 | 2026-02-05 |
 | ai-config | `src/admin/modules/ai/*` | 🔄 待迁移 | - |
 | ai-qa | `src/admin/modules/ai-qa/*` | 🔄 待迁移 | - |
+| file-tools | `src/services/fileEncryption.ts` | 🔄 待迁移 | - |
+| ocr-service | `src/services/ocr/*` | 🔄 待迁移 | - |
 
-## 已完成模块
+---
+
+## 已完成模块（4个）
 
 ### 1. rag-service (RAG 知识库服务)
+
+**新增功能:**
+- Agentic 渐进式检索器（不依赖向量库）
+- 服务层封装
+- 数据库迁移脚本
+- 配置 Schema
 
 **目录结构:**
 ```
 modules/rag-service/
-├── module.json           # 模块配置
-├── README.md             # 说明文档
+├── module.json
+├── README.md
 ├── backend/
-│   ├── index.ts          # 模块入口
-│   ├── routes.ts         # API 路由
-│   ├── service.ts        # 服务层（新增）
-│   ├── types.ts          # 类型定义（新增）
-│   ├── ragEngine.ts      # RAG 引擎
-│   ├── agenticRetriever.ts   # Agentic 检索器（新增）
-│   ├── knowledgeBase.ts
-│   ├── knowledgeGraph.ts
-│   ├── vectorStore.ts
-│   ├── embeddingService.ts
+│   ├── index.ts, routes.ts, service.ts, types.ts
+│   ├── ragEngine.ts, agenticRetriever.ts
+│   ├── knowledgeBase.ts, knowledgeGraph.ts
+│   ├── vectorStore.ts, embeddingService.ts
 │   ├── documentProcessor.ts
-│   ├── migrations/       # 数据库迁移
-│   └── hooks/            # 生命周期钩子
+│   ├── migrations/, hooks/
 ├── config/
-│   ├── schema.json
-│   └── default.json
 └── frontend/views/
 ```
 
-**新增功能:**
-- Agentic 渐进式检索（agenticRetriever.ts）
-- 服务层封装（service.ts）
-- 完整的 API 路由
-- 数据库迁移脚本
-- 配置 Schema
-
 ### 2. skills-service (AI 技能服务)
+
+**新增功能:**
+- 技能注册中心
+- 服务层封装
+- 完整 API 路由
 
 **目录结构:**
 ```
@@ -56,28 +54,51 @@ modules/skills-service/
 ├── module.json
 ├── README.md
 ├── backend/
-│   ├── index.ts          # 模块入口
-│   ├── routes.ts         # API 路由
-│   ├── service.ts        # 服务层（新增）
-│   ├── types.ts          # 类型定义（新增）
-│   ├── registry.ts       # 技能注册中心
-│   ├── data/             # 数据技能
-│   ├── document/         # 文档技能
-│   ├── media/            # 媒体技能
-│   └── report/           # 报告技能
+│   ├── index.ts, routes.ts, service.ts, types.ts
+│   ├── registry.ts
+│   ├── data/, document/, media/, report/
 └── frontend/
 ```
 
-**API 接口:**
-- GET /skills - 获取技能列表
-- GET /skills/categories - 获取技能分类
-- GET /skills/capabilities - 获取 Agent 能力
-- GET /skills/:name - 获取技能详情
-- POST /skills/:name/execute - 执行技能
+### 3. datasource-management (数据源管理)
+
+**新增功能:**
+- 服务层封装
+- 多数据源适配器
+- 连接测试、查询执行
+
+**目录结构:**
+```
+modules/datasource-management/
+├── module.json
+├── README.md
+├── backend/
+│   ├── index.ts, routes.ts, service.ts, types.ts
+│   ├── base.ts, mysql.ts, postgres.ts
+│   ├── file.ts, api.ts
+└── frontend/
+```
+
+### 4. auth (用户认证)
+
+**新增功能:**
+- 模块入口整合路由、服务和中间件
+- 类型定义
+
+**目录结构:**
+```
+modules/auth/
+├── module.json
+├── README.md
+├── backend/
+│   ├── index.ts, routes.ts, types.ts
+│   ├── authService.ts, middleware.ts
+└── frontend/
+```
+
+---
 
 ## 模块标准结构
-
-每个模块应遵循以下结构（参考 example 模块）:
 
 ```
 modules/<module-name>/
@@ -99,25 +120,43 @@ modules/<module-name>/
     └── views/            # 可选：Vue 组件
 ```
 
-## 迁移策略
+---
 
-1. **保持向后兼容**: 在 `src` 中保留入口文件，添加模块化迁移注释
-2. **逐步迁移**: 一次迁移一个模块，确保功能正常
-3. **完整测试**: 每个模块迁移后进行功能测试
-4. **更新导入**: 逐步将项目中的导入路径更新为模块路径
-
-## 使用模块
+## 使用示例
 
 ```typescript
-// 使用 rag-service 模块
+// 初始化各模块
 import { initRagModule } from './modules/rag-service/backend';
+import { initSkillsModule } from './modules/skills-service/backend';
+import { initDataSourceModule } from './modules/datasource-management/backend';
+import { initAuthModule } from './modules/auth/backend';
 
+// RAG 知识库
 const ragModule = initRagModule({ db: pool, aiConfigs: [] });
 app.use('/api/rag', ragModule.routes);
 
-// 使用 skills-service 模块
-import { initSkillsModule } from './modules/skills-service/backend';
-
+// AI 技能
 const skillsModule = initSkillsModule({ autoRegister: true });
 app.use('/api/skills', skillsModule.routes);
+
+// 数据源管理
+const dsModule = initDataSourceModule({ db: pool });
+app.use('/api/datasource', dsModule.routes);
+
+// 认证
+const authModule = initAuthModule({ pool, jwtSecret: 'xxx' });
+app.use('/api/auth', authModule.routes);
+
+// 使用认证中间件保护其他路由
+app.use('/api/protected', authModule.authMiddleware, protectedRoutes);
 ```
+
+---
+
+## 下一步
+
+1. 迁移 `ai-config` 模块
+2. 迁移 `ai-qa` 模块
+3. 迁移 `file-tools` 模块
+4. 迁移 `ocr-service` 模块
+5. 更新 `src` 目录的入口文件，从模块重新导出

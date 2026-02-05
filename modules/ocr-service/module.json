@@ -1,0 +1,34 @@
+{
+  "name": "ocr-service",
+  "displayName": "OCR识别服务",
+  "description": "光学字符识别服务，支持图片和PDF文档的文字提取",
+  "version": "1.0.0",
+  "category": "ai-tools",
+  "author": "DataMind Team",
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "service",
+    "module"
+  ],
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/api/ocr",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "menus": [
+    {
+      "id": "ocr-service-main",
+      "title": "OCR 识别",
+      "path": "/ai/ocr",
+      "icon": "ScanOutlined",
+      "parentId": "tools-center",
+      "sortOrder": 130,
+      "permission": "ocr:view"
+    }
+  ],
+  "enabled": true,
+  "installed": true
+}
