@@ -1,0 +1,136 @@
+{
+  "name": "rag-service",
+  "displayName": "RAG 知识库服务",
+  "version": "1.0.0",
+  "description": "检索增强生成(RAG)知识库服务，支持向量检索和Agentic渐进式检索",
+  "author": "DataMind Team",
+  "license": "MIT",
+  "type": "ai-core",
+  "category": "ai",
+  "tags": [
+    "ai",
+    "rag",
+    "knowledge",
+    "retrieval"
+  ],
+  "dependencies": {
+    "openai": "^4.0.0",
+    "uuid": "^9.0.0"
+  },
+  "peerDependencies": {
+    "node": ">=18.0.0"
+  },
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/rag",
+      "file": "./backend/routes.ts"
+    },
+    "migrations": {
+      "directory": "./backend/migrations",
+      "tableName": "module_migrations"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts",
+    "components": {
+      "KnowledgeManager": "./frontend/views/KnowledgeManager.vue",
+      "DocumentList": "./frontend/views/DocumentList.vue",
+      "QaChat": "./frontend/views/QaChat.vue"
+    }
+  },
+  "menus": [
+    {
+      "id": "rag-knowledge",
+      "title": "知识库",
+      "path": "/ai/knowledge",
+      "icon": "BookOutlined",
+      "parentId": "ai-menu",
+      "sortOrder": 20,
+      "permission": "rag-service:view"
+    }
+  ],
+  "permissions": [
+    {
+      "code": "rag-service:view",
+      "name": "查看知识库",
+      "description": "查看知识库文档和统计信息"
+    },
+    {
+      "code": "rag-service:upload",
+      "name": "上传文档",
+      "description": "上传和管理知识库文档"
+    },
+    {
+      "code": "rag-service:query",
+      "name": "知识问答",
+      "description": "使用知识库进行问答"
+    },
+    {
+      "code": "rag-service:manage",
+      "name": "管理知识库",
+      "description": "删除文档、管理分类等"
+    }
+  ],
+  "config": {
+    "schema": "./config/schema.json",
+    "defaults": "./config/default.json"
+  },
+  "hooks": {
+    "afterInstall": "./backend/hooks/afterInstall.ts",
+    "afterEnable": "./backend/hooks/afterEnable.ts"
+  },
+  "database": {
+    "tables": [
+      "knowledge_documents",
+      "knowledge_chunks",
+      "knowledge_categories",
+      "knowledge_entities",
+      "knowledge_relations"
+    ],
+    "version": "1.0.0"
+  },
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/rag/stats",
+        "description": "获取知识库统计",
+        "permission": "rag-service:view"
+      },
+      {
+        "method": "GET",
+        "path": "/rag/documents",
+        "description": "获取文档列表",
+        "permission": "rag-service:view"
+      },
+      {
+        "method": "POST",
+        "path": "/rag/documents",
+        "description": "上传文档",
+        "permission": "rag-service:upload"
+      },
+      {
+        "method": "DELETE",
+        "path": "/rag/documents/:id",
+        "description": "删除文档",
+        "permission": "rag-service:manage"
+      },
+      {
+        "method": "POST",
+        "path": "/rag/query",
+        "description": "知识问答",
+        "permission": "rag-service:query"
+      },
+      {
+        "method": "POST",
+        "path": "/rag/search",
+        "description": "搜索知识",
+        "permission": "rag-service:query"
+      }
+    ]
+  },
+  "enabled": true,
+  "installed": true
+}

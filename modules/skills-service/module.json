@@ -1,0 +1,96 @@
+{
+  "name": "skills-service",
+  "displayName": "AI 技能服务",
+  "version": "1.0.0",
+  "description": "AI Agent 技能注册与执行服务，提供数据分析、文档处理、媒体生成、报告生成等能力",
+  "author": "DataMind Team",
+  "license": "MIT",
+  "type": "ai-core",
+  "category": "ai",
+  "tags": [
+    "ai",
+    "skills",
+    "agent",
+    "automation"
+  ],
+  "dependencies": {
+    "openai": "^4.0.0",
+    "uuid": "^9.0.0"
+  },
+  "peerDependencies": {
+    "node": ">=18.0.0"
+  },
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/skills",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts",
+    "components": {
+      "SkillsList": "./frontend/views/SkillsList.vue",
+      "SkillExecutor": "./frontend/views/SkillExecutor.vue"
+    }
+  },
+  "menus": [],
+  "permissions": [
+    {
+      "code": "skills-service:view",
+      "name": "查看技能",
+      "description": "查看可用技能列表"
+    },
+    {
+      "code": "skills-service:execute",
+      "name": "执行技能",
+      "description": "执行 AI 技能"
+    },
+    {
+      "code": "skills-service:manage",
+      "name": "管理技能",
+      "description": "启用/禁用技能"
+    }
+  ],
+  "config": {
+    "schema": "./config/schema.json",
+    "defaults": "./config/default.json"
+  },
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/skills",
+        "description": "获取技能列表",
+        "permission": "skills-service:view"
+      },
+      {
+        "method": "GET",
+        "path": "/skills/categories",
+        "description": "获取技能分类",
+        "permission": "skills-service:view"
+      },
+      {
+        "method": "GET",
+        "path": "/skills/:name",
+        "description": "获取技能详情",
+        "permission": "skills-service:view"
+      },
+      {
+        "method": "POST",
+        "path": "/skills/:name/execute",
+        "description": "执行技能",
+        "permission": "skills-service:execute"
+      },
+      {
+        "method": "GET",
+        "path": "/skills/capabilities",
+        "description": "获取 Agent 能力",
+        "permission": "skills-service:view"
+      }
+    ]
+  },
+  "enabled": true,
+  "installed": true
+}

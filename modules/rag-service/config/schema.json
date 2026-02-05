@@ -1,0 +1,71 @@
+{
+    "type": "object",
+    "properties": {
+        "retrieveMode": {
+            "type": "string",
+            "enum": [
+                "vector",
+                "agentic",
+                "hybrid"
+            ],
+            "default": "vector",
+            "title": "检索模式",
+            "description": "知识检索方式：向量检索、Agentic渐进式检索、混合检索"
+        },
+        "chunkSize": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 2000,
+            "default": 500,
+            "title": "分块大小",
+            "description": "文档分块的字符数"
+        },
+        "chunkOverlap": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200,
+            "default": 50,
+            "title": "分块重叠",
+            "description": "相邻分块的重叠字符数"
+        },
+        "topK": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 5,
+            "title": "检索数量",
+            "description": "每次检索返回的最大结果数"
+        },
+        "embeddingModel": {
+            "type": "string",
+            "default": "text-embedding-v2",
+            "title": "嵌入模型",
+            "description": "用于向量化的模型名称"
+        },
+        "enableGraph": {
+            "type": "boolean",
+            "default": true,
+            "title": "启用知识图谱",
+            "description": "是否从文档中提取实体关系构建知识图谱"
+        },
+        "knowledgePath": {
+            "type": "string",
+            "default": "./knowledge",
+            "title": "知识库目录",
+            "description": "Agentic 模式使用的本地知识库目录"
+        },
+        "maxRetries": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 5,
+            "title": "最大重试次数",
+            "description": "Agentic 模式检索失败时的最大重试次数"
+        }
+    },
+    "required": [
+        "retrieveMode",
+        "chunkSize",
+        "topK"
+    ]
+}

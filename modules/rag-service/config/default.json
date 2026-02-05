@@ -1,0 +1,10 @@
+{
+    "retrieveMode": "vector",
+    "chunkSize": 500,
+    "chunkOverlap": 50,
+    "topK": 5,
+    "embeddingModel": "text-embedding-v2",
+    "enableGraph": true,
+    "knowledgePath": "./knowledge",
+    "maxRetries": 5
+}
