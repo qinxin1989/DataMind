@@ -15,10 +15,11 @@
       </div>
       <a-menu
         v-model:selectedKeys="selectedKeys"
-        v-model:openKeys="openKeys"
+        :open-keys="openKeys"
         theme="light"
         mode="inline"
         @click="handleMenuClick"
+        @open-change="onOpenChange"
       >
         <template v-for="item in menus">
           <!-- SubMenu -->
@@ -133,7 +134,9 @@ import {
   ScanOutlined,
   FileTextOutlined,
   EditOutlined,
-  QuestionOutlined
+  QuestionOutlined,
+  FileSearchOutlined,
+  CloudDownloadOutlined
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -160,11 +163,21 @@ const iconMap: Record<string, any> = {
   ScanOutlined,
   FileTextOutlined,
   EditOutlined,
-  QuestionOutlined
+  QuestionOutlined,
+  FileSearchOutlined,
+  CloudDownloadOutlined
 }
 
 const getIcon = (iconName: string | undefined) => {
-  return iconName ? iconMap[iconName] || QuestionOutlined : MenuOutlined
+  if (!iconName) {
+    return MenuOutlined
+  }
+  const icon = iconMap[iconName]
+  if (!icon) {
+    console.warn(`Icon not found in map: ${iconName}, available icons:`, Object.keys(iconMap))
+    return QuestionOutlined
+  }
+  return icon
 }
 
 const collapsed = ref(false)
@@ -208,6 +221,32 @@ const menus = computed(() => {
   return dynamicMenus.value.map(mapItem)
 })
 
+// 顶级子菜单 Key 列表，用于实现手风琴效果
+const rootSubmenuKeys = computed(() => menus.value
+  .filter(item => item.children && item.children.length > 0)
+  .map(item => 'p_' + item.key)
+)
+
+const onOpenChange = (keys: string[]) => {
+  console.log('[Accordion] openChange triggered, new keys:', keys, 'current openKeys:', openKeys.value)
+  
+  // 找出最新打开的那一项（在原 openKeys 中不存在的）
+  const latestOpenKey = keys.find(key => !openKeys.value.includes(key))
+  console.log('[Accordion] latestOpenKey:', latestOpenKey, 'rootSubmenuKeys:', rootSubmenuKeys.value)
+  
+  if (latestOpenKey && rootSubmenuKeys.value.includes(latestOpenKey)) {
+    // 如果最新打开的是顶级菜单，则只保留这一项（手风琴效果）
+    console.log('[Accordion] Applying accordion effect, keeping only:', latestOpenKey)
+    openKeys.value = [latestOpenKey]
+  } else if (latestOpenKey) {
+    // 如果打开的不是顶级菜单（可能是嵌套菜单），保留原有顶级菜单 + 新打开的
+    openKeys.value = keys
+  } else {
+    // 关闭菜单时，直接采用组件传入的 keys
+    openKeys.value = keys
+  }
+}
+
 onMounted(() => {
   fetchMenus()
 })
@@ -244,6 +283,8 @@ function updateMenuSelection() {
   for (const item of menus.value) {
     if (item.path === path) {
       selectedKeys.value = [item.key]
+      // 如果是顶级菜单项（无子菜单），清空所有展开的菜单
+      openKeys.value = []
       return
     }
     if (item.children) {
@@ -252,9 +293,8 @@ function updateMenuSelection() {
         if (child.path && path.startsWith(String(child.path))) {
           selectedKeys.value = [child.key]
           const parentKey = 'p_' + item.key
-          if (!openKeys.value.includes(parentKey)) {
-            openKeys.value.push(parentKey)
-          }
+          // 手风琴效果：只展开当前匹配的父菜单
+          openKeys.value = [parentKey]
           return
         }
       }

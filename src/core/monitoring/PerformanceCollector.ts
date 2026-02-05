@@ -5,7 +5,6 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import * as os from 'os';
-import { getDatabase } from '../../admin/core/database';
 
 /**
  * 性能指标类型
@@ -70,10 +69,12 @@ export interface ModuleMetric {
  */
 export class PerformanceCollector {
   private batchSize = 100;
+  private maxBatchSize = 500; // 防止批量数据无限增长
   private batchInterval = 5000; // 5秒
   private metricsBatch: PerformanceMetric[] = [];
   private systemMetricsBatch: SystemMetrics[] = [];
   private batchTimer: NodeJS.Timeout | null = null;
+  private systemMetricsTimer: NodeJS.Timeout | null = null;
   private lastCpuUsage: NodeJS.CpuUsage | null = null;
 
   constructor() {
@@ -97,6 +98,10 @@ export class PerformanceCollector {
       clearInterval(this.batchTimer);
       this.batchTimer = null;
     }
+    if (this.systemMetricsTimer) {
+      clearInterval(this.systemMetricsTimer);
+      this.systemMetricsTimer = null;
+    }
     this.flushBatch();
   }
 
@@ -108,14 +113,17 @@ export class PerformanceCollector {
       return;
     }
 
+    // 先取出数据并清空批量数组，防止写入失败时数据无限积累
+    const metrics = [...this.metricsBatch];
+    const systemMetrics = [...this.systemMetricsBatch];
+    this.metricsBatch = [];
+    this.systemMetricsBatch = [];
+
     try {
-      const db = getDatabase();
+      const { pool } = await import('../../admin/core/database');
 
       // 批量插入性能指标
-      if (this.metricsBatch.length > 0) {
-        const metrics = [...this.metricsBatch];
-        this.metricsBatch = [];
-
+      if (metrics.length > 0) {
         const values = metrics.map(m => [
           m.id,
           m.type,
@@ -124,17 +132,14 @@ export class PerformanceCollector {
           m.metadata ? JSON.stringify(m.metadata) : null
         ]);
 
-        await db.query(
+        await pool.query(
           `INSERT INTO performance_metrics (id, type, name, duration, metadata) VALUES ?`,
           [values]
         );
       }
 
       // 批量插入系统指标
-      if (this.systemMetricsBatch.length > 0) {
-        const systemMetrics = [...this.systemMetricsBatch];
-        this.systemMetricsBatch = [];
-
+      if (systemMetrics.length > 0) {
         const values = systemMetrics.map(m => [
           m.id,
           m.memory_used,
@@ -143,20 +148,27 @@ export class PerformanceCollector {
           m.cpu_usage
         ]);
 
-        await db.query(
+        await pool.query(
           `INSERT INTO system_metrics (id, memory_used, memory_total, memory_percentage, cpu_usage) VALUES ?`,
           [values]
         );
       }
     } catch (error) {
+      // 写入失败时只记录错误，不将数据放回（已被清空，防止内存泄漏）
       console.error('Failed to flush performance metrics batch:', error);
     }
   }
 
   /**
-   * 记录性能指标
+   * 记录性能指标（带内存保护）
    */
   private recordMetric(metric: PerformanceMetric): void {
+    // 防止批量数据无限增长
+    if (this.metricsBatch.length >= this.maxBatchSize) {
+      // 丢弃最旧的 10% 数据
+      this.metricsBatch = this.metricsBatch.slice(Math.floor(this.maxBatchSize * 0.1));
+    }
+
     this.metricsBatch.push(metric);
 
     // 如果批量达到阈值,立即刷新
@@ -282,6 +294,11 @@ export class PerformanceCollector {
    * 收集系统指标
    */
   public collectSystemMetrics(): void {
+    // 防止批量数据无限增长
+    if (this.systemMetricsBatch.length >= this.maxBatchSize) {
+      this.systemMetricsBatch = this.systemMetricsBatch.slice(Math.floor(this.maxBatchSize * 0.1));
+    }
+
     const metrics = this.getSystemMetrics();
     this.systemMetricsBatch.push(metrics);
 
@@ -292,11 +309,15 @@ export class PerformanceCollector {
   }
 
   /**
-   * 启动系统指标收集
+   * 启动系统指标收集（保存定时器引用以便清理）
    */
-  public startSystemMetricsCollection(interval: number = 60000): NodeJS.Timeout {
+  public startSystemMetricsCollection(interval: number = 60000): void {
+    // 如果已有定时器在运行，先停止
+    if (this.systemMetricsTimer) {
+      clearInterval(this.systemMetricsTimer);
+    }
     // 每分钟收集一次系统指标
-    return setInterval(() => {
+    this.systemMetricsTimer = setInterval(() => {
       this.collectSystemMetrics();
     }, interval);
   }
@@ -311,4 +332,15 @@ performanceCollector.startSystemMetricsCollection();
 // 进程退出时刷新批量数据
 process.on('beforeExit', () => {
   performanceCollector.stopBatchTimer();
+});
+
+// SIGINT/SIGTERM 信号处理（Ctrl+C 或进程终止）
+process.on('SIGINT', () => {
+  performanceCollector.stopBatchTimer();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  performanceCollector.stopBatchTimer();
+  process.exit(0);
 });

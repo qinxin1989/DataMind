@@ -18,6 +18,13 @@ import { initAdminTables } from './admin/core/database';
 import { aiConfigService } from './admin/modules/ai/aiConfigService';
 import { approvalService } from './admin/modules/approval/approvalService';
 import { aiQAService } from './admin/modules/ai-qa/aiQAService';
+import { moduleRegistry } from './module-system/core/ModuleRegistry';
+import { menuManager } from './module-system/core/MenuManager';
+import { ModuleScanner } from './module-system/core/ModuleScanner';
+import { createLogger } from './utils/logger';
+
+// 创建主日志器
+const log = createLogger('Server');
 
 dotenv.config();
 
@@ -80,6 +87,118 @@ const authMiddleware = createAuthMiddleware(authService);
 // 存储数据源连接
 const dataSources = new Map<string, { config: DataSourceConfig; instance: BaseDataSource }>();
 
+// 初始化模块系统
+// 初始化模块系统
+async function initModuleSystem() {
+  try {
+    log.info('正在初始化模块系统...');
+
+    // 初始化模块注册表
+    await moduleRegistry.initialize();
+
+    // 初始化后端路由管理器
+    const { BackendRouteManager } = await import('./module-system/core/BackendRouteManager');
+    BackendRouteManager.init(app);
+
+    // 创建生命周期管理器
+    const { createLifecycleManager } = await import('./module-system/core/LifecycleManager');
+    const { BackendModuleLoader } = await import('./module-system/core/BackendModuleLoader');
+    const { FrontendModuleLoader } = await import('./module-system/core/FrontendModuleLoader');
+    const { permissionManager } = await import('./module-system/core/PermissionManager');
+    const { migrationManager } = await import('./module-system/core/MigrationManager');
+
+    const backendLoader = new BackendModuleLoader();
+    const frontendLoader = new FrontendModuleLoader();
+    const lifecycleManager = createLifecycleManager(
+      moduleRegistry,
+      backendLoader,
+      frontendLoader,
+      menuManager,
+      permissionManager,
+      migrationManager
+    );
+
+    // 扫描并注册所有模块
+    const scanner = new ModuleScanner();
+    const scanResults = await scanner.scan({ validateStructure: false, includeDisabled: false });
+
+    log.info(`发现 ${scanResults.length} 个模块`);
+
+    // 第一步：注册所有有效的模块
+    const validModules = [];
+    for (const result of scanResults) {
+      if (result.valid) {
+        try {
+          // 检查模块是否已注册
+          const existing = await moduleRegistry.getModule(result.manifest.name);
+          if (!existing) {
+            await moduleRegistry.register(result.manifest);
+          }
+          validModules.push(result);
+        } catch (error) {
+          log.error(`注册模块 ${result.manifest.name} 失败:`, error);
+        }
+      } else {
+        log.warn(`模块 ${result.moduleName} 无效:`, result.errors);
+      }
+    }
+
+    // 第二步：按依赖顺序排序
+    const sortedModules = sortModulesByDependencies(validModules);
+
+    // 第三步：启用模块
+    for (const result of sortedModules) {
+      try {
+        log.debug(`正在启用模块: ${result.manifest.name}`);
+        await lifecycleManager.enable(result.manifest.name);
+      } catch (error: any) {
+        log.warn(`模块 ${result.manifest.name} 启用失败:`, error.message);
+      }
+    }
+
+    log.info('模块系统初始化完成');
+  } catch (error) {
+    log.error('模块系统初始化失败:', error);
+  }
+}
+
+/**
+ * 按依赖关系对模块进行排序（拓扑排序）
+ */
+function sortModulesByDependencies(modules: any[]) {
+  const sorted: any[] = [];
+  const visited = new Set<string>();
+  const checking = new Set<string>();
+
+  function visit(mod: any) {
+    if (checking.has(mod.manifest.name)) {
+      console.error(`发现循环依赖: ${mod.manifest.name}`);
+      return;
+    }
+
+    if (!visited.has(mod.manifest.name)) {
+      checking.add(mod.manifest.name);
+
+      const deps = mod.manifest.dependencies || {};
+      for (const depName of Object.keys(deps)) {
+        const depMod = modules.find(m => m.manifest.name === depName);
+        if (depMod) {
+          visit(depMod);
+        }
+      }
+
+      checking.delete(mod.manifest.name);
+      visited.add(mod.manifest.name);
+      sorted.push(mod);
+    }
+  }
+
+  for (const mod of modules) {
+    visit(mod);
+  }
+  return sorted;
+}
+
 // 检查用户是否可以访问数据源
 function canAccessDataSource(config: DataSourceConfig, userId: string): boolean {
   // 用户自己的数据源
@@ -112,15 +231,18 @@ async function initDataSources() {
   // 初始化默认管理员账户
   await authService.initDefaultAdmin();
 
+  // 初始化模块系统
+  await initModuleSystem();
+
   // 设置 AI Agent 从数据库获取配置（返回所有可用配置，支持自动故障转移）
   aiAgent.setConfigGetter(async () => {
     const configs = await aiConfigService.getActiveConfigsByPriority();
-    console.log('=== AI 配置列表（按优先级排序）===');
+    log.debug('=== AI 配置列表（按优先级排序）===');
     configs.forEach((c, i) => {
-      console.log(`  ${i + 1}. ${c.name} (${c.provider}/${c.model}) - priority: ${c.priority}, baseUrl: ${c.baseUrl || '未设置'}`);
+      log.debug(`  ${i + 1}. ${c.name} (${c.provider}/${c.model}) - priority: ${c.priority}, baseUrl: ${c.baseUrl || '未设置'}`);
     });
     if (!configs || configs.length === 0) {
-      console.log('没有可用的 AI 配置！');
+      log.warn('没有可用的 AI 配置！');
       return [];
     }
     // 返回所有配置，AI Agent 会按顺序尝试
@@ -131,16 +253,16 @@ async function initDataSources() {
       name: c.name
     }));
   });
-  console.log('AI Agent 已配置为从数据库读取配置（支持自动故障转移）');
+  log.info('AI Agent 已配置为从数据库读取配置（支持自动故障转移）');
 
   const configs = await configStore.getAll();
   for (const config of configs) {
     try {
       const instance = createDataSource(config);
       dataSources.set(config.id, { config, instance });
-      console.log(`已加载数据源: ${config.name}`);
+      log.info(`已加载数据源: ${config.name}`);
     } catch (e: any) {
-      console.error(`加载数据源失败 ${config.name}:`, e.message);
+      log.error(`加载数据源失败 ${config.name}:`, e.message);
     }
   }
 }
@@ -172,6 +294,21 @@ app.post('/api/auth/login', async (req, res) => {
 // 获取当前用户信息
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json({ user: req.user });
+});
+
+// 获取用户菜单
+app.get('/api/auth/menus', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+
+    const menus = await menuManager.getUserMenus(req.user.id);
+    res.json(menus);
+  } catch (error: any) {
+    console.error('获取用户菜单失败:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // 修改密码
@@ -439,11 +576,11 @@ app.get('/api/datasource', authMiddleware, (req, res) => {
     .filter(([, { config }]) => {
       // 调试日志
       if (config.name === 'sakila') {
-        console.log('=== sakila 数据源信息 ===');
-        console.log('userId:', config.userId);
-        console.log('visibility:', config.visibility);
-        console.log('approvalStatus:', config.approvalStatus);
-        console.log('当前用户ID:', req.user!.id);
+        log.debug('=== sakila 数据源信息 ===');
+        log.debug('userId:', config.userId);
+        log.debug('visibility:', config.visibility);
+        log.debug('approvalStatus:', config.approvalStatus);
+        log.debug('当前用户ID:', req.user!.id);
       }
 
       // 用户自己的数据源
@@ -1659,27 +1796,41 @@ function getRAGEngine(userId: string): RAGEngine {
 
 // 获取知识库统计信息
 app.get('/api/rag/stats', authMiddleware, (req, res) => {
-  if (!req.user) return res.status(401).json({ error: '未认证' });
+  try {
+    if (!req.user) return res.status(401).json({ error: '未认证' });
 
-  const ragEngine = getRAGEngine(req.user.id);
-  res.json(ragEngine.getStats());
+    const ragEngine = getRAGEngine(req.user.id);
+    const stats = ragEngine.getStats();
+    res.json({ success: true, data: stats });
+  } catch (error: any) {
+    console.error('RAG stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // 获取知识库文档列表
 app.get('/api/rag/documents', authMiddleware, (req, res) => {
-  if (!req.user) return res.status(401).json({ error: '未认证' });
+  try {
+    if (!req.user) return res.status(401).json({ error: '未认证' });
 
-  const ragEngine = getRAGEngine(req.user.id);
-  const docs = ragEngine.getKnowledgeBase().getAllDocuments();
+    const ragEngine = getRAGEngine(req.user.id);
+    const docs = ragEngine.getKnowledgeBase().getAllDocuments();
 
-  res.json(docs.map((d: any) => ({
-    id: d.id,
-    title: d.title,
-    type: d.type,
-    chunks: d.chunks?.length || 0,
-    createdAt: d.metadata?.createdAt,
-    tags: d.metadata?.tags,
-  })));
+    res.json({
+      success: true,
+      data: docs.map((d: any) => ({
+        id: d.id,
+        title: d.title,
+        type: d.type,
+        chunks: d.chunks?.length || 0,
+        createdAt: d.metadata?.createdAt,
+        tags: d.metadata?.tags,
+      }))
+    });
+  } catch (error: any) {
+    console.error('RAG documents error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // 添加文档到知识库
@@ -1961,39 +2112,70 @@ app.post('/api/agent/data-report-ppt', authMiddleware, async (req, res) => {
 import { registerAllSkills } from './agent/skills';
 import { crawlerScheduler } from './agent/skills/crawler/scheduler';
 import { createAdminRouter } from './admin';
-app.use('/api/admin', authMiddleware, createAdminRouter());
+app.use('/api/admin', authMiddleware, createAdminRouter(configStore.pool));
 
-// OCR 路由
-import ocrRoutes from './admin/modules/ai/ocrRoutes';
-app.use('/api/ocr', authMiddleware, ocrRoutes);
+// ========== 新增模块路由 ==========
 
-// Skills 路由
-import skillsRoutes from './admin/modules/skills/routes';
-app.use('/api/skills', authMiddleware, skillsRoutes);
-
-// 文件工具路由
-import fileToolRoutes from './admin/modules/tools/fileRoutes';
-app.use('/api/tools/file', authMiddleware, fileToolRoutes);
-
-
-// SPA 路由支持 - 所有非 API 请求返回 index.html
-app.get('*', (req, res) => {
-  // 跳过 API 请求
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({ error: 'API not found' });
-  }
-
-  const adminUiIndex = path.join(process.cwd(), 'admin-ui', 'dist', 'index.html');
-  const publicIndex = path.join(process.cwd(), 'public', 'index.html');
-
-  if (fs.existsSync(adminUiIndex)) {
-    res.sendFile(adminUiIndex);
-  } else if (fs.existsSync(publicIndex)) {
-    res.sendFile(publicIndex);
-  } else {
-    res.status(404).send('前端页面未找到。请运行构建或启动开发服务器。');
+// OCR服务路由
+app.use('/api/ocr', authMiddleware, async (req, res, next) => {
+  try {
+    const { default: ocrRoutes } = await import('../modules/ocr-service/backend/routes');
+    ocrRoutes(req, res, next);
+  } catch (error) {
+    console.error('OCR路由加载失败:', error);
+    res.status(500).json({ error: 'OCR服务不可用' });
   }
 });
+
+// Skills服务路由
+app.use('/api/skills', authMiddleware, async (req, res, next) => {
+  try {
+    const { default: skillsRoutes } = await import('../modules/skills-service/backend/routes');
+    skillsRoutes(req, res, next);
+  } catch (error) {
+    console.error('Skills路由加载失败:', error);
+    res.status(500).json({ error: 'Skills服务不可用' });
+  }
+});
+
+// Agent能力路由
+app.use('/api/agent', authMiddleware, async (req, res, next) => {
+  try {
+    const { default: skillsRoutes } = await import('../modules/skills-service/backend/routes');
+    skillsRoutes(req, res, next);
+  } catch (error) {
+    console.error('Agent路由加载失败:', error);
+    res.status(500).json({ error: 'Agent服务不可用' });
+  }
+});
+
+// RAG知识库路由
+app.use('/api/rag', authMiddleware, async (req, res, next) => {
+  try {
+    const { default: ragRoutes } = await import('../modules/rag-service/backend/routes');
+    ragRoutes(req, res, next);
+  } catch (error) {
+    console.error('RAG路由加载失败:', error);
+    res.status(500).json({ error: 'RAG服务不可用' });
+  }
+});
+
+// 文件工具路由（修复路径）
+app.use('/api/tools/file', authMiddleware, async (req, res, next) => {
+  try {
+    const { createFileToolsRoutes } = await import('../modules/file-tools/backend/routes');
+    const { FileToolsService } = await import('../modules/file-tools/backend/service');
+    const fileToolsService = new FileToolsService(configStore.pool);
+    const router = createFileToolsRoutes(fileToolsService);
+    router(req, res, next);
+  } catch (error) {
+    console.error('文件工具路由加载失败:', error);
+    res.status(500).json({ error: '文件工具服务不可用' });
+  }
+});
+
+
+
 
 const PORT = process.env.PORT || 3000;
 
@@ -2002,8 +2184,27 @@ initDataSources().then(() => {
   // 启动爬虫任务调度器
   crawlerScheduler.start();
 
+  // SPA 路由支持 - 所有非 API 请求返回 index.html
+  app.get('*', (req, res) => {
+    // 跳过 API 请求
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'API not found' });
+    }
+
+    const adminUiIndex = path.join(process.cwd(), 'admin-ui', 'dist', 'index.html');
+    const publicIndex = path.join(process.cwd(), 'public', 'index.html');
+
+    if (fs.existsSync(adminUiIndex)) {
+      res.sendFile(adminUiIndex);
+    } else if (fs.existsSync(publicIndex)) {
+      res.sendFile(publicIndex);
+    } else {
+      res.status(404).send('前端页面未找到。请运行构建或启动开发服务器。');
+    }
+  });
+
   app.listen(PORT, () => {
-    console.log(`AI数据问答平台运行在 http://localhost:${PORT}`);
+    console.log(`DataMind 运行在 http://localhost:${PORT}`);
   });
 }).catch(err => {
   console.error('初始化失败:', err);

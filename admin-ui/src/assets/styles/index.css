@@ -113,6 +113,41 @@ body {
 
 .admin-sider .ant-menu-submenu-arrow {
   color: var(--text-tertiary) !important;
+  transition: transform 0.3s cubic-bezier(0.645, 0.045, 0.355, 1) !important;
+}
+
+/* 子菜单展开时箭头旋转动画 */
+.admin-sider .ant-menu-submenu-open > .ant-menu-submenu-title > .ant-menu-submenu-arrow {
+  transform: rotate(180deg) !important;
+}
+
+/* 子菜单手风琴效果 - 平滑过渡 */
+.admin-sider .ant-menu-sub.ant-menu-inline {
+  background: rgba(124, 58, 237, 0.03) !important;
+  /* 子菜单区域浅紫背景，增强层次感 */
+  border-radius: 8px;
+  margin: 4px 0;
+  transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+/* 子菜单项样式优化 */
+.admin-sider .ant-menu-sub .ant-menu-item {
+  padding-left: 48px !important;
+  margin-bottom: 2px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.admin-sider .ant-menu-sub .ant-menu-item:hover {
+  padding-left: 52px !important;
+  /* 悬停时轻微右移，增强交互感 */
+}
+
+/* 展开的子菜单父项样式 */
+.admin-sider .ant-menu-submenu-open > .ant-menu-submenu-title {
+  color: var(--primary-color) !important;
+  background: var(--primary-bg-light) !important;
+  border-radius: var(--border-radius-base);
 }
 
 /* 顶部导航 */
