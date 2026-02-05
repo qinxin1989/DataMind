@@ -5,7 +5,7 @@
   "description": "AI Agent 技能注册与执行服务，提供数据分析、文档处理、媒体生成、报告生成等能力",
   "author": "DataMind Team",
   "license": "MIT",
-  "type": "ai-core",
+  "type": "business",
   "category": "ai",
   "tags": [
     "ai",

@@ -5,7 +5,7 @@
   "description": "检索增强生成(RAG)知识库服务，支持向量检索和Agentic渐进式检索",
   "author": "DataMind Team",
   "license": "MIT",
-  "type": "ai-core",
+  "type": "business",
   "category": "ai",
   "tags": [
     "ai",

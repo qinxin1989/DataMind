@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as xlsx from 'xlsx';
 import { parse } from 'csv-parse/sync';
 import { BaseDataSource } from './base';
-import { FileConfig, TableSchema, ColumnInfo, QueryResult } from '../types';
-import { fileEncryption } from '../services/fileEncryption';
+import { FileConfig, TableSchema, ColumnInfo, QueryResult } from './types';
+import { fileEncryption } from '../../../src/services/fileEncryption';
 
 // 单个文件信息
 interface FileInfo {
@@ -36,7 +36,7 @@ export class FileDataSource extends BaseDataSource {
         tableName: this.getTableName(f.originalName || f.path)
       }));
     }
-    
+
     // 兼容单文件模式
     return [{
       path: this.config.path,
@@ -165,8 +165,8 @@ export class FileDataSource extends BaseDataSource {
         // 尝试解析为日期
         const dateVal = new Date(value);
         const isValidDate = !isNaN(dateVal.getTime()) &&
-                           !isNaN(Date.parse(value)) &&
-                           value.match(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/); // 包含日期格式
+          !isNaN(Date.parse(value)) &&
+          value.match(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/); // 包含日期格式
 
         if (isValidDate) {
           dateCount++;
@@ -226,7 +226,7 @@ export class FileDataSource extends BaseDataSource {
     const joins: { table: string; alias?: string; on: string; type: 'inner' | 'left' | 'right' }[] = [];
     // 匹配 JOIN 语句，支持中文表名
     const joinRegex = /(left\s+|right\s+|inner\s+)?join\s+[`"]?([a-zA-Z0-9_\u4e00-\u9fa5]+)[`"]?(?:\s+(?:as\s+)?([a-zA-Z0-9_]+))?\s+on\s+([^join]+?)(?=\s+(?:left|right|inner)?\s*join|\s+where|\s+group|\s+order|\s+limit|$)/gi;
-    
+
     let match;
     while ((match = joinRegex.exec(sql)) !== null) {
       const joinType = (match[1] || 'inner').trim().toLowerCase() as 'inner' | 'left' | 'right';
@@ -266,7 +266,7 @@ export class FileDataSource extends BaseDataSource {
     rightPrefix: string
   ): any[] {
     const result: any[] = [];
-    
+
     // 为右表建立索引
     const rightIndex = new Map<string, any[]>();
     for (const row of rightData) {
@@ -328,14 +328,14 @@ export class FileDataSource extends BaseDataSource {
   async executeQuery(sql: string): Promise<QueryResult> {
     try {
       if (this.tables.size === 0) await this.connect();
-      
+
       // 解析主表名和别名
       const fromMatch = sql.match(/from\s+[`"]?([a-zA-Z0-9_\u4e00-\u9fa5]+)[`"]?(?:\s+(?:as\s+)?([a-zA-Z0-9_]+))?/i);
       const mainTable = fromMatch ? fromMatch[1] : null;
       const mainAlias = fromMatch ? (fromMatch[2] || fromMatch[1]) : null;
-      
+
       let data: any[];
-      
+
       if (mainTable && this.tables.has(mainTable)) {
         data = [...this.tables.get(mainTable)!];
       } else {
@@ -343,38 +343,38 @@ export class FileDataSource extends BaseDataSource {
         const firstTable = this.tables.values().next().value;
         data = firstTable ? [...firstTable] : [];
       }
-      
+
       console.log('File query - main table:', mainTable, 'alias:', mainAlias, 'total rows:', data.length);
-      
+
       // 解析并执行 JOIN
       const joins = this.parseJoins(sql);
       if (joins.length > 0) {
         console.log('Found JOINs:', joins);
-        
+
         for (const join of joins) {
           const joinTable = this.tables.get(join.table);
           if (!joinTable) {
             console.warn(`JOIN table not found: ${join.table}`);
             continue;
           }
-          
+
           const onCondition = this.parseOnCondition(join.on);
           if (!onCondition) {
             console.warn(`Invalid ON condition: ${join.on}`);
             continue;
           }
-          
+
           // 确定左右表的字段
           let leftField = onCondition.leftField;
           let rightField = onCondition.rightField;
-          
+
           // 如果条件中的表名/别名与 join 表匹配，交换左右
           if (onCondition.leftTable === join.table || onCondition.leftTable === join.alias) {
             [leftField, rightField] = [rightField, leftField];
           }
-          
+
           console.log(`Executing ${join.type} JOIN on ${leftField} = ${rightField}`);
-          
+
           data = this.executeJoin(
             data,
             joinTable,
@@ -384,11 +384,11 @@ export class FileDataSource extends BaseDataSource {
             mainAlias || mainTable || 'main',
             join.alias || join.table
           );
-          
+
           console.log('After JOIN:', data.length, 'rows');
         }
       }
-      
+
       const lowerSql = sql.toLowerCase();
       let result = data;
 
@@ -500,7 +500,7 @@ export class FileDataSource extends BaseDataSource {
 
   private calculateAggregation(data: any[], func: string, field: string): number {
     if (func === 'count') return data.length;
-    
+
     const values = data.map(row => parseFloat(row[field])).filter(v => !isNaN(v));
     if (values.length === 0) return 0;
 
@@ -516,20 +516,20 @@ export class FileDataSource extends BaseDataSource {
   private applyWhere(data: any[], condition: string): any[] {
     // 支持中文字段名的正则
     const fieldPattern = '[a-zA-Z0-9_\u4e00-\u9fa5]+';
-    
+
     const notNullMatch = condition.match(new RegExp(`(${fieldPattern})\\s+is\\s+not\\s+null`, 'i'));
     if (notNullMatch) {
       const field = notNullMatch[1];
       return data.filter(row => row[field] !== null && row[field] !== undefined && row[field] !== '');
     }
-    
+
     const eqMatch = condition.match(new RegExp(`(${fieldPattern})\\s*=\\s*['"]?([^'"]+)['"]?`));
     if (eqMatch) {
       const [, field, value] = eqMatch;
       console.log('WHERE filter:', field, '=', value);
       return data.filter(row => String(row[field]) === value);
     }
-    
+
     const likeMatch = condition.match(new RegExp(`(${fieldPattern})\\s+like\\s+['"]%?([^%'"]+)%?['"]`, 'i'));
     if (likeMatch) {
       const [, field, value] = likeMatch;

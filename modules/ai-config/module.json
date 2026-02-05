@@ -5,26 +5,26 @@
   "description": "AI服务配置管理模块，支持多提供商配置、API Key加密存储、优先级管理",
   "author": "System Team",
   "license": "MIT",
-  
   "type": "business",
   "category": "ai",
-  "tags": ["ai", "config", "llm", "provider"],
-  
+  "tags": [
+    "ai",
+    "config",
+    "llm",
+    "provider"
+  ],
   "dependencies": {},
-  
   "peerDependencies": {
     "node": ">=18.0.0",
     "vue": "^3.0.0"
   },
-  
   "backend": {
     "entry": "./backend/index.ts",
     "routes": {
-      "prefix": "/ai",
+      "prefix": "/api/admin/ai",
       "file": "./backend/routes.ts"
     }
   },
-  
   "frontend": {
     "entry": "./frontend/index.ts",
     "routes": "./frontend/routes.ts",
@@ -32,19 +32,17 @@
       "AIConfigList": "./frontend/views/ConfigList.vue"
     }
   },
-  
   "menus": [
     {
-      "id": "ai-config-menu",
-      "title": "AI配置",
+      "id": "ai-config-main",
+      "title": "AI 模型配置",
       "path": "/ai/config",
       "icon": "SettingOutlined",
-      "parentId": "ai-menu",
-      "sortOrder": 1,
+      "parentId": "system-management",
+      "sortOrder": 4,
       "permission": "ai:view"
     }
   ],
-  
   "permissions": [
     {
       "code": "ai:view",
@@ -57,11 +55,9 @@
       "description": "创建、更新、删除AI配置"
     }
   ],
-  
   "config": {
     "schema": "./config/schema.json"
   },
-  
   "hooks": {
     "beforeInstall": "./backend/hooks/beforeInstall.ts",
     "afterInstall": "./backend/hooks/afterInstall.ts",
@@ -72,12 +68,12 @@
     "beforeDisable": "./backend/hooks/beforeDisable.ts",
     "afterDisable": "./backend/hooks/afterDisable.ts"
   },
-  
   "database": {
-    "tables": ["sys_ai_configs"],
+    "tables": [
+      "sys_ai_configs"
+    ],
     "version": "1.0.0"
   },
-  
   "api": {
     "endpoints": [
       {
@@ -130,7 +126,6 @@
       }
     ]
   },
-  
-  "enabled": false,
-  "installed": false
+  "enabled": true,
+  "installed": true
 }

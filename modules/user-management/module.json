@@ -5,18 +5,18 @@
   "description": "用户账户管理模块，包含用户CRUD、状态管理、密码管理等功能",
   "author": "System Team",
   "license": "MIT",
-  
   "type": "business",
   "category": "system",
-  "tags": ["user", "auth", "management"],
-  
+  "tags": [
+    "user",
+    "auth",
+    "management"
+  ],
   "dependencies": {},
-  
   "peerDependencies": {
     "node": ">=18.0.0",
     "vue": "^3.0.0"
   },
-  
   "backend": {
     "entry": "./backend/index.ts",
     "routes": {
@@ -28,7 +28,6 @@
       "tableName": "module_migrations"
     }
   },
-  
   "frontend": {
     "entry": "./frontend/index.ts",
     "routes": "./frontend/routes.ts",
@@ -37,19 +36,17 @@
       "UserForm": "./frontend/components/UserForm.vue"
     }
   },
-  
   "menus": [
     {
       "id": "user-management-menu",
       "title": "用户管理",
-      "path": "/user",
+      "path": "/system/users",
       "icon": "UserOutlined",
       "parentId": "system-management",
       "sortOrder": 1,
       "permission": "user:view"
     }
   ],
-  
   "permissions": [
     {
       "code": "user:view",
@@ -72,12 +69,10 @@
       "description": "删除用户"
     }
   ],
-  
   "config": {
     "schema": "./config/schema.json",
     "defaults": "./config/default.json"
   },
-  
   "hooks": {
     "beforeInstall": "./backend/hooks/beforeInstall.ts",
     "afterInstall": "./backend/hooks/afterInstall.ts",
@@ -88,12 +83,13 @@
     "beforeDisable": "./backend/hooks/beforeDisable.ts",
     "afterDisable": "./backend/hooks/afterDisable.ts"
   },
-  
   "database": {
-    "tables": ["sys_users", "sys_user_roles"],
+    "tables": [
+      "sys_users",
+      "sys_user_roles"
+    ],
     "version": "1.0.0"
   },
-  
   "api": {
     "endpoints": [
       {
@@ -152,7 +148,6 @@
       }
     ]
   },
-  
-  "enabled": false,
-  "installed": false
+  "enabled": true,
+  "installed": true
 }

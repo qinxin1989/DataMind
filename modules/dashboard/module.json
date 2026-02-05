@@ -1,52 +1,83 @@
 {
-  "id": "dashboard",
-  "name": "大屏管理",
+  "name": "dashboard",
+  "displayName": "大屏管理",
   "version": "1.0.0",
   "description": "数据大屏配置和管理模块，支持大屏创建、布局设计、图表配置和发布",
   "author": "System",
   "license": "MIT",
-  "main": "backend/index.ts",
-  "frontend": "frontend/index.ts",
-  "permissions": [
-    {
-      "id": "dashboard:view",
-      "name": "查看大屏",
-      "description": "允许查看大屏列表和详情"
-    },
-    {
-      "id": "dashboard:create",
-      "name": "创建大屏",
-      "description": "允许创建新的大屏"
-    },
-    {
-      "id": "dashboard:edit",
-      "name": "编辑大屏",
-      "description": "允许编辑大屏配置"
-    },
-    {
-      "id": "dashboard:publish",
-      "name": "发布大屏",
-      "description": "允许发布和取消发布大屏"
-    },
-    {
-      "id": "dashboard:manage",
-      "name": "管理大屏",
-      "description": "允许管理所有大屏（包括删除）"
-    }
+  "type": "business",
+  "category": "visualization",
+  "tags": [
+    "dashboard",
+    "visualization",
+    "charts"
   ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/dashboard",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
   "menus": [
     {
       "id": "dashboard-main",
       "title": "大屏管理",
-      "path": "/system/dashboard",
-      "icon": "DashboardOutlined",
-      "order": 905,
+      "path": "/dashboard/list",
+      "icon": "FundOutlined",
+      "parentId": "system-management",
+      "sortOrder": 905,
       "permission": "dashboard:view"
     }
   ],
-  "dependencies": [],
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
-  }
+  "permissions": [
+    {
+      "code": "dashboard:view",
+      "name": "查看大屏",
+      "description": "允许查看大屏列表和详情"
+    },
+    {
+      "code": "dashboard:create",
+      "name": "创建大屏",
+      "description": "允许创建新的大屏"
+    },
+    {
+      "code": "dashboard:edit",
+      "name": "编辑大屏",
+      "description": "允许编辑大屏配置"
+    },
+    {
+      "code": "dashboard:publish",
+      "name": "发布大屏",
+      "description": "允许发布和取消发布大屏"
+    },
+    {
+      "code": "dashboard:manage",
+      "name": "管理大屏",
+      "description": "允许管理所有大屏（包括删除）"
+    }
+  ],
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/dashboard",
+        "description": "获取大屏列表",
+        "permission": "dashboard:view"
+      },
+      {
+        "method": "POST",
+        "path": "/dashboard",
+        "description": "创建大屏",
+        "permission": "dashboard:create"
+      }
+    ]
+  },
+  "enabled": true,
+  "installed": true
 }

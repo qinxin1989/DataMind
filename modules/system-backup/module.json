@@ -1,13 +1,41 @@
 {
-  "id": "system-backup",
-  "name": "系统备份",
+  "name": "system-backup",
+  "displayName": "系统备份",
   "version": "1.0.0",
   "description": "提供系统数据备份、恢复、验证和导出功能",
   "author": "System",
   "license": "MIT",
-  "main": "backend/index.ts",
-  "frontend": "frontend/index.ts",
-  "dependencies": [],
+  "type": "system",
+  "category": "maintenance",
+  "tags": [
+    "backup",
+    "restore",
+    "system",
+    "data"
+  ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/system-backup",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
+  "menus": [
+    {
+      "id": "system-backup-main",
+      "title": "备份恢复",
+      "path": "/system/backup",
+      "icon": "CloudServerOutlined",
+      "parentId": "system-management",
+      "sortOrder": 903,
+      "permission": "system-backup:view"
+    }
+  ],
   "permissions": [
     {
       "code": "system-backup:view",
@@ -30,44 +58,22 @@
       "description": "允许删除备份文件"
     }
   ],
-  "menus": [
-    {
-      "id": "system-backup-main",
-      "title": "备份恢复",
-      "path": "/system/backup",
-      "icon": "CloudServerOutlined",
-      "parentId": null,
-      "sort": 903,
-      "permission": "system-backup:view"
-    }
-  ],
-  "routes": {
-    "backend": [
+  "api": {
+    "endpoints": [
       {
-        "path": "/api/modules/system-backup",
-        "method": "all"
-      }
-    ],
-    "frontend": [
+        "method": "GET",
+        "path": "/system-backup",
+        "description": "获取备份列表",
+        "permission": "system-backup:view"
+      },
       {
-        "path": "/system/backup",
-        "component": "views/SystemBackup.vue",
-        "name": "SystemBackup",
-        "meta": {
-          "title": "备份恢复",
-          "permission": "system-backup:view"
-        }
+        "method": "POST",
+        "path": "/system-backup",
+        "description": "创建备份",
+        "permission": "system-backup:create"
       }
     ]
   },
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
-  },
-  "migrations": [
-    {
-      "version": "1.0.0",
-      "file": "backend/migrations/001_create_backup_tables.sql"
-    }
-  ]
+  "enabled": true,
+  "installed": true
 }

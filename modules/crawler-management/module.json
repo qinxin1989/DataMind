@@ -1,13 +1,38 @@
 {
-  "id": "crawler-management",
   "name": "crawler-management",
-  "version": "1.0.0",
   "displayName": "爬虫管理",
+  "version": "1.0.0",
   "description": "管理网页抓取模板、定时任务及历史采集数据",
   "author": "System",
+  "license": "MIT",
+  "type": "business",
   "category": "data",
-  "tags": ["crawler", "data", "extraction", "template", "task"],
-  "dependencies": [],
+  "tags": [
+    "crawler",
+    "data",
+    "extraction",
+    "template",
+    "task"
+  ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/api/skills/crawler",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "menus": [
+    {
+      "id": "crawler-management-main",
+      "title": "爬虫管理",
+      "path": "/ai/crawler",
+      "icon": "DatabaseOutlined",
+      "parentId": "data-collection",
+      "sortOrder": 3,
+      "permission": "crawler:view"
+    }
+  ],
   "permissions": [
     {
       "code": "crawler:view",
@@ -25,106 +50,28 @@
       "description": "手动执行爬虫任务"
     }
   ],
-  "menus": [
-    {
-      "id": "00000000-0000-0000-0000-000000000014",
-      "title": "爬虫管理",
-      "path": "/ai/crawler",
-      "icon": "DatabaseOutlined",
-      "parentId": "00000000-0000-0000-0000-000000000021",
-      "sort": 3,
-      "permission": "crawler:view"
-    }
-  ],
-  "backend": {
-    "entry": "./backend/index.ts",
-    "routes": {
-      "prefix": "/admin/ai",
-      "file": "./backend/routes.ts"
-    }
-  },
-  "routes": {
-    "backend": [
+  "api": {
+    "endpoints": [
       {
         "method": "GET",
-        "path": "/crawler/templates",
-        "handler": "getTemplates",
+        "path": "/crawler-management/templates",
+        "description": "获取爬虫模板",
         "permission": "crawler:view"
       },
       {
         "method": "POST",
-        "path": "/crawler/templates",
-        "handler": "saveTemplate",
-        "permission": "crawler:manage"
-      },
-      {
-        "method": "DELETE",
-        "path": "/crawler/templates/:id",
-        "handler": "deleteTemplate",
+        "path": "/crawler-management/templates",
+        "description": "创建爬虫模板",
         "permission": "crawler:manage"
       },
       {
         "method": "GET",
-        "path": "/crawler/tasks",
-        "handler": "getTasks",
+        "path": "/crawler-management/tasks",
+        "description": "获取爬虫任务",
         "permission": "crawler:view"
-      },
-      {
-        "method": "POST",
-        "path": "/crawler/tasks/:id/toggle",
-        "handler": "toggleTask",
-        "permission": "crawler:execute"
-      },
-      {
-        "method": "GET",
-        "path": "/crawler/results",
-        "handler": "getResults",
-        "permission": "crawler:view"
-      },
-      {
-        "method": "GET",
-        "path": "/crawler/results/:id",
-        "handler": "getResultDetails",
-        "permission": "crawler:view"
-      },
-      {
-        "method": "DELETE",
-        "path": "/crawler/results/:id",
-        "handler": "deleteResult",
-        "permission": "crawler:manage"
-      },
-      {
-        "method": "POST",
-        "path": "/execute",
-        "handler": "executeSkill",
-        "permission": "crawler:execute"
-      }
-    ],
-    "frontend": [
-      {
-        "path": "/ai/crawler",
-        "component": "views/CrawlerList.vue",
-        "name": "CrawlerManagement",
-        "meta": {
-          "title": "爬虫管理",
-          "permission": "crawler:view"
-        }
       }
     ]
   },
-  "config": {
-    "schema": "config/schema.json"
-  },
-  "migrations": [],
-  "hooks": {
-    "beforeInstall": true,
-    "afterInstall": true,
-    "beforeUninstall": true,
-    "afterUninstall": true,
-    "beforeEnable": true,
-    "afterEnable": true,
-    "beforeDisable": true,
-    "afterDisable": true
-  },
-  "enabled": true
+  "enabled": true,
+  "installed": true
 }

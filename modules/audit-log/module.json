@@ -1,13 +1,40 @@
 {
-  "id": "audit-log",
-  "name": "审计日志",
+  "name": "audit-log",
+  "displayName": "审计日志",
   "version": "1.0.0",
   "description": "提供审计日志记录、查询、导出和统计功能",
   "author": "System",
   "license": "MIT",
-  "main": "backend/index.ts",
-  "frontend": "frontend/index.ts",
-  "dependencies": [],
+  "type": "system",
+  "category": "security",
+  "tags": [
+    "audit",
+    "log",
+    "security"
+  ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/audit-log",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
+  "menus": [
+    {
+      "id": "audit-log-main",
+      "title": "审计日志",
+      "path": "/system/audit",
+      "icon": "FileSearchOutlined",
+      "parentId": "system-management",
+      "sortOrder": 902,
+      "permission": "audit:view"
+    }
+  ],
   "permissions": [
     {
       "code": "audit-log:view",
@@ -25,44 +52,22 @@
       "description": "允许删除和清理审计日志"
     }
   ],
-  "menus": [
-    {
-      "id": "audit-log-main",
-      "title": "审计日志",
-      "path": "/system/audit-log",
-      "icon": "FileSearchOutlined",
-      "parentId": null,
-      "sort": 902,
-      "permission": "audit-log:view"
-    }
-  ],
-  "routes": {
-    "backend": [
+  "api": {
+    "endpoints": [
       {
-        "path": "/api/modules/audit-log",
-        "method": "all"
-      }
-    ],
-    "frontend": [
+        "method": "GET",
+        "path": "/audit-log",
+        "description": "获取审计日志列表",
+        "permission": "audit-log:view"
+      },
       {
-        "path": "/system/audit-log",
-        "component": "views/AuditLog.vue",
-        "name": "AuditLog",
-        "meta": {
-          "title": "审计日志",
-          "permission": "audit-log:view"
-        }
+        "method": "POST",
+        "path": "/audit-log/export",
+        "description": "导出审计日志",
+        "permission": "audit-log:export"
       }
     ]
   },
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
-  },
-  "migrations": [
-    {
-      "version": "1.0.0",
-      "file": "backend/migrations/001_create_audit_log_tables.sql"
-    }
-  ]
+  "enabled": true,
+  "installed": true
 }

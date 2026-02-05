@@ -1,13 +1,42 @@
 {
-  "id": "file-tools",
-  "name": "文件工具",
+  "name": "file-tools",
+  "displayName": "文件工具",
   "version": "1.0.0",
   "description": "提供文件格式转换、PDF合并、图片压缩等实用工具",
   "author": "System",
   "license": "MIT",
-  "main": "backend/index.ts",
-  "frontend": "frontend/index.ts",
-  "dependencies": [],
+  "type": "tool",
+  "category": "utility",
+  "tags": [
+    "file",
+    "convert",
+    "pdf",
+    "image",
+    "compress"
+  ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/file-tools",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
+  "menus": [
+    {
+      "id": "file-tools-main",
+      "title": "文件工具",
+      "path": "/tools/file",
+      "icon": "FileTextOutlined",
+      "parentId": "tools-center",
+      "sortOrder": 100,
+      "permission": "file-tools:view"
+    }
+  ],
   "permissions": [
     {
       "code": "file-tools:view",
@@ -35,44 +64,22 @@
       "description": "允许查看文件转换历史记录"
     }
   ],
-  "menus": [
-    {
-      "id": "file-tools-main",
-      "title": "文件工具",
-      "path": "/tools/file",
-      "icon": "FileTextOutlined",
-      "parentId": null,
-      "sort": 100,
-      "permission": "file-tools:view"
-    }
-  ],
-  "routes": {
-    "backend": [
+  "api": {
+    "endpoints": [
       {
-        "path": "/api/modules/file-tools",
-        "method": "all"
-      }
-    ],
-    "frontend": [
+        "method": "POST",
+        "path": "/file-tools/convert",
+        "description": "文件格式转换",
+        "permission": "file-tools:convert"
+      },
       {
-        "path": "/tools/file",
-        "component": "views/FileTools.vue",
-        "name": "FileTools",
-        "meta": {
-          "title": "文件工具",
-          "permission": "file-tools:view"
-        }
+        "method": "POST",
+        "path": "/file-tools/merge-pdf",
+        "description": "PDF合并",
+        "permission": "file-tools:merge"
       }
     ]
   },
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
-  },
-  "migrations": [
-    {
-      "version": "1.0.0",
-      "file": "backend/migrations/001_create_file_tools_tables.sql"
-    }
-  ]
+  "enabled": true,
+  "installed": true
 }

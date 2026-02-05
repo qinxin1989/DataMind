@@ -1,13 +1,43 @@
 {
-  "id": "official-doc",
-  "name": "公文写作",
+  "name": "official-doc",
+  "displayName": "公文写作",
   "version": "1.0.0",
   "description": "AI辅助公文写作工具，支持工作报告、通知公告、会议纪要等多种公文类型",
   "author": "System",
   "license": "MIT",
-  "main": "backend/index.ts",
-  "frontend": "frontend/index.ts",
-  "dependencies": ["ai-config"],
+  "type": "tool",
+  "category": "document",
+  "tags": [
+    "document",
+    "writing",
+    "ai",
+    "official"
+  ],
+  "dependencies": {
+    "ai-config": "^1.0.0"
+  },
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/official-doc",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
+  "menus": [
+    {
+      "id": "official-doc-main",
+      "title": "公文写作",
+      "path": "/tools/official-doc",
+      "icon": "FileTextOutlined",
+      "parentId": "tools-center",
+      "sortOrder": 120,
+      "permission": "official-doc:view"
+    }
+  ],
   "permissions": [
     {
       "code": "official-doc:view",
@@ -35,44 +65,22 @@
       "description": "允许导出公文为Word格式"
     }
   ],
-  "menus": [
-    {
-      "id": "official-doc-main",
-      "title": "公文写作",
-      "path": "/tools/official-doc",
-      "icon": "FileTextOutlined",
-      "parentId": null,
-      "sort": 120,
-      "permission": "official-doc:view"
-    }
-  ],
-  "routes": {
-    "backend": [
+  "api": {
+    "endpoints": [
       {
-        "path": "/api/modules/official-doc",
-        "method": "all"
-      }
-    ],
-    "frontend": [
+        "method": "POST",
+        "path": "/official-doc/generate",
+        "description": "生成公文",
+        "permission": "official-doc:generate"
+      },
       {
-        "path": "/tools/official-doc",
-        "component": "views/OfficialDoc.vue",
-        "name": "OfficialDoc",
-        "meta": {
-          "title": "公文写作",
-          "permission": "official-doc:view"
-        }
+        "method": "GET",
+        "path": "/official-doc/templates",
+        "description": "获取模板列表",
+        "permission": "official-doc:template"
       }
     ]
   },
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
-  },
-  "migrations": [
-    {
-      "version": "1.0.0",
-      "file": "backend/migrations/001_create_official_doc_tables.sql"
-    }
-  ]
+  "enabled": true,
+  "installed": true
 }

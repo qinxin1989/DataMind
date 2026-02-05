@@ -1,13 +1,50 @@
 {
-  "id": "system-config",
-  "name": "系统配置",
+  "name": "system-config",
+  "displayName": "系统配置",
   "version": "1.0.0",
   "description": "提供系统配置管理、数据库配置、系统状态监控等功能",
   "author": "System",
   "license": "MIT",
-  "main": "backend/index.ts",
-  "frontend": "frontend/index.ts",
-  "dependencies": [],
+  "type": "system",
+  "category": "configuration",
+  "tags": [
+    "config",
+    "system",
+    "database",
+    "monitoring"
+  ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/system-config",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
+  "menus": [
+    {
+      "id": "system-config-main",
+      "title": "系统配置",
+      "path": "/system/config",
+      "icon": "SettingOutlined",
+      "parentId": "system-management",
+      "sortOrder": 900,
+      "permission": "system-config:view"
+    },
+    {
+      "id": "system-status",
+      "title": "系统状态",
+      "path": "/system/status",
+      "icon": "DashboardOutlined",
+      "parentId": "system-management",
+      "sortOrder": 901,
+      "permission": "system-config:view"
+    }
+  ],
   "permissions": [
     {
       "code": "system-config:view",
@@ -25,62 +62,22 @@
       "description": "允许管理数据库配置"
     }
   ],
-  "menus": [
-    {
-      "id": "system-config-main",
-      "title": "系统配置",
-      "path": "/system/config",
-      "icon": "SettingOutlined",
-      "parentId": null,
-      "sort": 900,
-      "permission": "system-config:view"
-    },
-    {
-      "id": "system-status",
-      "title": "系统状态",
-      "path": "/system/status",
-      "icon": "DashboardOutlined",
-      "parentId": null,
-      "sort": 901,
-      "permission": "system-config:view"
-    }
-  ],
-  "routes": {
-    "backend": [
+  "api": {
+    "endpoints": [
       {
-        "path": "/api/modules/system-config",
-        "method": "all"
-      }
-    ],
-    "frontend": [
-      {
-        "path": "/system/config",
-        "component": "views/SystemConfig.vue",
-        "name": "SystemConfig",
-        "meta": {
-          "title": "系统配置",
-          "permission": "system-config:view"
-        }
+        "method": "GET",
+        "path": "/system-config",
+        "description": "获取系统配置",
+        "permission": "system-config:view"
       },
       {
-        "path": "/system/status",
-        "component": "views/SystemStatus.vue",
-        "name": "SystemStatus",
-        "meta": {
-          "title": "系统状态",
-          "permission": "system-config:view"
-        }
+        "method": "PUT",
+        "path": "/system-config",
+        "description": "更新系统配置",
+        "permission": "system-config:manage"
       }
     ]
   },
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
-  },
-  "migrations": [
-    {
-      "version": "1.0.0",
-      "file": "backend/migrations/001_create_system_config_tables.sql"
-    }
-  ]
+  "enabled": true,
+  "installed": true
 }

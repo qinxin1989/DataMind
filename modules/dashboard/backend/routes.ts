@@ -16,17 +16,26 @@ export function createDashboardRoutes(service: DashboardService): Router {
   router.get('/', (req: Request, res: Response) => {
     try {
       const params = {
-        page: req.query.page ? parseInt(req.query.page as string) : undefined,
-        pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : undefined,
+        page: req.query.page ? parseInt(req.query.page as string) : 1,
+        pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 10,
         status: req.query.status as any,
         createdBy: req.query.createdBy as string,
         keyword: req.query.keyword as string,
       };
 
       const result = service.getList(params);
-      res.json(result);
+      res.json({
+        success: true,
+        data: result.items,
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+      });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ 
+        success: false,
+        error: error.message 
+      });
     }
   });
 

@@ -6,7 +6,7 @@ import type { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
   {
-    path: '/user',
+    path: '/system/users',
     name: 'UserManagement',
     component: () => import('./views/UserList.vue'),
     meta: {

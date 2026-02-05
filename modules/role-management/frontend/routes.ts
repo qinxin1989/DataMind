@@ -6,7 +6,7 @@ import type { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
   {
-    path: '/role',
+    path: '/system/roles',
     name: 'RoleManagement',
     component: () => import('./views/RoleList.vue'),
     meta: {

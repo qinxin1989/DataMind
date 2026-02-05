@@ -1,46 +1,73 @@
 {
-  "id": "notification",
-  "name": "通知中心",
+  "name": "notification",
+  "displayName": "通知中心",
   "version": "1.0.0",
   "description": "系统通知管理模块，支持通知创建、查询、已读状态管理和批量操作",
   "author": "AI Data Platform Team",
-  "dependencies": [],
-  "permissions": [
-    {
-      "id": "notification:view",
-      "name": "查看通知",
-      "description": "允许查看通知列表和详情"
-    },
-    {
-      "id": "notification:create",
-      "name": "创建通知",
-      "description": "允许创建和发送通知"
-    },
-    {
-      "id": "notification:manage",
-      "name": "管理通知",
-      "description": "允许管理所有通知，包括删除和批量操作"
-    }
+  "license": "MIT",
+  "type": "system",
+  "category": "communication",
+  "tags": [
+    "notification",
+    "message",
+    "alert"
   ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/notification",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
   "menus": [
     {
       "id": "notification-main",
       "title": "通知中心",
-      "path": "/system/notification",
+      "path": "/notification",
       "icon": "BellOutlined",
-      "order": 904,
+      "parentId": "system-management",
+      "sortOrder": 904,
       "permission": "notification:view"
     }
   ],
-  "backend": {
-    "entry": "backend/index.ts",
-    "routes": "backend/routes.ts"
+  "permissions": [
+    {
+      "code": "notification:view",
+      "name": "查看通知",
+      "description": "允许查看通知列表和详情"
+    },
+    {
+      "code": "notification:create",
+      "name": "创建通知",
+      "description": "允许创建和发送通知"
+    },
+    {
+      "code": "notification:manage",
+      "name": "管理通知",
+      "description": "允许管理所有通知，包括删除和批量操作"
+    }
+  ],
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/notification",
+        "description": "获取通知列表",
+        "permission": "notification:view"
+      },
+      {
+        "method": "POST",
+        "path": "/notification",
+        "description": "创建通知",
+        "permission": "notification:create"
+      }
+    ]
   },
-  "frontend": {
-    "entry": "frontend/index.ts"
-  },
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
-  }
+  "enabled": true,
+  "installed": true
 }

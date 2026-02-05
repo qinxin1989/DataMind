@@ -5,98 +5,105 @@
   "description": "AI智能问答模块，提供自然语言问答、知识库管理、RAG检索等功能",
   "author": "System Team",
   "license": "MIT",
+  "type": "business",
   "category": "ai",
+  "tags": [
+    "ai",
+    "qa",
+    "knowledge",
+    "rag"
+  ],
   "dependencies": {
     "ai-config": "^1.0.0"
   },
   "backend": {
-    "entry": "backend/index.ts",
-    "routes": "/admin/ai-qa"
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/api",
+      "file": "./backend/routes.ts"
+    }
   },
   "frontend": {
-    "entry": "frontend/index.ts",
-    "routes": [
-      {
-        "path": "/ai/qa",
-        "name": "AIQAManagement",
-        "component": "views/QAManagement.vue",
-        "meta": {
-          "title": "智能问答",
-          "icon": "QuestionCircleOutlined",
-          "permission": "ai-qa:view"
-        }
-      },
-      {
-        "path": "/ai/knowledge-base",
-        "name": "KnowledgeBase",
-        "component": "views/KnowledgeBase.vue",
-        "meta": {
-          "title": "知识库",
-          "icon": "BookOutlined",
-          "permission": "ai-qa:knowledge:view"
-        }
-      }
-    ]
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
   },
+  "menus": [
+    {
+      "id": "ai-qa-main",
+      "title": "AI智能问答",
+      "path": "/ai/chat",
+      "icon": "QuestionCircleOutlined",
+      "parentId": "ai-center",
+      "sortOrder": 30,
+      "permission": "ai-qa:view"
+    },
+    {
+      "id": "knowledge-base",
+      "title": "知识库管理",
+      "path": "/ai/knowledge",
+      "icon": "BookOutlined",
+      "parentId": "ai-center",
+      "sortOrder": 31,
+      "permission": "ai-qa:knowledge:view"
+    },
+    {
+      "id": "ai-history",
+      "title": "对话历史",
+      "path": "/ai/history",
+      "icon": "HistoryOutlined",
+      "parentId": "ai-center",
+      "sortOrder": 32,
+      "permission": "ai:view"
+    }
+  ],
   "permissions": [
     {
       "code": "ai-qa:view",
       "name": "查看AI问答",
-      "description": "查看AI问答功能",
-      "category": "AI服务"
+      "description": "查看AI问答功能"
     },
     {
       "code": "ai-qa:ask",
       "name": "使用AI问答",
-      "description": "使用AI进行自然语言问答",
-      "category": "AI服务"
+      "description": "使用AI进行自然语言问答"
     },
     {
       "code": "ai-qa:knowledge:view",
       "name": "查看知识库",
-      "description": "查看知识库文档",
-      "category": "AI服务"
+      "description": "查看知识库文档"
     },
     {
       "code": "ai-qa:knowledge:manage",
       "name": "管理知识库",
-      "description": "添加、编辑、删除知识库文档",
-      "category": "AI服务"
+      "description": "添加、编辑、删除知识库文档"
     },
     {
       "code": "ai-qa:datasource:manage",
       "name": "管理数据源",
-      "description": "管理AI问答数据源",
-      "category": "AI服务"
+      "description": "管理AI问答数据源"
     },
     {
       "code": "ai-qa:category:manage",
       "name": "管理知识库分类",
-      "description": "管理知识库分类",
-      "category": "AI服务"
+      "description": "管理知识库分类"
     }
   ],
-  "menus": [
-    {
-      "name": "AI智能问答",
-      "path": "/ai/qa",
-      "icon": "QuestionCircleOutlined",
-      "permission": "ai-qa:view",
-      "order": 30
-    },
-    {
-      "name": "知识库管理",
-      "path": "/ai/knowledge-base",
-      "icon": "BookOutlined",
-      "permission": "ai-qa:knowledge:view",
-      "order": 31
-    }
-  ],
-  "config": {
-    "schema": "config/schema.json",
-    "default": "config/default.json"
+  "api": {
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/ai-qa/ask",
+        "description": "AI问答",
+        "permission": "ai-qa:ask"
+      },
+      {
+        "method": "GET",
+        "path": "/ai-qa/knowledge-base",
+        "description": "获取知识库",
+        "permission": "ai-qa:knowledge:view"
+      }
+    ]
   },
-  "migrations": {
-    "directory": "backend/migrations"
-  }
+  "enabled": true,
+  "installed": true
 }

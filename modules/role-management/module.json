@@ -5,20 +5,21 @@
   "description": "角色权限管理模块，包含角色CRUD、权限配置、菜单分配等功能",
   "author": "System Team",
   "license": "MIT",
-  
   "type": "business",
   "category": "system",
-  "tags": ["role", "permission", "auth", "management"],
-  
+  "tags": [
+    "role",
+    "permission",
+    "auth",
+    "management"
+  ],
   "dependencies": {
     "user-management": "^1.0.0"
   },
-  
   "peerDependencies": {
     "node": ">=18.0.0",
     "vue": "^3.0.0"
   },
-  
   "backend": {
     "entry": "./backend/index.ts",
     "routes": {
@@ -30,7 +31,6 @@
       "tableName": "module_migrations"
     }
   },
-  
   "frontend": {
     "entry": "./frontend/index.ts",
     "routes": "./frontend/routes.ts",
@@ -39,19 +39,17 @@
       "RoleForm": "./frontend/components/RoleForm.vue"
     }
   },
-  
   "menus": [
     {
       "id": "role-management-menu",
       "title": "角色管理",
-      "path": "/role",
+      "path": "/system/roles",
       "icon": "TeamOutlined",
       "parentId": "system-management",
       "sortOrder": 2,
       "permission": "role:view"
     }
   ],
-  
   "permissions": [
     {
       "code": "role:view",
@@ -74,12 +72,10 @@
       "description": "删除角色"
     }
   ],
-  
   "config": {
     "schema": "./config/schema.json",
     "defaults": "./config/default.json"
   },
-  
   "hooks": {
     "beforeInstall": "./backend/hooks/beforeInstall.ts",
     "afterInstall": "./backend/hooks/afterInstall.ts",
@@ -90,12 +86,15 @@
     "beforeDisable": "./backend/hooks/beforeDisable.ts",
     "afterDisable": "./backend/hooks/afterDisable.ts"
   },
-  
   "database": {
-    "tables": ["sys_roles", "sys_role_permissions", "sys_role_menus", "sys_user_roles"],
+    "tables": [
+      "sys_roles",
+      "sys_role_permissions",
+      "sys_role_menus",
+      "sys_user_roles"
+    ],
     "version": "1.0.0"
   },
-  
   "api": {
     "endpoints": [
       {
@@ -136,7 +135,6 @@
       }
     ]
   },
-  
-  "enabled": false,
-  "installed": false
+  "enabled": true,
+  "installed": true
 }
