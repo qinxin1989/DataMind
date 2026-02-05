@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as xlsx from 'xlsx';
 import { parse } from 'csv-parse/sync';
 import { BaseDataSource } from './base';
-import { FileConfig, TableSchema, ColumnInfo, QueryResult } from './types';
+import { FileConfig, TableSchema, TableSchemaWithName, ColumnInfo, QueryResult } from './types';
 import { fileEncryption } from '../../../src/services/fileEncryption';
 
 // 单个文件信息
@@ -17,7 +17,7 @@ interface FileInfo {
 export class FileDataSource extends BaseDataSource {
   private config: FileConfig;
   private tables: Map<string, any[]> = new Map(); // tableName -> data
-  private schemas: TableSchema[] = [];
+  private schemas: TableSchemaWithName[] = [];
 
   constructor(config: FileConfig) {
     super();

@@ -1,6 +1,14 @@
 import axios from 'axios';
 import { BaseDataSource } from './base';
-import { ApiConfig, TableSchema, ColumnInfo, QueryResult } from '../types';
+import { TableSchema, ColumnInfo, QueryResult } from './types';
+
+// API 配置类型
+interface ApiConfig {
+  url: string;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  headers?: Record<string, string>;
+  params?: Record<string, any>;
+}
 
 export class ApiDataSource extends BaseDataSource {
   private config: ApiConfig;
@@ -21,9 +29,9 @@ export class ApiDataSource extends BaseDataSource {
     });
 
     const responseData = response.data;
-    this.data = Array.isArray(responseData) 
-      ? responseData 
-      : responseData.data 
+    this.data = Array.isArray(responseData)
+      ? responseData
+      : responseData.data
         ? (Array.isArray(responseData.data) ? responseData.data : [responseData.data])
         : [responseData];
 
@@ -90,8 +98,8 @@ export class ApiDataSource extends BaseDataSource {
         // 尝试解析为日期
         const dateVal = new Date(value);
         const isValidDate = !isNaN(dateVal.getTime()) &&
-                           !isNaN(Date.parse(value)) &&
-                           value.match(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/); // 包含日期格式
+          !isNaN(Date.parse(value)) &&
+          value.match(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/); // 包含日期格式
 
         if (isValidDate) {
           dateCount++;
@@ -138,7 +146,7 @@ export class ApiDataSource extends BaseDataSource {
   async executeQuery(sql: string): Promise<QueryResult> {
     try {
       if (this.data.length === 0) await this.connect();
-      
+
       // 简单的过滤逻辑，类似文件数据源
       const lowerSql = sql.toLowerCase();
       let result = [...this.data];

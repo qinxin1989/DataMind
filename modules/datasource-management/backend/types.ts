@@ -36,12 +36,14 @@ export interface DataSourceConfig {
 // 表结构信息
 export interface TableSchema {
     name: string;
+    tableName?: string;  // 别名，兼容旧代码
     columns: ColumnInfo[];
     primaryKey?: string[];
     foreignKeys?: ForeignKeyInfo[];
     indexes?: IndexInfo[];
     rowCount?: number;
     comment?: string;
+    sampleData?: any[];
 }
 
 // 列信息
@@ -126,8 +128,32 @@ export interface ConnectionTestResult {
 
 // 查询结果
 export interface QueryResult {
-    columns: string[];
-    rows: any[];
-    rowCount: number;
-    executionTime: number;
+    success?: boolean;
+    error?: string;
+    sql?: string;
+    columns?: string[];
+    rows?: any[];
+    data?: any[];
+    rowCount?: number;
+    executionTime?: number;
+}
+
+// 文件配置
+export interface FileConfig {
+    path: string;
+    fileType: 'csv' | 'xlsx' | 'json';
+    originalName?: string;
+    encrypted?: boolean;
+    files?: Array<{
+        path: string;
+        fileType: 'csv' | 'xlsx' | 'json';
+        originalName?: string;
+        encrypted?: boolean;
+    }>;
+}
+
+// 扩展的表结构（兼容 tableName）
+export interface TableSchemaWithName extends TableSchema {
+    tableName?: string;
+    sampleData?: any[];
 }

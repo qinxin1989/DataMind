@@ -3,8 +3,9 @@
  * 统一管理所有技能的注册、发现和执行
  */
 
-import { BaseDataSource } from '../../datasource';
-import { TableSchema } from '../../types';
+// 使用 any 类型避免循环依赖
+type BaseDataSource = any;
+type TableSchema = any;
 
 // 技能参数定义
 export interface SkillParameter {
@@ -54,7 +55,7 @@ export interface SkillDefinition {
 }
 
 // 技能分类
-export type SkillCategory = 'data' | 'document' | 'media' | 'report';
+export type SkillCategory = 'data' | 'document' | 'media' | 'report' | 'crawler';
 
 // 技能注册中心
 export class SkillsRegistry {
@@ -67,6 +68,7 @@ export class SkillsRegistry {
     this.categories.set('document', []);
     this.categories.set('media', []);
     this.categories.set('report', []);
+    this.categories.set('crawler', []);
   }
 
   // 注册技能

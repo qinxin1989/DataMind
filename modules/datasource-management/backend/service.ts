@@ -19,7 +19,7 @@ import type {
 import { MySQLDataSource } from './mysql';
 import { PostgresDataSource } from './postgres';
 import { FileDataSource } from './file';
-import { APIDataSource } from './api';
+import { ApiDataSource } from './api';
 import { BaseDataSource } from './base';
 
 export class DataSourceService {
@@ -253,7 +253,7 @@ export class DataSourceService {
                 connection = new FileDataSource(ds);
                 break;
             case 'api':
-                connection = new APIDataSource(ds);
+                connection = new ApiDataSource(ds);
                 break;
             default:
                 throw new Error(`不支持的数据源类型: ${ds.type}`);
