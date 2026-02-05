@@ -1,0 +1,100 @@
+{
+  "name": "datasource-management",
+  "displayName": "数据源管理",
+  "version": "1.0.0",
+  "description": "数据源管理模块，包含数据源CRUD、连接测试、Schema分析等功能",
+  "author": "System Team",
+  "license": "MIT",
+  "type": "business",
+  "category": "data",
+  "tags": [
+    "datasource",
+    "database",
+    "management"
+  ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/datasource",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "menus": [
+    {
+      "id": "datasource-management-menu",
+      "title": "数据源管理",
+      "path": "/datasource",
+      "icon": "DatabaseOutlined",
+      "parentId": "data-center",
+      "sortOrder": 1,
+      "permission": "datasource:view"
+    },
+    {
+      "id": "datasource-approval-menu",
+      "title": "数据源审核",
+      "path": "/datasource/approval",
+      "icon": "AuditOutlined",
+      "parentId": "data-center",
+      "sortOrder": 2,
+      "permission": "datasource:approve"
+    }
+  ],
+  "permissions": [
+    {
+      "code": "datasource:view",
+      "name": "查看数据源",
+      "description": "查看数据源列表和详情"
+    },
+    {
+      "code": "datasource:create",
+      "name": "创建数据源",
+      "description": "创建新数据源"
+    },
+    {
+      "code": "datasource:update",
+      "name": "更新数据源",
+      "description": "更新数据源配置"
+    },
+    {
+      "code": "datasource:delete",
+      "name": "删除数据源",
+      "description": "删除数据源"
+    },
+    {
+      "code": "datasource:approve",
+      "name": "审核数据源",
+      "description": "审核数据源公开申请"
+    }
+  ],
+  "api": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/datasource",
+        "description": "获取数据源列表",
+        "permission": "datasource:view"
+      },
+      {
+        "method": "POST",
+        "path": "/datasource",
+        "description": "创建数据源",
+        "permission": "datasource:create"
+      },
+      {
+        "method": "PUT",
+        "path": "/datasource/:id",
+        "description": "更新数据源",
+        "permission": "datasource:update"
+      },
+      {
+        "method": "DELETE",
+        "path": "/datasource/:id",
+        "description": "删除数据源",
+        "permission": "datasource:delete"
+      }
+    ]
+  },
+  "enabled": true,
+  "installed": true
+}

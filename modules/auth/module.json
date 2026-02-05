@@ -1,0 +1,74 @@
+{
+  "name": "auth",
+  "displayName": "用户认证",
+  "version": "1.0.0",
+  "description": "用户认证模块，包含登录、注册、密码管理等功能",
+  "author": "System Team",
+  "license": "MIT",
+  
+  "type": "system",
+  "category": "system",
+  "tags": ["auth", "login", "security"],
+  
+  "dependencies": {},
+  
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/auth",
+      "file": "./backend/routes.ts"
+    }
+  },
+  
+  "menus": [],
+  
+  "permissions": [
+    {
+      "code": "auth:login",
+      "name": "用户登录",
+      "description": "用户登录权限"
+    },
+    {
+      "code": "auth:register",
+      "name": "用户注册",
+      "description": "用户注册权限"
+    },
+    {
+      "code": "auth:manage",
+      "name": "认证管理",
+      "description": "管理用户认证状态"
+    }
+  ],
+  
+  "api": {
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/auth/login",
+        "description": "用户登录",
+        "permission": "auth:login"
+      },
+      {
+        "method": "POST",
+        "path": "/auth/register",
+        "description": "用户注册",
+        "permission": "auth:register"
+      },
+      {
+        "method": "GET",
+        "path": "/auth/me",
+        "description": "获取当前用户信息",
+        "permission": "auth:login"
+      },
+      {
+        "method": "POST",
+        "path": "/auth/change-password",
+        "description": "修改密码",
+        "permission": "auth:login"
+      }
+    ]
+  },
+  
+  "enabled": true,
+  "installed": true
+}
