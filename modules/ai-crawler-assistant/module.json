@@ -5,28 +5,28 @@
   "description": "AI驱动的智能爬虫助手，支持网页分析、选择器生成、预览抓取、模板管理",
   "author": "System Team",
   "license": "MIT",
-  
   "type": "business",
   "category": "ai",
-  "tags": ["ai", "crawler", "web-scraping", "assistant"],
-  
+  "tags": [
+    "ai",
+    "crawler",
+    "web-scraping",
+    "assistant"
+  ],
   "dependencies": {
     "ai-config": "^1.0.0"
   },
-  
   "peerDependencies": {
     "node": ">=18.0.0",
     "vue": "^3.0.0"
   },
-  
   "backend": {
     "entry": "./backend/index.ts",
     "routes": {
-      "prefix": "/admin/ai",
+      "prefix": "/api/admin/ai",
       "file": "./backend/routes.ts"
     }
   },
-  
   "frontend": {
     "entry": "./frontend/index.ts",
     "routes": "./frontend/routes.ts",
@@ -34,19 +34,17 @@
       "CrawlerAssistant": "./frontend/views/CrawlerAssistant.vue"
     }
   },
-  
   "menus": [
     {
-      "id": "ai-crawler-assistant-menu",
-      "title": "爬虫助手",
+      "id": "ai-crawler-assistant",
+      "title": "AI 爬虫助手",
       "path": "/ai/crawler-assistant",
       "icon": "RobotOutlined",
-      "parentId": "ai-menu",
-      "sortOrder": 3,
+      "parentId": "data-collection",
+      "sortOrder": 1,
       "permission": "ai:view"
     }
   ],
-  
   "permissions": [
     {
       "code": "ai:view",
@@ -54,11 +52,9 @@
       "description": "查看AI爬虫助手和相关功能"
     }
   ],
-  
   "config": {
     "schema": "./config/schema.json"
   },
-  
   "hooks": {
     "beforeInstall": "./backend/hooks/beforeInstall.ts",
     "afterInstall": "./backend/hooks/afterInstall.ts",
@@ -69,12 +65,15 @@
     "beforeDisable": "./backend/hooks/beforeDisable.ts",
     "afterDisable": "./backend/hooks/afterDisable.ts"
   },
-  
   "database": {
-    "tables": ["crawler_templates", "crawler_template_fields", "crawler_assistant_conversations", "crawler_assistant_messages"],
+    "tables": [
+      "crawler_templates",
+      "crawler_template_fields",
+      "crawler_assistant_conversations",
+      "crawler_assistant_messages"
+    ],
     "version": "1.0.0"
   },
-  
   "api": {
     "endpoints": [
       {
@@ -187,7 +186,6 @@
       }
     ]
   },
-  
   "enabled": true,
-  "installed": false
+  "installed": true
 }
