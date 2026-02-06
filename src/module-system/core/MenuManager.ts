@@ -41,36 +41,17 @@ export class MenuManager {
         for (const menu of menus) {
           // 检查菜单是否已存在
           const existing = await query(
-            'SELECT id FROM sys_menus WHERE id = ? AND module_name = ?',
-            [menu.id, moduleName],
+            'SELECT id FROM sys_menus WHERE id = ?',
+            [menu.id],
             conn
           );
 
-          if (existing.length > 0) {
-            // 更新现有菜单
-            await query(
-              `UPDATE sys_menus 
-               SET title = ?, path = ?, icon = ?, parent_id = ?, 
-                   sort_order = ?, permission = ?, visible = TRUE, 
-                   updated_at = NOW()
-               WHERE id = ? AND module_name = ?`,
-              [
-                menu.title,
-                menu.path,
-                menu.icon || null,
-                menu.parentId || null,
-                menu.sortOrder,
-                menu.permission || null,
-                menu.id,
-                moduleName
-              ],
-              conn
-            );
-          } else {
-            // 插入新菜单
+          if (existing.length === 0) {
+            // 仅在菜单不存在时插入新菜单
+            // 如果菜单已存在，保留用户的自定义配置，不进行更新
             await query(
               `INSERT INTO sys_menus 
-               (id, title, path, icon, parent_id, sort_order, permission, 
+               (id, title, path, icon, parent_id, sort_order, permission_code, 
                 module_name, visible, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, NOW(), NOW())`,
               [
@@ -86,6 +67,7 @@ export class MenuManager {
               conn
             );
           }
+          // 如果菜单已存在，跳过更新，保留现有配置
         }
       });
 
@@ -132,22 +114,32 @@ export class MenuManager {
 
       // 获取角色权限
       const permissions = await query(
-        `SELECT DISTINCT p.code FROM sys_permissions p
-         INNER JOIN sys_role_permissions rp ON p.id = rp.permission_id
-         WHERE rp.role_id IN (?)`,
-        [roleIds]
+        `SELECT DISTINCT rp.permission_code as code FROM sys_role_permissions rp
+         WHERE rp.role_id IN (${roleIds.map(() => '?').join(',')})`,
+        roleIds
       );
 
       const permissionCodes = permissions.map((p: any) => p.code);
 
       // 获取可见菜单
-      const menus = await query(
-        `SELECT * FROM sys_menus 
-         WHERE visible = TRUE 
-         AND (permission IS NULL OR permission IN (?))
-         ORDER BY sort_order ASC`,
-        [permissionCodes.length > 0 ? permissionCodes : ['']]
-      );
+      let menus;
+      if (permissionCodes.includes('*')) {
+        // 超级管理员可以看到所有菜单
+        menus = await query(
+          `SELECT * FROM sys_menus 
+           WHERE visible = TRUE 
+           ORDER BY sort_order ASC`
+        );
+      } else {
+        // 普通用户只能看到有权限的菜单
+        menus = await query(
+          `SELECT * FROM sys_menus 
+           WHERE visible = TRUE 
+           AND (permission_code IS NULL OR permission_code IN (${permissionCodes.map(() => '?').join(',')}))
+           ORDER BY sort_order ASC`,
+          permissionCodes
+        );
+      }
 
       return menus.map((menu: any) => ({
         id: menu.id,
@@ -156,7 +148,7 @@ export class MenuManager {
         icon: menu.icon,
         parentId: menu.parent_id,
         sortOrder: menu.sort_order,
-        permission: menu.permission,
+        permission: menu.permission_code,
         moduleName: menu.module_name,
         visible: menu.visible,
         createdAt: menu.created_at,

@@ -10,6 +10,13 @@ import semver from 'semver';
 
 export class ManifestParser {
   /**
+   * 实例方法：解析字符串内容
+   */
+  parse(content: string): ModuleManifest {
+    return ManifestParser.parseFromString(content);
+  }
+
+  /**
    * 从文件解析模块清单
    */
   static parseFromFile(filePath: string): ModuleManifest {
@@ -181,15 +188,24 @@ export class ManifestParser {
       }
     }
 
-    // 验证权限配置
+    // 验证权限配置（支持字符串数组或对象数组）
     if (manifest.permissions !== undefined) {
       if (!Array.isArray(manifest.permissions)) {
         errors.push('Field "permissions" must be an array');
       } else {
         manifest.permissions.forEach((perm: any, index: number) => {
-          if (!perm.code) errors.push(`Permission[${index}]: Missing required field "code"`);
-          if (!perm.name) errors.push(`Permission[${index}]: Missing required field "name"`);
-          if (!perm.description) errors.push(`Permission[${index}]: Missing required field "description"`);
+          // 支持字符串格式：["module:action"]
+          if (typeof perm === 'string') {
+            if (!perm) errors.push(`Permission[${index}]: Cannot be empty string`);
+          }
+          // 支持对象格式：{code, name, description}
+          else if (typeof perm === 'object') {
+            if (!perm.code) errors.push(`Permission[${index}]: Missing required field "code"`);
+            if (!perm.name) errors.push(`Permission[${index}]: Missing required field "name"`);
+            if (!perm.description) errors.push(`Permission[${index}]: Missing required field "description"`);
+          } else {
+            errors.push(`Permission[${index}]: Must be a string or object`);
+          }
         });
       }
     }

@@ -36,11 +36,9 @@ export interface ScanOptions {
  */
 export class ModuleScanner {
   private modulesDirectory: string;
-  private manifestParser: ManifestParser;
 
   constructor(modulesDirectory: string = 'modules') {
     this.modulesDirectory = path.resolve(process.cwd(), modulesDirectory);
-    this.manifestParser = new ManifestParser();
   }
 
   /**
@@ -103,7 +101,7 @@ export class ModuleScanner {
       const manifestPath = path.join(modulePath, 'module.json');
       try {
         const manifestContent = await fs.readFile(manifestPath, 'utf-8');
-        result.manifest = this.manifestParser.parse(manifestContent);
+        result.manifest = ManifestParser.parseFromString(manifestContent);
       } catch (error) {
         result.errors.push(`Failed to read or parse module.json: ${error instanceof Error ? error.message : String(error)}`);
         return result;
@@ -238,10 +236,10 @@ export class ModuleScanner {
    */
   async getModuleManifest(moduleName: string): Promise<ModuleManifest> {
     const manifestPath = path.join(this.modulesDirectory, moduleName, 'module.json');
-    
+
     try {
       const manifestContent = await fs.readFile(manifestPath, 'utf-8');
-      return this.manifestParser.parse(manifestContent);
+      return ManifestParser.parseFromString(manifestContent);
     } catch (error) {
       throw new Error(`Failed to read module manifest for ${moduleName}: ${error instanceof Error ? error.message : String(error)}`);
     }

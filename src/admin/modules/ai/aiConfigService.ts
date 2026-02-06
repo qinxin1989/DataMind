@@ -42,6 +42,7 @@ export class AIConfigService {
   }
 
   async updateConfig(id: string, data: UpdateAIConfigRequest): Promise<AIConfig> {
+    console.log('[updateConfig] 收到的数据:', JSON.stringify(data, null, 2));
     const config = await this.getConfigById(id);
     if (!config) throw new Error('AI配置不存在');
 
@@ -63,8 +64,9 @@ export class AIConfigService {
       values.push(encrypt(data.apiKey));
     }
     // 兼容前端发送的 apiEndpoint 和后端的 baseUrl
-    const finalBaseUrl = data.baseUrl !== undefined ? data.baseUrl : data.apiEndpoint;
-    if (finalBaseUrl !== undefined) { updates.push('base_url = ?'); values.push(finalBaseUrl); }
+    const finalBaseUrl = data.baseUrl || data.apiEndpoint;
+    console.log('[updateConfig] baseUrl:', data.baseUrl, 'apiEndpoint:', data.apiEndpoint, 'finalBaseUrl:', finalBaseUrl);
+    if (finalBaseUrl) { updates.push('base_url = ?'); values.push(finalBaseUrl); }
     if (data.isDefault !== undefined) { updates.push('is_default = ?'); values.push(data.isDefault); }
     if (data.status !== undefined) { updates.push('status = ?'); values.push(data.status); }
 

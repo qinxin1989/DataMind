@@ -213,9 +213,13 @@ export class BackendModuleLoader {
       // 验证文件存在
       await fs.access(filePath);
 
-      // 动态导入模块
+      // 动态导入模块 - 使用 file:// 协议在 Windows 上
       const absolutePath = path.resolve(filePath);
-      const moduleExports = await import(absolutePath);
+      const fileUrl = process.platform === 'win32'
+        ? `file:///${absolutePath.replace(/\\/g, '/')}`
+        : `file://${absolutePath}`;
+
+      const moduleExports = await import(fileUrl);
 
       // 缓存模块
       this.moduleCache.set(filePath, moduleExports);

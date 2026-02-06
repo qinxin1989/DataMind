@@ -38,6 +38,28 @@ export class BackendRouteManager {
     this.app = app;
   }
 
+  private static instance: BackendRouteManager | null = null;
+
+  /**
+   * 初始化后端路由管理器
+   */
+  static init(app: Express): BackendRouteManager {
+    if (!this.instance) {
+      this.instance = new BackendRouteManager(app);
+    }
+    return this.instance;
+  }
+
+  /**
+   * 获取后端路由管理器实例
+   */
+  static getInstance(): BackendRouteManager {
+    if (!this.instance) {
+      throw new Error('BackendRouteManager not initialized. Call init(app) first.');
+    }
+    return this.instance;
+  }
+
   /**
    * 注册模块路由
    */

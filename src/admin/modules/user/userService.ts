@@ -247,6 +247,23 @@ export class UserService {
     );
   }
 
+  // ==================== 统计信息 ====================
+
+  async getStats(): Promise<any> {
+    const [totalRows] = await pool.execute('SELECT COUNT(*) as total FROM sys_users');
+    const [activeRows] = await pool.execute('SELECT COUNT(*) as active FROM sys_users WHERE status = "active"');
+    const [inactiveRows] = await pool.execute('SELECT COUNT(*) as inactive FROM sys_users WHERE status = "inactive"');
+    const [pendingRows] = await pool.execute('SELECT COUNT(*) as pending FROM sys_users WHERE status = "pending"');
+    
+    return {
+      total: (totalRows as any)[0].total,
+      active: (activeRows as any)[0].active,
+      inactive: (inactiveRows as any)[0].inactive,
+      pending: (pendingRows as any)[0].pending,
+      lastUpdated: new Date().toISOString()
+    };
+  }
+
   // ==================== 测试辅助 ====================
 
   async clearAll(): Promise<void> {

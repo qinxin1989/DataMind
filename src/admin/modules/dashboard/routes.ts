@@ -15,6 +15,21 @@ export function createDashboardRoutes(dashboardService: DashboardService): Route
     }
   });
 
+  // 获取仪表板统计
+  router.get('/stats', (req, res) => {
+    try {
+      const stats = {
+        totalDashboards: dashboardService.getAll().length,
+        totalCharts: dashboardService.getAll().reduce((sum, d) => sum + (d.charts?.length || 0), 0),
+        activeUsers: 1,
+        lastUpdated: new Date().toISOString()
+      };
+      res.json({ success: true, data: stats });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 获取单个大屏
   router.get('/:id', (req, res) => {
     try {

@@ -170,6 +170,7 @@ export interface ModuleRecord {
   version: string;
   description?: string;
   author?: string;
+  license?: string;
   type?: string;
   category?: string;
   manifest: string; // JSON string
@@ -179,6 +180,20 @@ export interface ModuleRecord {
   enabled_at?: Date;
   disabled_at?: Date;
   updated_at: Date;
+}
+
+/**
+ * 模块钩子函数
+ */
+export interface ModuleHooks {
+  beforeInstall?: () => Promise<void>;
+  afterInstall?: () => Promise<void>;
+  beforeUninstall?: () => Promise<void>;
+  afterUninstall?: () => Promise<void>;
+  beforeEnable?: () => Promise<void>;
+  afterEnable?: () => Promise<void>;
+  beforeDisable?: () => Promise<void>;
+  afterDisable?: () => Promise<void>;
 }
 
 /**

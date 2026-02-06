@@ -605,7 +605,102 @@ const extractWithTemplate: SkillDefinition = {
     }
 };
 
+// 智能标签选择技能 - 根据需求判断应该选择哪个标签
+const selectTagByRequirement: SkillDefinition = {
+    name: 'crawler.selectTag',
+    category: 'crawler',
+    displayName: '智能标签选择',
+    description: '根据用户需求自动判断应该选择哪个标签来提取数据',
+    parameters: [
+        { name: 'requirement', type: 'string', description: '用户的数据需求描述', required: true },
+        { name: 'availableTags', type: 'array', description: '网页上可用的标签列表', required: true },
+        { name: 'tagDescriptions', type: 'object', description: '（可选）标签的详细描述，帮助AI理解', required: false }
+    ],
+    execute: async (params, context): Promise<SkillResult> => {
+        const { requirement, availableTags, tagDescriptions } = params;
+        const { openai, model } = context;
+
+        if (!requirement || !Array.isArray(availableTags) || availableTags.length === 0) {
+            return { success: false, message: '缺少必要参数：requirement 和 availableTags' };
+        }
+
+        if (!openai) {
+            return { success: false, message: '此功能需要 AI 服务支持' };
+        }
+
+        try {
+            console.log(`[Crawler.SelectTag] Analyzing requirement: "${requirement}"`);
+            console.log(`[Crawler.SelectTag] Available tags: ${availableTags.join(', ')}`);
+
+            // 构建标签描述信息
+            let tagInfo = availableTags.map(tag => {
+                const desc = tagDescriptions?.[tag];
+                return desc ? `- ${tag}: ${desc}` : `- ${tag}`;
+            }).join('\n');
+
+            const prompt = `你是一个网页内容分析专家。根据用户的数据需求，判断应该选择哪个标签来提取数据。
+
+用户需求：${requirement}
+
+可用的标签：
+${tagInfo}
+
+请分析用户的需求，判断应该选择哪个标签。返回 JSON 格式：
+{
+  "selectedTag": "选中的标签名称",
+  "confidence": 0-100,
+  "reasoning": "选择这个标签的原因",
+  "alternativeTags": ["其他可能的标签"],
+  "extractionHints": "提取数据时的建议"
+}
+
+规则：
+1. 必须从可用标签中选择一个
+2. 如果有多个标签都可能，选择最相关的一个
+3. confidence 表示选择的置信度（0-100）
+4. 如果置信度低于 50，请在 reasoning 中说明`;
+
+            const response = await openai.chat.completions.create({
+                model: model || 'gpt-4o',
+                messages: [
+                    {
+                        role: 'system',
+                        content: '你是一个网页内容分析专家。请根据用户需求选择最合适的标签。'
+                    },
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                temperature: 0.3,
+                response_format: { type: 'json_object' }
+            });
+
+            const result = JSON.parse(response.choices[0].message.content || '{}');
+
+            // 验证返回的标签是否在可用标签中
+            if (!availableTags.includes(result.selectedTag)) {
+                console.warn(`[Crawler.SelectTag] AI selected invalid tag: ${result.selectedTag}, falling back to first available`);
+                result.selectedTag = availableTags[0];
+                result.confidence = 30;
+                result.reasoning = '无法准确判断，使用默认标签';
+            }
+
+            return {
+                success: true,
+                data: result,
+                message: `已选择标签: ${result.selectedTag} (置信度: ${result.confidence}%)`
+            };
+
+        } catch (error: any) {
+            console.error(`[Crawler.SelectTag] Error: ${error.message}`);
+            return { success: false, message: `标签选择失败: ${error.message}` };
+        }
+    }
+};
+
 export const crawlerSkills: SkillDefinition[] = [
     analyzeCrawler,
-    extractWithTemplate
+    extractWithTemplate,
+    selectTagByRequirement
 ];

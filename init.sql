@@ -1,9 +1,9 @@
--- ========================================
--- DataMind 数据库初始化脚本
--- ========================================
+-- 设置环境
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
 
 -- 创建数据库
-CREATE DATABASE IF NOT EXISTS `DataMind` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS `DataMind` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 USE `DataMind`;
 
 -- ========================================
@@ -14,16 +14,21 @@ USE `DataMind`;
 CREATE TABLE IF NOT EXISTS sys_users (
   id VARCHAR(36) PRIMARY KEY,
   username VARCHAR(50) NOT NULL UNIQUE,
-  password VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
   email VARCHAR(100),
-  full_name VARCHAR(255),
+  full_name VARCHAR(100),
+  phone VARCHAR(20),
+  department VARCHAR(100),
   role VARCHAR(20) DEFAULT 'user',
   status VARCHAR(20) DEFAULT 'active',
+  last_login_at TIMESTAMP NULL,
+  last_login_ip VARCHAR(45),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_username (username),
-  INDEX idx_role (role)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  INDEX idx_role (role),
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 角色表
 CREATE TABLE IF NOT EXISTS sys_roles (
@@ -38,7 +43,7 @@ CREATE TABLE IF NOT EXISTS sys_roles (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_code (code),
   INDEX idx_parent (parent_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 权限表
 CREATE TABLE IF NOT EXISTS sys_permissions (
@@ -51,7 +56,7 @@ CREATE TABLE IF NOT EXISTS sys_permissions (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_code (code),
   INDEX idx_module (module)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 角色权限关联表
 CREATE TABLE IF NOT EXISTS sys_role_permissions (
@@ -59,7 +64,7 @@ CREATE TABLE IF NOT EXISTS sys_role_permissions (
   permission_code VARCHAR(100) NOT NULL,
   PRIMARY KEY (role_id, permission_code),
   FOREIGN KEY (role_id) REFERENCES sys_roles(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 用户角色关联表
 CREATE TABLE IF NOT EXISTS sys_user_roles (
@@ -68,7 +73,7 @@ CREATE TABLE IF NOT EXISTS sys_user_roles (
   PRIMARY KEY (user_id, role_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE,
   FOREIGN KEY (role_id) REFERENCES sys_roles(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 菜单表
 CREATE TABLE IF NOT EXISTS sys_menus (
@@ -85,7 +90,7 @@ CREATE TABLE IF NOT EXISTS sys_menus (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_parent (parent_id),
   INDEX idx_sort (sort_order)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- AI配置表
 CREATE TABLE IF NOT EXISTS sys_ai_configs (
@@ -105,7 +110,7 @@ CREATE TABLE IF NOT EXISTS sys_ai_configs (
   INDEX idx_status (status),
   INDEX idx_priority (priority),
   INDEX idx_is_default (is_default)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI配置表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI配置表';
 
 -- 系统配置表
 CREATE TABLE IF NOT EXISTS sys_system_configs (
@@ -115,7 +120,7 @@ CREATE TABLE IF NOT EXISTS sys_system_configs (
   description VARCHAR(255),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_group (config_group)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 审计日志表
 CREATE TABLE IF NOT EXISTS sys_audit_logs (
@@ -134,7 +139,7 @@ CREATE TABLE IF NOT EXISTS sys_audit_logs (
   INDEX idx_action (action),
   INDEX idx_module (module),
   INDEX idx_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 通知表
 CREATE TABLE IF NOT EXISTS sys_notifications (
@@ -149,7 +154,7 @@ CREATE TABLE IF NOT EXISTS sys_notifications (
   INDEX idx_read (is_read),
   INDEX idx_created (created_at),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 数据源配置表
 CREATE TABLE IF NOT EXISTS datasource_configs (
@@ -162,7 +167,7 @@ CREATE TABLE IF NOT EXISTS datasource_configs (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_user (user_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 数据源权限表
 CREATE TABLE IF NOT EXISTS datasource_permissions (
@@ -174,7 +179,7 @@ CREATE TABLE IF NOT EXISTS datasource_permissions (
   UNIQUE KEY unique_permission (datasource_id, user_id, permission),
   FOREIGN KEY (datasource_id) REFERENCES datasource_configs(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 审批记录表
 CREATE TABLE IF NOT EXISTS approval_records (
@@ -192,7 +197,7 @@ CREATE TABLE IF NOT EXISTS approval_records (
   INDEX idx_status (status),
   FOREIGN KEY (datasource_id) REFERENCES datasource_configs(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 聊天历史表
 CREATE TABLE IF NOT EXISTS chat_history (
@@ -205,7 +210,7 @@ CREATE TABLE IF NOT EXISTS chat_history (
   INDEX idx_user (user_id),
   INDEX idx_datasource (datasource_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 聊天消息表
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -216,7 +221,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_chat (chat_id),
   FOREIGN KEY (chat_id) REFERENCES chat_history(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 知识库分类表
 CREATE TABLE IF NOT EXISTS knowledge_categories (
@@ -229,7 +234,7 @@ CREATE TABLE IF NOT EXISTS knowledge_categories (
   INDEX idx_user (user_id),
   INDEX idx_name (name),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 知识库文档表
 CREATE TABLE IF NOT EXISTS knowledge_documents (
@@ -247,7 +252,7 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
   INDEX idx_user (user_id),
   FOREIGN KEY (category_id) REFERENCES knowledge_categories(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 知识库文档块表
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
@@ -259,7 +264,7 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_document (document_id),
   FOREIGN KEY (document_id) REFERENCES knowledge_documents(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 爬虫模板表
 CREATE TABLE IF NOT EXISTS crawler_templates (
@@ -272,7 +277,7 @@ CREATE TABLE IF NOT EXISTS crawler_templates (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_user (user_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 爬虫模板字段表
 CREATE TABLE IF NOT EXISTS crawler_template_fields (
@@ -283,7 +288,7 @@ CREATE TABLE IF NOT EXISTS crawler_template_fields (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_template (template_id),
   FOREIGN KEY (template_id) REFERENCES crawler_templates(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 爬虫定时任务表
 CREATE TABLE IF NOT EXISTS crawler_tasks (
@@ -300,7 +305,7 @@ CREATE TABLE IF NOT EXISTS crawler_tasks (
   INDEX idx_template (template_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE,
   FOREIGN KEY (template_id) REFERENCES crawler_templates(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 爬虫抓取批次表
 CREATE TABLE IF NOT EXISTS crawler_results (
@@ -313,7 +318,7 @@ CREATE TABLE IF NOT EXISTS crawler_results (
   INDEX idx_template (template_id),
   INDEX idx_user (user_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 爬虫抓取行表
 CREATE TABLE IF NOT EXISTS crawler_result_rows (
@@ -322,7 +327,7 @@ CREATE TABLE IF NOT EXISTS crawler_result_rows (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_result (result_id),
   FOREIGN KEY (result_id) REFERENCES crawler_results(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 爬虫抓取明细条目表
 CREATE TABLE IF NOT EXISTS crawler_result_items (
@@ -333,7 +338,7 @@ CREATE TABLE IF NOT EXISTS crawler_result_items (
   INDEX idx_row (row_id),
   INDEX idx_field (field_name),
   FOREIGN KEY (row_id) REFERENCES crawler_result_rows(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- AI爬虫助手对话表
 CREATE TABLE IF NOT EXISTS crawler_assistant_conversations (
@@ -344,7 +349,7 @@ CREATE TABLE IF NOT EXISTS crawler_assistant_conversations (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_user (user_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- AI爬虫助手消息表
 CREATE TABLE IF NOT EXISTS crawler_assistant_messages (
@@ -355,7 +360,7 @@ CREATE TABLE IF NOT EXISTS crawler_assistant_messages (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_conversation (conversation_id),
   FOREIGN KEY (conversation_id) REFERENCES crawler_assistant_conversations(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Schema分析表
 CREATE TABLE IF NOT EXISTS schema_analysis (
@@ -368,7 +373,7 @@ CREATE TABLE IF NOT EXISTS schema_analysis (
   UNIQUE KEY unique_analysis (user_id, datasource_id),
   FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE,
   INDEX idx_datasource (datasource_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Schema表信息
 CREATE TABLE IF NOT EXISTS schema_tables (
@@ -379,7 +384,7 @@ CREATE TABLE IF NOT EXISTS schema_tables (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_analysis (analysis_id),
   FOREIGN KEY (analysis_id) REFERENCES schema_analysis(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Schema列信息
 CREATE TABLE IF NOT EXISTS schema_columns (
@@ -391,7 +396,7 @@ CREATE TABLE IF NOT EXISTS schema_columns (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_table (table_id),
   FOREIGN KEY (table_id) REFERENCES schema_tables(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Schema推荐问题
 CREATE TABLE IF NOT EXISTS schema_questions (
@@ -401,7 +406,7 @@ CREATE TABLE IF NOT EXISTS schema_questions (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_analysis (analysis_id),
   FOREIGN KEY (analysis_id) REFERENCES schema_analysis(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ========================================
 -- 模块化系统表
@@ -427,7 +432,7 @@ CREATE TABLE IF NOT EXISTS sys_modules (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_name (name),
   INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块依赖关系表
 CREATE TABLE IF NOT EXISTS sys_module_dependencies (
@@ -438,7 +443,7 @@ CREATE TABLE IF NOT EXISTS sys_module_dependencies (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_module (module_name),
   FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块迁移记录表
 CREATE TABLE IF NOT EXISTS sys_module_migrations (
@@ -450,7 +455,7 @@ CREATE TABLE IF NOT EXISTS sys_module_migrations (
   execution_time INT DEFAULT 0,
   INDEX idx_module (module_name),
   UNIQUE KEY unique_module_migration (module_name, migration_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块配置表
 CREATE TABLE IF NOT EXISTS sys_module_configs (
@@ -462,14 +467,14 @@ CREATE TABLE IF NOT EXISTS sys_module_configs (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_module (module_name),
   UNIQUE KEY unique_module_config (module_name, config_key)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 角色与菜单关联表 (动态菜单支持)
 CREATE TABLE IF NOT EXISTS sys_role_menus (
   role_id VARCHAR(36) NOT NULL,
   menu_id VARCHAR(36) NOT NULL,
   PRIMARY KEY (role_id, menu_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块标签表
 CREATE TABLE IF NOT EXISTS sys_module_tags (
@@ -478,7 +483,7 @@ CREATE TABLE IF NOT EXISTS sys_module_tags (
   tag VARCHAR(50) NOT NULL,
   INDEX idx_module (module_name),
   FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块权限表
 CREATE TABLE IF NOT EXISTS sys_module_permissions (
@@ -490,7 +495,7 @@ CREATE TABLE IF NOT EXISTS sys_module_permissions (
   INDEX idx_module (module_name),
   UNIQUE KEY unique_module_permission (module_name, code),
   FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块菜单表
 CREATE TABLE IF NOT EXISTS sys_module_menus (
@@ -505,7 +510,7 @@ CREATE TABLE IF NOT EXISTS sys_module_menus (
   permission_code VARCHAR(100),
   INDEX idx_module (module_name),
   FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块后端配置表
 CREATE TABLE IF NOT EXISTS sys_module_backend (
@@ -514,7 +519,7 @@ CREATE TABLE IF NOT EXISTS sys_module_backend (
   routes_prefix VARCHAR(100),
   routes_file VARCHAR(255),
   FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块前端配置表
 CREATE TABLE IF NOT EXISTS sys_module_frontend (
@@ -522,7 +527,7 @@ CREATE TABLE IF NOT EXISTS sys_module_frontend (
   entry_file VARCHAR(255) NOT NULL,
   routes_file VARCHAR(255),
   FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 模块API端点表
 CREATE TABLE IF NOT EXISTS sys_module_api_endpoints (
@@ -534,7 +539,7 @@ CREATE TABLE IF NOT EXISTS sys_module_api_endpoints (
   permission_code VARCHAR(100),
   INDEX idx_module (module_name),
   FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ========================================
 -- 知识图谱增强表
@@ -554,7 +559,7 @@ CREATE TABLE IF NOT EXISTS knowledge_entities (
   INDEX idx_type (type),
   INDEX idx_name (name),
   INDEX idx_source_document (source_document_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 知识关系表
 CREATE TABLE IF NOT EXISTS knowledge_relations (
@@ -572,7 +577,7 @@ CREATE TABLE IF NOT EXISTS knowledge_relations (
   INDEX idx_type (type),
   FOREIGN KEY (source_id) REFERENCES knowledge_entities(id) ON DELETE CASCADE,
   FOREIGN KEY (target_id) REFERENCES knowledge_entities(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ========================================
 -- 优化与归一化分表 (JSON 转表结构)
@@ -589,7 +594,7 @@ CREATE TABLE IF NOT EXISTS audit_log_details (
   INDEX idx_audit_log (audit_log_id),
   INDEX idx_key (detail_key),
   FOREIGN KEY (audit_log_id) REFERENCES sys_audit_logs(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 数据源配置详情
 CREATE TABLE IF NOT EXISTS datasource_configs_details (
@@ -602,7 +607,7 @@ CREATE TABLE IF NOT EXISTS datasource_configs_details (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_datasource (datasource_id),
   FOREIGN KEY (datasource_id) REFERENCES datasource_configs(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Schema 表结构详情表
 CREATE TABLE IF NOT EXISTS schema_tables_ext (
@@ -615,7 +620,7 @@ CREATE TABLE IF NOT EXISTS schema_tables_ext (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_analysis (analysis_id),
   FOREIGN KEY (analysis_id) REFERENCES schema_analysis(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 系统级对话统计历史表
 CREATE TABLE IF NOT EXISTS sys_chat_history (
@@ -635,14 +640,14 @@ CREATE TABLE IF NOT EXISTS sys_chat_history (
   INDEX idx_user (user_id),
   INDEX idx_datasource (datasource_id),
   INDEX idx_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ========================================
 -- 初始化默认数据
 -- ========================================
 
 -- 插入默认管理员账号 (用户名: admin, 密码: admin123)
-INSERT INTO sys_users (id, username, password, email, full_name, role, status) VALUES
+INSERT INTO sys_users (id, username, password_hash, email, full_name, role, status) VALUES
 ('00000000-0000-0000-0000-000000000001', 'admin', '$2b$10$VOv/v3Xz.6xWLjEP.YNVneQNZqVC5ONlMLahta8yx7dEFlG.rDYiS', 'admin@example.com', '系统管理员', 'admin', 'active')
 ON DUPLICATE KEY UPDATE username = username;
 
@@ -718,5 +723,7 @@ INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, pe
 ('notification-main', '通知中心', '/notification', 'BellOutlined', 'system-management', 904, 1, 'notification:view', 0),
 ('dashboard-main', '大屏管理', '/dashboard/list', 'FundOutlined', 'system-management', 905, 1, 'dashboard:view', 0)
 ON DUPLICATE KEY UPDATE title = VALUES(title);
+
+SET FOREIGN_KEY_CHECKS = 1;
 
 

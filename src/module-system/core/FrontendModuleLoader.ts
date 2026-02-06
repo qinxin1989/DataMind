@@ -35,8 +35,11 @@ export class FrontendModuleLoader {
   private componentCache: Map<string, Component> = new Map();
   private modulesBasePath: string;
 
-  constructor(modulesBasePath: string = '/modules') {
-    this.modulesBasePath = modulesBasePath;
+  constructor(modulesBasePath: string = 'modules') {
+    const path = require('path');
+    this.modulesBasePath = path.isAbsolute(modulesBasePath)
+      ? modulesBasePath
+      : path.resolve(process.cwd(), modulesBasePath);
   }
 
   /**
@@ -197,9 +200,10 @@ export class FrontendModuleLoader {
    * 获取模块文件路径
    */
   private getModulePath(moduleName: string, relativePath: string): string {
+    const path = require('path');
     // 移除开头的 ./
     const cleanPath = relativePath.replace(/^\.\//, '');
-    return `${this.modulesBasePath}/${moduleName}/${cleanPath}`;
+    return path.join(this.modulesBasePath, moduleName, cleanPath);
   }
 
   /**
@@ -207,8 +211,14 @@ export class FrontendModuleLoader {
    */
   private async loadModuleFile(filePath: string): Promise<any> {
     try {
-      // 动态导入模块
-      const moduleExports = await import(/* @vite-ignore */ filePath);
+      const path = require('path');
+      // 动态导入模块 - 在 Windows 上需要使用 file:// 协议
+      const absolutePath = path.resolve(filePath);
+      const fileUrl = process.platform === 'win32'
+        ? `file:///${absolutePath.replace(/\\/g, '/')}`
+        : `file://${absolutePath}`;
+
+      const moduleExports = await import(/* @vite-ignore */ fileUrl);
       return moduleExports;
     } catch (error) {
       throw new Error(`Failed to load module file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);

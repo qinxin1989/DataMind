@@ -1,7 +1,7 @@
 {
-  "name": "ai-data-platform",
+  "name": "DataMind",
   "version": "1.2.3",
-  "description": "AI数据问答平台 - 支持多数据源连接和自然语言查询",
+  "description": "DataMind - 支持多数据源连接和自然语言查询的智能数据分析平台",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -12,7 +12,7 @@
     "encrypt-env": "tsx scripts/encrypt-env.ts",
     "test": "tsx tests/run-tests.ts",
     "deploy": "./deploy.sh",
-    "docker:build": "docker build -t ai-data-platform .",
+    "docker:build": "docker build -t DataMind .",
     "docker:run": "docker-compose up -d",
     "docker:stop": "docker-compose down",
     "docker:logs": "docker-compose logs -f app",
@@ -54,9 +54,11 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^20.10.4",
     "@types/pg": "^8.10.9",
+    "@types/semver": "^7.7.1",
     "@types/uuid": "^9.0.7",
     "@vitest/coverage-v8": "^4.0.17",
     "fast-check": "^4.5.3",
+    "ts-node": "^10.9.2",
     "tsx": "^4.6.2",
     "typescript": "^5.3.3",
     "vitest": "^4.0.17"

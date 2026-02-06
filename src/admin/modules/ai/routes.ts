@@ -30,10 +30,12 @@ function error(code: string, message: string): ApiResponse {
 router.get('/configs', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
     const configs = await aiConfigService.getProviderConfigs();
-    // 隐藏 API Key
+    // 隐藏 API Key，并确保字段名兼容
     const safeConfigs = configs.map(c => ({
       ...c,
       apiKey: c.apiKey ? '***' + c.apiKey.slice(-4) : '',
+      apiEndpoint: c.baseUrl,  // 前端使用 apiEndpoint
+      baseUrl: c.baseUrl,      // 保留 baseUrl 以兼容
     }));
     res.json(success(safeConfigs));
   } catch (err: any) {
@@ -50,10 +52,12 @@ router.get('/configs/:id', requirePermission('ai:view'), async (req: Request, re
     if (!config) {
       return res.status(404).json(error('RES_NOT_FOUND', 'AI 配置不存在'));
     }
-    // 隐藏 API Key
+    // 隐藏 API Key，并确保字段名兼容
     const safeConfig = {
       ...config,
       apiKey: config.apiKey ? '***' + config.apiKey.slice(-4) : '',
+      apiEndpoint: config.baseUrl,  // 前端使用 apiEndpoint
+      baseUrl: config.baseUrl,      // 保留 baseUrl 以兼容
     };
     res.json(success(safeConfig));
   } catch (err: any) {
@@ -66,7 +70,7 @@ router.get('/configs/:id', requirePermission('ai:view'), async (req: Request, re
  */
 router.post('/configs', requirePermission('ai:config'), async (req: Request, res: Response) => {
   try {
-    const { name, provider, apiKey, apiEndpoint, model, maxTokens, temperature, isDefault } = req.body;
+    const { name, provider, apiKey, apiEndpoint, baseUrl, model, maxTokens, temperature, isDefault } = req.body;
 
     if (!name || !provider || !apiKey || !model) {
       return res.status(400).json(error('VALID_PARAM_MISSING', '缺少必要参数'));
@@ -76,7 +80,7 @@ router.post('/configs', requirePermission('ai:config'), async (req: Request, res
       name,
       provider,
       apiKey,
-      apiEndpoint,
+      apiEndpoint: apiEndpoint || baseUrl,
       model,
       maxTokens: maxTokens || 2048,
       temperature: temperature ?? 0.7,

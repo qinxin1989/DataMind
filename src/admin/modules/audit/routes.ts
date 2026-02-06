@@ -42,6 +42,28 @@ router.get('/', requirePermission('audit:view'), async (req: Request, res: Respo
 });
 
 /**
+ * GET /logs - 查询审计日志 (别名)
+ */
+router.get('/logs', requirePermission('audit:view'), async (req: Request, res: Response) => {
+  try {
+    const params: AuditQueryParams = {
+      userId: req.query.userId as string,
+      action: req.query.action as AuditAction,
+      resourceType: req.query.resourceType as string,
+      startTime: req.query.startTime ? parseInt(req.query.startTime as string) : undefined,
+      endTime: req.query.endTime ? parseInt(req.query.endTime as string) : undefined,
+      page: parseInt(req.query.page as string) || 1,
+      pageSize: parseInt(req.query.pageSize as string) || 20,
+    };
+
+    const result = await auditService.query(params);
+    res.json(success(result));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
+
+/**
  * GET /audit/export - 导出审计日志
  */
 router.get('/export', requirePermission('audit:export'), async (req: Request, res: Response) => {

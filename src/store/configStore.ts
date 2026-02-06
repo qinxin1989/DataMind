@@ -8,10 +8,12 @@ const UPLOAD_BASE_PATH = process.env.UPLOAD_PATH || './uploads';
 
 // 对话历史
 export interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   sql?: string;
   chart?: any;
+  charts?: any[];
+  chartConfig?: any;
   data?: any;
   timestamp: number;
   responseTime?: number;

@@ -83,17 +83,20 @@ export class LifecycleManager {
    */
   async enable(moduleName: string): Promise<void> {
     try {
-      const moduleInfo = this.registry.getModule(moduleName);
+      const moduleInfo = await this.registry.getModule(moduleName);
       if (!moduleInfo) {
         throw new Error(`Module ${moduleName} not found`);
       }
 
       const manifest = moduleInfo.manifest;
+      if (!manifest) {
+        throw new Error(`Module ${moduleName} manifest is undefined`);
+      }
 
       // 检查依赖模块是否已启用
-      if (manifest.dependencies) {
+      if (manifest.dependencies && typeof manifest.dependencies === 'object') {
         for (const depName of Object.keys(manifest.dependencies)) {
-          const depInfo = this.registry.getModule(depName);
+          const depInfo = await this.registry.getModule(depName);
           if (!depInfo || depInfo.status !== 'enabled') {
             throw new Error(`Dependency ${depName} is not enabled`);
           }
@@ -106,7 +109,7 @@ export class LifecycleManager {
       // 加载模块代码
       if (manifest.backend) {
         const loadedModule = await this.backendLoader.load(moduleName, manifest);
-        
+
         // 注册后端路由
         if (loadedModule.router && manifest.backend.routes) {
           const routeManager = BackendRouteManager.getInstance();
@@ -114,9 +117,12 @@ export class LifecycleManager {
         }
       }
 
+      /* 
+      // 后端暂不需要加载前端模块，跳过以避免路径和 .vue 文件导入错误
       if (manifest.frontend) {
         await this.frontendLoader.load(moduleName, manifest);
       }
+      */
 
       // 显示菜单
       if (manifest.menus) {
@@ -125,7 +131,7 @@ export class LifecycleManager {
       }
 
       // 更新模块状态
-      await this.registry.updateStatus(moduleName, 'enabled');
+      await this.registry.updateModuleStatus(moduleName, 'enabled');
 
       // 执行 afterEnable 钩子
       await this.executeHook(moduleName, manifest, 'afterEnable');
@@ -141,7 +147,7 @@ export class LifecycleManager {
    */
   async disable(moduleName: string): Promise<void> {
     try {
-      const moduleInfo = this.registry.getModule(moduleName);
+      const moduleInfo = await this.registry.getModule(moduleName);
       if (!moduleInfo) {
         throw new Error(`Module ${moduleName} not found`);
       }
@@ -149,9 +155,9 @@ export class LifecycleManager {
       const manifest = moduleInfo.manifest;
 
       // 检查是否有其他模块依赖
-      const allModules = this.registry.getAllModules();
+      const allModules = await this.registry.getAllModules();
       for (const mod of allModules) {
-        if (mod.manifest.dependencies && mod.manifest.dependencies[moduleName]) {
+        if (mod.manifest.dependencies && typeof mod.manifest.dependencies === 'object' && mod.manifest.dependencies[moduleName]) {
           if (mod.status === 'enabled') {
             throw new Error(`Module ${mod.manifest.name} depends on ${moduleName}`);
           }
@@ -177,7 +183,7 @@ export class LifecycleManager {
       }
 
       // 更新模块状态
-      await this.registry.updateStatus(moduleName, 'disabled');
+      await this.registry.updateModuleStatus(moduleName, 'disabled');
 
       // 执行 afterDisable 钩子
       await this.executeHook(moduleName, manifest, 'afterDisable');
@@ -193,7 +199,7 @@ export class LifecycleManager {
    */
   async uninstall(moduleName: string): Promise<void> {
     try {
-      const moduleInfo = this.registry.getModule(moduleName);
+      const moduleInfo = await this.registry.getModule(moduleName);
       if (!moduleInfo) {
         throw new Error(`Module ${moduleName} not found`);
       }
@@ -206,9 +212,9 @@ export class LifecycleManager {
       }
 
       // 检查是否有其他模块依赖
-      const allModules = this.registry.getAllModules();
+      const allModules = await this.registry.getAllModules();
       for (const mod of allModules) {
-        if (mod.manifest.dependencies && mod.manifest.dependencies[moduleName]) {
+        if (mod.manifest.dependencies && typeof mod.manifest.dependencies === 'object' && mod.manifest.dependencies[moduleName]) {
           throw new Error(`Module ${mod.manifest.name} depends on ${moduleName}`);
         }
       }

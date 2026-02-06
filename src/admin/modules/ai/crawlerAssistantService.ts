@@ -309,11 +309,11 @@ class CrawlerAssistantService {
     const html = await this.fetchWebpageHtml(url);
 
     // 注入 <base> 标签以解决相对路径资源问题
-    const baseTag = `< base href = "${url}" > `;
+    const baseTag = `<base href="${url}">`;
     if (html.includes('<head>')) {
-      return html.replace('<head>', `< head > ${baseTag} `);
+      return html.replace('<head>', `<head>${baseTag}`);
     } else if (html.includes('<HEAD>')) {
-      return html.replace('<HEAD>', `< HEAD > ${baseTag} `);
+      return html.replace('<HEAD>', `<HEAD>${baseTag}`);
     } else {
       return baseTag + html;
     }
@@ -383,12 +383,17 @@ JSON 格式:
         });
       }
 
-      const response = await openai.chat.completions.create({
-        model,
-        messages,
-        temperature: 0.1,
-        response_format: { type: 'json_object' }
-      });
+      const response = await Promise.race([
+        openai.chat.completions.create({
+          model,
+          messages,
+          temperature: 0.1,
+          response_format: { type: 'json_object' }
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('AI 模型响应超时（30秒）')), 30000)
+        )
+      ]);
 
       const content = response.choices[0]?.message?.content;
       if (!content) {

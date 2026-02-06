@@ -26,6 +26,39 @@ export const db = pool;
 export default pool;
 
 /**
+ * 通用查询函数
+ */
+export async function query(sql: string, params?: any[], connection?: mysql.PoolConnection): Promise<any> {
+  const conn = connection || await pool.getConnection();
+  try {
+    const [rows] = await conn.execute(sql, params);
+    return rows;
+  } finally {
+    if (!connection) {
+      conn.release();
+    }
+  }
+}
+
+/**
+ * 事务执行函数
+ */
+export async function transaction<T>(callback: (connection: mysql.PoolConnection) => Promise<T>): Promise<T> {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await callback(connection);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
  * 初始化数据库表
  */
 export async function initAdminTables(): Promise<void> {
@@ -50,7 +83,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_username (username),
         INDEX idx_status (status),
         INDEX idx_role (role)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 角色表
@@ -67,7 +100,7 @@ export async function initAdminTables(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_code (code),
         INDEX idx_parent (parent_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 角色权限关联表
@@ -76,7 +109,7 @@ export async function initAdminTables(): Promise<void> {
         role_id VARCHAR(36) NOT NULL,
         permission_code VARCHAR(100) NOT NULL,
         PRIMARY KEY (role_id, permission_code)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 用户角色关联表
@@ -85,7 +118,7 @@ export async function initAdminTables(): Promise<void> {
         user_id VARCHAR(36) NOT NULL,
         role_id VARCHAR(36) NOT NULL,
         PRIMARY KEY (user_id, role_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 角色菜单关联表
@@ -94,7 +127,7 @@ export async function initAdminTables(): Promise<void> {
         role_id VARCHAR(36) NOT NULL,
         menu_id VARCHAR(36) NOT NULL,
         PRIMARY KEY (role_id, menu_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 菜单表
@@ -118,7 +151,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_parent (parent_id),
         INDEX idx_sort (sort_order),
         INDEX idx_module (module_code)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // AI配置表
@@ -139,7 +172,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_provider (provider),
         INDEX idx_default (is_default),
         INDEX idx_priority (priority)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 添加 priority 和 embedding_model 字段（如果不存在）
@@ -164,7 +197,7 @@ export async function initAdminTables(): Promise<void> {
         description VARCHAR(255),
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_group (config_group)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 审计日志表
@@ -185,7 +218,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_action (action),
         INDEX idx_module (module),
         INDEX idx_created (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 通知表
@@ -201,7 +234,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_user (user_id),
         INDEX idx_read (is_read),
         INDEX idx_created (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 对话历史表
@@ -224,7 +257,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_datasource (datasource_id),
         INDEX idx_model (model_name),
         INDEX idx_created (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 添加 model_name 列（如果不存在）
@@ -234,6 +267,90 @@ export async function initAdminTables(): Promise<void> {
     } catch (e) {
       // 列已存在，忽略
     }
+
+    // ========== 模块系统表 ==========
+
+    // 模块表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS sys_modules (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        display_name VARCHAR(100) NOT NULL,
+        version VARCHAR(20) NOT NULL,
+        description TEXT,
+        author VARCHAR(100),
+        type VARCHAR(20),
+        category VARCHAR(50),
+        manifest JSON NOT NULL,
+        status VARCHAR(20) DEFAULT 'installed',
+        error_message TEXT,
+        installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        enabled_at TIMESTAMP NULL,
+        disabled_at TIMESTAMP NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_name (name),
+        INDEX idx_status (status),
+        INDEX idx_type (type),
+        INDEX idx_category (category)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+
+    // 模块依赖表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS sys_module_dependencies (
+        id VARCHAR(36) PRIMARY KEY,
+        module_name VARCHAR(100) NOT NULL,
+        dependency_name VARCHAR(100) NOT NULL,
+        version_range VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_module (module_name),
+        INDEX idx_dependency (dependency_name),
+        FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+
+    // 模块迁移记录表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS sys_module_migrations (
+        id VARCHAR(36) PRIMARY KEY,
+        module_name VARCHAR(100) NOT NULL,
+        migration_name VARCHAR(100) NOT NULL,
+        version VARCHAR(20) NOT NULL,
+        executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_module (module_name),
+        INDEX idx_migration (migration_name),
+        UNIQUE KEY unique_module_migration (module_name, migration_name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+
+    // 模块配置表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS sys_module_configs (
+        id VARCHAR(36) PRIMARY KEY,
+        module_name VARCHAR(100) NOT NULL,
+        config_key VARCHAR(100) NOT NULL,
+        config_value JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_module (module_name),
+        INDEX idx_key (config_key),
+        UNIQUE KEY unique_module_config (module_name, config_key)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+
+    // 权限表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS sys_permissions (
+        id VARCHAR(36) PRIMARY KEY,
+        code VARCHAR(100) NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        description VARCHAR(255),
+        module_name VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_code (code),
+        INDEX idx_module (module_name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
 
     // Schema 分析结果表
     await connection.execute(`
@@ -248,7 +365,7 @@ export async function initAdminTables(): Promise<void> {
         is_user_edited BOOLEAN DEFAULT FALSE,
         UNIQUE KEY unique_user_ds (user_id, datasource_id),
         INDEX idx_datasource (datasource_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 数据源配置表
@@ -262,7 +379,7 @@ export async function initAdminTables(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_user_id (user_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // ========== 爬虫相关表 ==========
@@ -281,7 +398,7 @@ export async function initAdminTables(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_user (user_id),
         FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 为 crawler_templates 添加 department 和 data_type 字段
@@ -302,7 +419,7 @@ export async function initAdminTables(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_template (template_id),
         FOREIGN KEY (template_id) REFERENCES crawler_templates(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 爬虫定时任务表
@@ -321,7 +438,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_template (template_id),
         FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE,
         FOREIGN KEY (template_id) REFERENCES crawler_templates(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 爬虫抓取批次表
@@ -336,7 +453,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_template (template_id),
         INDEX idx_user (user_id),
         FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 爬虫抓取行表
@@ -347,7 +464,7 @@ export async function initAdminTables(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_result (result_id),
         FOREIGN KEY (result_id) REFERENCES crawler_results(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 爬虫抓取明细条目表 (EAV 模式)
@@ -360,7 +477,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_row (row_id),
         INDEX idx_field (field_name),
         FOREIGN KEY (row_id) REFERENCES crawler_result_rows(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 爬虫助手对话历史表
@@ -374,7 +491,7 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_user (user_id),
         INDEX idx_updated (updated_at),
         FOREIGN KEY (user_id) REFERENCES sys_users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 爬虫助手消息表
@@ -388,7 +505,7 @@ export async function initAdminTables(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_conversation_id (conversation_id),
         INDEX idx_created_at (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
     // 初始化默认数据
@@ -450,77 +567,39 @@ async function initDefaultData(connection: mysql.PoolConnection): Promise<void> 
 }
 
 /**
- * 同步必要的系统菜单（增量更新 + 权限迁移）
+ * 同步模块化菜单系统
+ * 现在菜单由各个模块的 module.json 定义，通过 MenuManager 管理
  */
 export async function syncSystemMenus(connection: mysql.PoolConnection): Promise<void> {
-  const menus = [
-    { id: '00000000-0000-0000-0000-000000000001', title: '工作台', path: '/workbench', icon: 'DashboardOutlined', parentId: null, sort: 1 },
+  console.log('菜单系统已模块化，由 MenuManager 统一管理');
 
-    // AI 创新中心
-    { id: '00000000-0000-0000-0000-000000000005', title: 'AI 创新中心', path: null, icon: 'RobotOutlined', parentId: null, sort: 2 },
-    { id: '00000000-0000-0000-0000-000000000011', title: '智能问答', path: '/ai/chat', icon: 'MessageOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 1 },
-    { id: '00000000-0000-0000-0000-000000000012', title: '知识中心', path: '/ai/knowledge', icon: 'BookOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 2 },
-    { id: '00000000-0000-0000-0000-000000000007', title: '使用统计', path: '/ai/stats', icon: 'BarChartOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 3 },
-    { id: '00000000-0000-0000-0000-000000000008', title: '对话历史', path: '/ai/history', icon: 'HistoryOutlined', parentId: '00000000-0000-0000-0000-000000000005', sort: 4 },
-
-    // 数据资源中心
-    { id: '00000000-0000-0000-0000-000000000009', title: '数据资源中心', path: null, icon: 'DatabaseOutlined', parentId: null, sort: 3 },
-    { id: '00000000-0000-0000-0000-000000000016', title: '数据源管理', path: '/datasource', icon: 'DatabaseOutlined', parentId: '00000000-0000-0000-0000-000000000009', sort: 1 },
-    { id: '00000000-0000-0000-0000-000000000017', title: '数据源审核', path: '/datasource/approval', icon: 'AuditOutlined', parentId: '00000000-0000-0000-0000-000000000009', sort: 2 },
-
-    // 高效办公工具
-    { id: '00000000-0000-0000-0000-000000000018', title: '高效办公工具', path: null, icon: 'ToolOutlined', parentId: null, sort: 4 },
-    { id: '00000000-0000-0000-0000-000000000014', title: '爬虫管理', path: '/ai/crawler', icon: 'GlobalOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 1 },
-    { id: '00000000-0000-0000-0000-000000000019', title: '文件工具', path: '/tools/file', icon: 'FileTextOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 2 },
-    { id: '00000000-0000-0000-0000-000000000020', title: '公文写作', path: '/tools/official-doc', icon: 'EditOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 3 },
-    { id: '00000000-0000-0000-0000-000000000015', title: 'OCR 识别', path: '/ai/ocr', icon: 'ScanOutlined', parentId: '00000000-0000-0000-0000-000000000018', sort: 4 },
-
-    // 基础系统管理
-    { id: '00000000-0000-0000-0000-000000000010', title: '基础系统管理', path: null, icon: 'SettingOutlined', parentId: null, sort: 5 },
-    { id: '00000000-0000-0000-0000-000000000002', title: '用户管理', path: '/user', icon: 'UserOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 1 },
-    { id: '00000000-0000-0000-0000-000000000003', title: '角色管理', path: '/role', icon: 'TeamOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 2 },
-    { id: '00000000-0000-0000-0000-000000000004', title: '菜单管理', path: '/menu', icon: 'MenuOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 3 },
-    { id: '00000000-0000-0000-0000-000000000006', title: 'AI 模型配置', path: '/ai/config', icon: 'SettingOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 4 },
-    { id: '00000000-0000-0000-0000-000000000013', title: '通知中心', path: '/notification', icon: 'BellOutlined', parentId: '00000000-0000-0000-0000-000000000010', sort: 5 }
-  ];
-
-  for (const menu of menus) {
-    // 1. 查找是否存在具有相同路径或标题的重复菜单（排除自身）
-    const [existing] = await connection.execute(
-      'SELECT id FROM sys_menus WHERE (path = ? OR title = ?) AND id != ?',
-      [menu.path, menu.title, menu.id]
-    );
-
-    const duplicates = existing as any[];
-    if (duplicates.length > 0) {
-      console.log(`[MenuSync] Found ${duplicates.length} duplicates for ${menu.title}, migrating...`);
-      for (const dup of duplicates) {
-        // 2. 迁移角色权限
-        await connection.execute(
-          'UPDATE IGNORE sys_role_menus SET menu_id = ? WHERE menu_id = ?',
-          [menu.id, dup.id]
-        );
-        // 3. 迁移子菜单归属
-        await connection.execute(
-          'UPDATE sys_menus SET parent_id = ? WHERE parent_id = ?',
-          [menu.id, dup.id]
-        );
-        // 4. 删除旧菜单
-        await connection.execute('DELETE FROM sys_menus WHERE id = ?', [dup.id]);
-        await connection.execute('DELETE FROM sys_role_menus WHERE menu_id = ?', [dup.id]);
-      }
-    }
-
-    // 5. 插入或更新标准菜单
+  // 添加 module_name 字段（如果不存在）
+  try {
     await connection.execute(`
-      INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, is_system)
-      VALUES (?, ?, ?, ?, ?, ?, TRUE)
-      ON DUPLICATE KEY UPDATE 
-        title = VALUES(title), 
-        path = VALUES(path), 
-        icon = VALUES(icon), 
-        parent_id = VALUES(parent_id), 
-        sort_order = VALUES(sort_order)
-    `, [menu.id, menu.title, menu.path, menu.icon, menu.parentId, menu.sort]);
+      ALTER TABLE sys_menus 
+      ADD COLUMN module_name VARCHAR(50) DEFAULT NULL AFTER module_code
+    `);
+    console.log('已添加 module_name 字段到 sys_menus 表');
+  } catch (e: any) {
+    if (!e.message.includes('Duplicate column')) {
+      console.log('module_name 字段已存在或添加失败:', e.message);
+    }
   }
+
+  // 清理旧的硬编码菜单（保留用户自定义菜单）
+  // 注释掉自动删除，避免误删菜单
+  /*
+  try {
+    await connection.execute(`
+      DELETE FROM sys_menus 
+      WHERE is_system = TRUE 
+      AND (module_name IS NULL OR module_name = '')
+    `);
+    console.log('已清理旧的硬编码系统菜单');
+  } catch (e: any) {
+    console.log('清理旧菜单时出错:', e.message);
+  }
+  */
+
+  console.log('现在使用模块化菜单管理');
 }

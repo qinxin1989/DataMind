@@ -619,7 +619,15 @@ export class AIQAService {
     }
 
     session.messages.push({ role: 'user', content: question, timestamp: Date.now() });
-    session.messages.push({ role: 'assistant', content: maskedAnswer, sql: response.sql, timestamp: Date.now() });
+    session.messages.push({
+      role: 'assistant',
+      content: maskedAnswer,
+      sql: response.sql,
+      chart: response.chart,
+      charts: response.charts,
+      data: maskedData,
+      timestamp: Date.now()
+    });
     await this.configStore.saveChatSession(session, userId);
 
     return {
@@ -685,6 +693,20 @@ export class AIQAService {
 
   async deleteChatSession(sessionId: string, userId: string): Promise<void> {
     await this.configStore.deleteChatSession(sessionId, userId);
+  }
+
+  // 更新消息配置（用于持久化图表定制，如翻译）
+  async updateChatMessageConfig(sessionId: string, messageIndex: number, config: any, userId: string): Promise<boolean> {
+    const session = await this.configStore.getChatSession(sessionId, userId);
+    if (!session || !session.messages[messageIndex]) return false;
+
+    session.messages[messageIndex].chartConfig = {
+      ...(session.messages[messageIndex].chartConfig || {}),
+      ...config
+    };
+
+    await this.configStore.saveChatSession(session, userId);
+    return true;
   }
 
 

@@ -7,7 +7,7 @@ async function updateMenus() {
         port: parseInt(process.env.CONFIG_DB_PORT || '3306'),
         user: process.env.CONFIG_DB_USER || 'root',
         password: process.env.CONFIG_DB_PASSWORD || 'qinxin',
-        database: process.env.CONFIG_DB_NAME || 'ai-data-platform',
+        database: process.env.CONFIG_DB_NAME || 'DataMind',
     });
 
     const connection = await pool.getConnection();

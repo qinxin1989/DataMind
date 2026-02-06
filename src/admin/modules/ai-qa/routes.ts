@@ -372,6 +372,21 @@ router.delete('/chat/session/:id', checkAuth, async (req: Request, res: Response
   }
 });
 
+// 更新消息配置 (用于持久化图表定制，如翻译)
+router.put('/chat/session/:id/message/:msgIdx/config', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const { id, msgIdx } = req.params;
+    const success = await aiQAService.updateChatMessageConfig(id, parseInt(msgIdx), req.body, getUserId(req));
+    if (success) {
+      res.json({ success: true, message: '配置已更新' });
+    } else {
+      res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '消息不存在' } });
+    }
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+  }
+});
+
 
 // ==================== Agent 技能和工具 ====================
 

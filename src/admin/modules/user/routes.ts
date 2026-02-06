@@ -43,6 +43,18 @@ router.get('/', requirePermission('user:view'), async (req: Request, res: Respon
 });
 
 /**
+ * GET /stats - 获取用户统计
+ */
+router.get('/stats', requirePermission('user:view'), async (req: Request, res: Response) => {
+  try {
+    const stats = await userService.getStats();
+    res.json(success(stats));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
+
+/**
  * GET /users/:id - 获取用户详情
  */
 router.get('/:id', requirePermission('user:view'), async (req: Request, res: Response) => {
