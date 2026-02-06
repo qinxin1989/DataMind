@@ -471,6 +471,71 @@ CREATE TABLE IF NOT EXISTS sys_role_menus (
   PRIMARY KEY (role_id, menu_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 模块标签表
+CREATE TABLE IF NOT EXISTS sys_module_tags (
+  id VARCHAR(36) PRIMARY KEY,
+  module_name VARCHAR(100) NOT NULL,
+  tag VARCHAR(50) NOT NULL,
+  INDEX idx_module (module_name),
+  FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 模块权限表
+CREATE TABLE IF NOT EXISTS sys_module_permissions (
+  id VARCHAR(36) PRIMARY KEY,
+  module_name VARCHAR(100) NOT NULL,
+  code VARCHAR(100) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  INDEX idx_module (module_name),
+  UNIQUE KEY unique_module_permission (module_name, code),
+  FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 模块菜单表
+CREATE TABLE IF NOT EXISTS sys_module_menus (
+  id VARCHAR(36) PRIMARY KEY,
+  module_name VARCHAR(100) NOT NULL,
+  menu_id VARCHAR(100) NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  path VARCHAR(255) NOT NULL,
+  icon VARCHAR(100),
+  parent_id VARCHAR(100),
+  sort_order INT DEFAULT 0,
+  permission_code VARCHAR(100),
+  INDEX idx_module (module_name),
+  FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 模块后端配置表
+CREATE TABLE IF NOT EXISTS sys_module_backend (
+  module_name VARCHAR(100) PRIMARY KEY,
+  entry_file VARCHAR(255) NOT NULL,
+  routes_prefix VARCHAR(100),
+  routes_file VARCHAR(255),
+  FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 模块前端配置表
+CREATE TABLE IF NOT EXISTS sys_module_frontend (
+  module_name VARCHAR(100) PRIMARY KEY,
+  entry_file VARCHAR(255) NOT NULL,
+  routes_file VARCHAR(255),
+  FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 模块API端点表
+CREATE TABLE IF NOT EXISTS sys_module_api_endpoints (
+  id VARCHAR(36) PRIMARY KEY,
+  module_name VARCHAR(100) NOT NULL,
+  method VARCHAR(10) NOT NULL,
+  path VARCHAR(255) NOT NULL,
+  description TEXT,
+  permission_code VARCHAR(100),
+  INDEX idx_module (module_name),
+  FOREIGN KEY (module_name) REFERENCES sys_modules(name) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ========================================
 -- 知识图谱增强表
 -- ========================================

@@ -88,7 +88,6 @@ const authMiddleware = createAuthMiddleware(authService);
 const dataSources = new Map<string, { config: DataSourceConfig; instance: BaseDataSource }>();
 
 // 初始化模块系统
-// 初始化模块系统
 async function initModuleSystem() {
   try {
     log.info('正在初始化模块系统...');
@@ -97,8 +96,8 @@ async function initModuleSystem() {
     await moduleRegistry.initialize();
 
     // 初始化后端路由管理器
-    const { BackendRouteManager } = await import('./module-system/core/BackendRouteManager');
-    BackendRouteManager.init(app);
+    const { getBackendRouteManager } = await import('./module-system/core/BackendRouteManager');
+    getBackendRouteManager(app);
 
     // 创建生命周期管理器
     const { createLifecycleManager } = await import('./module-system/core/LifecycleManager');
