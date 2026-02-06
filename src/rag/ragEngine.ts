@@ -265,6 +265,19 @@ export class RAGEngine {
     // 从Schema构建图谱
     this.knowledgeGraph.buildFromSchema(schema, datasourceId);
 
+    // 持久化从 Schema 构建的图谱数据 (提取并保存)
+    if (this.knowledgeBase.settings.enableGraph && this.pool) {
+      // 获取刚构建的图谱数据并保存
+      const graphData = this.knowledgeGraph.export();
+      // 这里只需要保存与该数据源相关的实体和关系
+      const dsEntities = graphData.entities.filter(e => e.sourceDocumentId === datasourceId);
+      const dsRelations = graphData.relations.filter(r => r.sourceDocumentId === datasourceId);
+
+      if (dsEntities.length > 0 || dsRelations.length > 0) {
+        await this.persistGraphData(dsEntities, dsRelations);
+      }
+    }
+
     console.log(`[RAG] 添加数据源知识: ${datasourceName}`);
     return doc;
   }
@@ -293,13 +306,21 @@ export class RAGEngine {
             content: `从文本中提取实体和关系，返回JSON格式：
 {
   "entities": [
-    { "name": "实体名", "type": "concept|person|org|location|time|event|metric", "description": "描述" }
+    { "name": "实体名", "nameCn": "中文名(可选)", "type": "concept|person|org|location|time|event|metric", "description": "描述" }
   ],
   "relations": [
-    { "source": "源实体名", "target": "目标实体名", "type": "related_to|belongs_to|part_of|causes", "description": "关系描述" }
+    { "source": "源实体名", "target": "目标实体名", "type": "related_to|belongs_to|part_of|causes|references", "description": "关系描述" }
   ]
 }
-只返回JSON，不要其他内容。如果没有明显的实体关系，返回空数组。`
+只返回JSON，不要其他内容。如果没有明显的实体关系，返回空数组。
+提取指南：
+- person: 人名、用户名
+- org: 公司、部门、组织
+- location: 地点、城市、国家
+- time: 日期、时间段
+- event: 事件、活动
+- metric: 数值指标、统计数据
+- concept: 概念、术语、主题`
           },
           {
             role: 'user',
@@ -315,23 +336,28 @@ export class RAGEngine {
 
       // 添加实体
       const entityMap = new Map<string, string>();
+      const addedEntities: any[] = [];
+
       for (const e of extracted.entities || []) {
         const entity = this.knowledgeGraph.addEntity({
           type: e.type || 'concept',
           name: e.name,
+          nameCn: e.nameCn,
           description: e.description,
           properties: {},
           sourceDocumentId: doc.id,
         });
         entityMap.set(e.name, entity.id);
+        addedEntities.push(entity);
       }
 
       // 添加关系
+      const addedRelations: any[] = [];
       for (const r of extracted.relations || []) {
         const sourceId = entityMap.get(r.source);
         const targetId = entityMap.get(r.target);
         if (sourceId && targetId) {
-          this.knowledgeGraph.addRelation({
+          const relation = this.knowledgeGraph.addRelation({
             type: r.type || 'related_to',
             sourceId,
             targetId,
@@ -339,10 +365,67 @@ export class RAGEngine {
             weight: 0.8,
             sourceDocumentId: doc.id,
           });
+          addedRelations.push(relation);
         }
       }
+
+      // 保存到数据库
+      if (this.pool && (addedEntities.length > 0 || addedRelations.length > 0)) {
+        await this.persistGraphData(addedEntities, addedRelations);
+      }
+
+      console.log(`[RAG] 提取实体 ${addedEntities.length} 个，关系 ${addedRelations.length} 个`);
     } catch (e: any) {
       console.error('[RAG] 实体提取失败:', e.message);
+    }
+  }
+
+  // 持久化图谱数据到数据库
+  private async persistGraphData(entities: any[], relations: any[]): Promise<void> {
+    if (!this.pool) return;
+
+    try {
+      // 保存实体
+      for (const entity of entities) {
+        await this.pool.execute(
+          `INSERT INTO knowledge_entities (id, knowledge_base_id, type, name, name_cn, description, properties, source_document_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE name = VALUES(name), name_cn = VALUES(name_cn), description = VALUES(description)`,
+          [
+            entity.id,
+            this.knowledgeBase.id,
+            entity.type,
+            entity.name,
+            entity.nameCn || null,
+            entity.description || null,
+            JSON.stringify(entity.properties || {}),
+            entity.sourceDocumentId || null
+          ]
+        );
+      }
+
+      // 保存关系
+      for (const relation of relations) {
+        await this.pool.execute(
+          `INSERT INTO knowledge_relations (id, knowledge_base_id, type, source_id, target_id, properties, weight, source_document_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE type = VALUES(type), weight = VALUES(weight)`,
+          [
+            relation.id,
+            this.knowledgeBase.id,
+            relation.type,
+            relation.sourceId,
+            relation.targetId,
+            JSON.stringify(relation.properties || {}),
+            relation.weight || 1.0,
+            relation.sourceDocumentId || null
+          ]
+        );
+      }
+
+      console.log(`[RAG] 图谱数据已持久化: ${entities.length} 实体, ${relations.length} 关系`);
+    } catch (error: any) {
+      console.error('[RAG] 持久化图谱数据失败:', error.message);
     }
   }
 
@@ -749,7 +832,66 @@ ${contextText}
         this.knowledgeBase.updateDocument(doc.id, { chunks: doc.chunks });
       }
 
-      console.log('[RAG] 从数据库加载文档完成');
+      // 加载知识图谱数据
+      console.log('[RAG] 开始加载知识图谱数据...');
+
+      // 加载实体
+      const [entityRows] = await this.pool.execute(
+        `SELECT * FROM knowledge_entities WHERE knowledge_base_id = ?`,
+        [this.knowledgeBase.id]
+      );
+
+      const entities = entityRows as any[];
+      console.log(`[RAG] 找到 ${entities.length} 个实体`);
+
+      const loadedEntities: any[] = [];
+      for (const row of entities) {
+        const entity = {
+          id: row.id,
+          knowledgeBaseId: row.knowledge_base_id,
+          type: row.type,
+          name: row.name,
+          nameCn: row.name_cn,
+          description: row.description,
+          properties: this.safeJsonParse(row.properties, {}),
+          sourceDocumentId: row.source_document_id,
+          createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+        loadedEntities.push(entity);
+      }
+
+      // 加载关系
+      const [relationRows] = await this.pool.execute(
+        `SELECT * FROM knowledge_relations WHERE knowledge_base_id = ?`,
+        [this.knowledgeBase.id]
+      );
+
+      const relations = relationRows as any[];
+      console.log(`[RAG] 找到 ${relations.length} 个关系`);
+
+      const loadedRelations: any[] = [];
+      for (const row of relations) {
+        const relation = {
+          id: row.id,
+          knowledgeBaseId: row.knowledge_base_id,
+          type: row.type,
+          sourceId: row.source_id,
+          targetId: row.target_id,
+          properties: this.safeJsonParse(row.properties, {}),
+          weight: parseFloat(row.weight || '1.0'),
+          sourceDocumentId: row.source_document_id,
+          createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+        loadedRelations.push(relation);
+      }
+
+      // 导入到知识图谱实例
+      this.knowledgeGraph.import({
+        entities: loadedEntities,
+        relations: loadedRelations
+      });
+
+      console.log('[RAG] 从数据库加载文档和图谱数据完成');
     } catch (error: any) {
       console.error('[RAG] 从数据库加载文档失败:', error.message);
       console.error('[RAG] 错误堆栈:', error.stack);
