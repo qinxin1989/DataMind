@@ -434,6 +434,14 @@ export class AIAgent {
     return this.dashboardGen.generate(topic, dataSource, dbType, theme);
   }
 
+  // 获取 analyst 实例
+  getAnalyst(): AutoAnalyst {
+    if (!this.analyst) {
+      throw new Error('AutoAnalyst not initialized');
+    }
+    return this.analyst;
+  }
+
   // 格式化schema
   private formatSchemaForAI(schemas: TableSchema[]): string {
     return schemas.map(table => {
@@ -487,10 +495,10 @@ export class AIAgent {
   }
 
   // 构建上下文消息（限制数量节省 token）
-  private buildContextMessages(history: ChatMessage[]): { role: 'user' | 'assistant'; content: string }[] {
+  private buildContextMessages(history: ChatMessage[]): { role: 'user' | 'assistant' | 'system'; content: string }[] {
     const recentHistory = history.slice(-4); // 只保留最近4条，节省 token
     return recentHistory.map(msg => ({
-      role: msg.role,
+      role: msg.role as 'user' | 'assistant' | 'system',
       content: msg.content.slice(0, 200) // 限制每条消息长度
     }));
   }
@@ -1112,7 +1120,8 @@ ${schemaDesc}
 
       if (needComprehensiveAnalysis) {
         console.log('=== Using comprehensive analysis mode');
-        const report = await this.analyst.analyze(question, dataSource, dbType);
+        await this.ensureInitialized();
+        const report = await this.getAnalyst().analyze(question, dataSource, dbType);
 
         // 格式化报告为自然语言 Markdown
         let answer = `## ${report.title}\n\n`;
@@ -1578,18 +1587,18 @@ ${schemaDesc}
         const name = col.name.toLowerCase();
         // 地域维度
         if (name.includes('地区') || name.includes('区域') || name.includes('省份') ||
-            name.includes('城市') || name.includes('国家') || name.includes('地址') ||
-            name.includes('region') || name.includes('area') || name.includes('province')) {
+          name.includes('城市') || name.includes('国家') || name.includes('地址') ||
+          name.includes('region') || name.includes('area') || name.includes('province')) {
           dimensionFields.push(`- ${col.name}: 地域维度`);
         }
         // 时间维度
         else if (name.includes('时间') || name.includes('日期') || name.includes('年份') ||
-                 name.includes('月份') || name.includes('date') || name.includes('time')) {
+          name.includes('月份') || name.includes('date') || name.includes('time')) {
           dimensionFields.push(`- ${col.name}: 时间维度`);
         }
         // 分类维度
         else if (name.includes('类型') || name.includes('类别') || name.includes('分类') ||
-                 name.includes('组别') || name.includes('级别') || name.includes('status')) {
+          name.includes('组别') || name.includes('级别') || name.includes('status')) {
           dimensionFields.push(`- ${col.name}: 分类维度`);
         }
       }
@@ -1731,9 +1740,9 @@ ${schemaContext}${additionalContext}`
       for (const col of schema.columns) {
         const name = col.name.toLowerCase();
         if (name.includes('地区') || name.includes('区域') || name.includes('省份') ||
-            name.includes('城市') || name.includes('国家') ||
-            name.includes('类型') || name.includes('类别') || name.includes('分类') ||
-            name.includes('时间') || name.includes('日期') || name.includes('年份')) {
+          name.includes('城市') || name.includes('国家') ||
+          name.includes('类型') || name.includes('类别') || name.includes('分类') ||
+          name.includes('时间') || name.includes('日期') || name.includes('年份')) {
           dimensionFields.push(`- ${col.name}: 可用于GROUP BY的维度字段`);
         }
       }
@@ -2115,7 +2124,7 @@ ${schemaContext}${additionalContext}`
 
           // 如果字段名本身是中文（超过50%是中文字符），直接用原字段名作为nameCn
           const isChineseName = /[\u4e00-\u9fa5]/.test(origCol.name) &&
-                               (origCol.name.match(/[\u4e00-\u9fa5]/g) || []).length / origCol.name.length > 0.5;
+            (origCol.name.match(/[\u4e00-\u9fa5]/g) || []).length / origCol.name.length > 0.5;
 
           return {
             name: origCol.name,
