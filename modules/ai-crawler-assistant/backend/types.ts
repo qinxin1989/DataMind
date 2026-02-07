@@ -208,3 +208,11 @@ export interface UpdateConversationRequest {
   title?: string;
   messages?: any[];
 }
+
+export interface CrawlerConversation {
+  id: string;
+  userId: string;
+  messages: any[];
+  createdAt: number;
+  updatedAt: number;
+}

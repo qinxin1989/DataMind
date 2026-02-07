@@ -384,9 +384,9 @@ router.post('/crawler/chat', requirePermission('ai:view'), async (req: Request, 
  */
 router.post('/crawler/preview', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
-    const { 
-      url, 
-      selectors, 
+    const {
+      url,
+      selectors,
       limit = 10,  // 默认10条
       page = 1,    // 当前页码，默认第1页
       pageSize     // 每页条数，如果提供则使用分页模式
@@ -450,7 +450,7 @@ router.post('/crawler/diagnose', requirePermission('ai:view'), async (req: Reque
 
     const axios = require('axios');
     const cheerio = require('cheerio');
-    
+
     // 获取网页HTML
     const response = await axios.get(url, {
       headers: {
@@ -490,11 +490,11 @@ router.post('/crawler/diagnose', requirePermission('ai:view'), async (req: Reque
 
     // 检查是否是动态加载（需求 6.4）
     const hasScripts = $('script').length > 10;
-    const hasReactVue = response.data.includes('react') || 
-                        response.data.includes('vue') || 
-                        response.data.includes('angular') ||
-                        response.data.includes('__NEXT_DATA__');
-    
+    const hasReactVue = response.data.includes('react') ||
+      response.data.includes('vue') ||
+      response.data.includes('angular') ||
+      response.data.includes('__NEXT_DATA__');
+
     if (hasScripts || hasReactVue) {
       diagnosis.issues.push('页面可能使用了动态加载（检测到大量JavaScript或前端框架）');
       diagnosis.suggestions.push('建议使用浏览器自动化工具（如Puppeteer）进行采集');
@@ -550,7 +550,7 @@ router.post('/crawler/diagnose', requirePermission('ai:view'), async (req: Reque
         });
 
         const aiContent = aiResponse.choices[0]?.message?.content || '';
-        
+
         // 尝试解析AI返回的JSON
         try {
           const aiAnalysis = JSON.parse(aiContent);
@@ -615,7 +615,7 @@ router.post('/crawler/test', requirePermission('ai:view'), async (req: Request, 
     // 执行测试采集（需求 10.2）
     let testResult: any;
     let testError: string | null = null;
-    
+
     try {
       testResult = await crawlerAssistantService.previewExtraction(url, selectors);
     } catch (extractErr: any) {
@@ -645,11 +645,11 @@ router.post('/crawler/test', requirePermission('ai:view'), async (req: Request, 
         containerUsed: selectors.container || 'body'
       };
     } else {
-      result.message = testError 
-        ? `✗ 测试失败：${testError}` 
+      result.message = testError
+        ? `✗ 测试失败：${testError}`
         : '✗ 测试失败：未采集到数据，请检查选择器配置';
       result.error = testError || '未采集到数据';
-      
+
       // 提供诊断建议
       result.suggestions = [
         '1. 使用浏览器开发者工具验证选择器是否正确',
@@ -704,7 +704,7 @@ router.get('/crawler/proxy', requirePermission('ai:view'), async (req: Request, 
  */
 router.post('/crawler/template', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
-    const { name, description, url, selectors } = req.body;
+    const { name, description, url, selectors, department, dataType } = req.body;
 
     if (!name || !url || !selectors) {
       return res.status(400).json(error('VALID_PARAM_MISSING', '缺少必要参数'));
@@ -716,6 +716,8 @@ router.post('/crawler/template', requirePermission('ai:view'), async (req: Reque
       description: description || '',
       url,
       selectors,
+      department,
+      data_type: dataType, // Map dataType to data_type
       userId
     });
 
@@ -753,7 +755,7 @@ router.post('/crawler/validate-selector', requirePermission('ai:view'), async (r
 
     const axios = require('axios');
     const cheerio = require('cheerio');
-    
+
     // 获取网页HTML
     let htmlContent: string;
     try {
@@ -772,26 +774,26 @@ router.post('/crawler/validate-selector', requirePermission('ai:view'), async (r
       htmlContent = response.data;
     } catch (fetchError: any) {
       console.error('[Validate Selector] Fetch error:', fetchError.message);
-      
+
       if (fetchError.code === 'ECONNABORTED' || fetchError.code === 'ETIMEDOUT') {
         return res.status(408).json(error('TIMEOUT_ERROR', '请求超时，请检查网址是否可访问'));
       }
-      
+
       if (fetchError.response?.status === 404) {
         return res.status(404).json(error('NOT_FOUND', '网页不存在（404）'));
       }
-      
+
       if (fetchError.response?.status === 403) {
         return res.status(403).json(error('FORBIDDEN', '网页拒绝访问（403）'));
       }
-      
+
       return res.status(500).json(error('FETCH_ERROR', `获取网页失败: ${fetchError.message}`));
     }
 
     // 使用cheerio解析HTML并验证选择器
     let $: any;
     let matchCount: number;
-    
+
     try {
       $ = cheerio.load(htmlContent);
       const elements = $(selector);
@@ -805,8 +807,8 @@ router.post('/crawler/validate-selector', requirePermission('ai:view'), async (r
     const result = {
       valid: matchCount > 0,
       matchCount,
-      message: matchCount > 0 
-        ? `找到 ${matchCount} 个匹配元素` 
+      message: matchCount > 0
+        ? `找到 ${matchCount} 个匹配元素`
         : '未找到匹配元素，请检查选择器是否正确'
     };
 
@@ -940,7 +942,7 @@ router.get('/crawler-conversations-latest', requirePermission('ai:view'), async 
   try {
     const userId = (req as any).user?.id || 'system';
     const { pool } = require('../../core/database');
-    
+
     // 获取最新对话
     const [convRows] = await pool.execute(
       `SELECT id, user_id, title, created_at, updated_at 
@@ -950,33 +952,47 @@ router.get('/crawler-conversations-latest', requirePermission('ai:view'), async 
        LIMIT 1`,
       [userId]
     );
-    
+
     if ((convRows as any[]).length === 0) {
       return res.json(success(null));
     }
-    
+
     const conversation = (convRows as any[])[0];
-    
+
     // 获取该对话的所有消息
     const [msgRows] = await pool.execute(
-      `SELECT id, role, type, content, created_at 
+      `SELECT id, role, content, created_at 
        FROM crawler_assistant_messages 
        WHERE conversation_id = ? 
        ORDER BY created_at ASC`,
       [conversation.id]
     );
-    
+
     // 解析消息内容
-    const messages = (msgRows as any[]).map((msg: any) => ({
-      id: msg.id,
-      role: msg.role,
-      type: msg.type,
-      content: msg.content ? JSON.parse(msg.content) : null,
-      created_at: msg.created_at
-    }));
-    
+    const messages = (msgRows as any[]).map((msg: any) => {
+      let content = msg.content ? JSON.parse(msg.content) : null;
+      let type = 'text'; // Default to text
+
+      // If content is wrapped with type (new format)
+      if (content && typeof content === 'object' && 'type' in content && 'data' in content) {
+        type = content.type;
+        content = content.data;
+      } else if (msg.role === 'ai' && typeof content === 'object' && content?.selectors) {
+        // Fallback inference for old data
+        type = 'selectors';
+      }
+
+      return {
+        id: msg.id,
+        role: msg.role,
+        type,
+        content,
+        created_at: msg.created_at
+      };
+    });
+
     conversation.messages = messages;
-    
+
     res.json(success(conversation));
   } catch (err: any) {
     console.error('[Get Latest Conversation] Error:', err);
@@ -991,7 +1007,7 @@ router.get('/crawler-conversations', requirePermission('ai:view'), async (req: R
   try {
     const userId = (req as any).user?.id || 'system';
     const { pool } = require('../../core/database');
-    
+
     const [rows] = await pool.execute(
       `SELECT id, title, created_at, updated_at 
        FROM crawler_assistant_conversations 
@@ -1000,7 +1016,7 @@ router.get('/crawler-conversations', requirePermission('ai:view'), async (req: R
        LIMIT 50`,
       [userId]
     );
-    
+
     res.json(success(rows));
   } catch (err: any) {
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -1013,39 +1029,51 @@ router.get('/crawler-conversations', requirePermission('ai:view'), async (req: R
 router.get('/crawler-conversations/:id', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
     const { pool } = require('../../core/database');
-    
+
     // 获取对话基本信息
     const [convRows] = await pool.execute(
       'SELECT * FROM crawler_assistant_conversations WHERE id = ?',
       [req.params.id]
     );
-    
+
     if ((convRows as any[]).length === 0) {
       return res.status(404).json(error('NOT_FOUND', '对话不存在'));
     }
-    
+
     const conversation = (convRows as any[])[0];
-    
+
     // 获取该对话的所有消息
     const [msgRows] = await pool.execute(
-      `SELECT id, role, type, content, created_at 
+      `SELECT id, role, content, created_at 
        FROM crawler_assistant_messages 
        WHERE conversation_id = ? 
        ORDER BY created_at ASC`,
       [req.params.id]
     );
-    
+
     // 解析消息内容
-    const messages = (msgRows as any[]).map((msg: any) => ({
-      id: msg.id,
-      role: msg.role,
-      type: msg.type,
-      content: msg.content ? JSON.parse(msg.content) : null,
-      created_at: msg.created_at
-    }));
-    
+    const messages = (msgRows as any[]).map((msg: any) => {
+      let content = msg.content ? JSON.parse(msg.content) : null;
+      let type = 'text';
+
+      if (content && typeof content === 'object' && 'type' in content && 'data' in content) {
+        type = content.type;
+        content = content.data;
+      } else if (msg.role === 'ai' && typeof content === 'object' && content?.selectors) {
+        type = 'selectors';
+      }
+
+      return {
+        id: msg.id,
+        role: msg.role,
+        type,
+        content,
+        created_at: msg.created_at
+      };
+    });
+
     conversation.messages = messages;
-    
+
     res.json(success(conversation));
   } catch (err: any) {
     console.error('[Get Conversation] Error:', err);
@@ -1062,40 +1090,45 @@ router.post('/crawler-conversations', requirePermission('ai:view'), async (req: 
     const { title = '新对话', messages = [] } = req.body;
     const { v4: uuidv4 } = require('uuid');
     const { pool } = require('../../core/database');
-    
+
     const id = uuidv4();
-    
+
     // 创建对话
     await pool.execute(
       `INSERT INTO crawler_assistant_conversations (id, user_id, title) 
        VALUES (?, ?, ?)`,
       [id, userId, title]
     );
-    
+
     // 如果有初始消息，插入消息表
     if (messages.length > 0) {
       for (const msg of messages) {
         const msgId = uuidv4();
+        // Wrap content with type
+        const contentToSave = {
+          type: msg.type || 'text',
+          data: msg.content || msg
+        };
+
         await pool.execute(
-          `INSERT INTO crawler_assistant_messages (id, conversation_id, role, type, content) 
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO crawler_assistant_messages (id, conversation_id, role, content) 
+           VALUES (?, ?, ?, ?)`,
           [
             msgId,
             id,
             msg.role || 'user',
-            msg.type || 'text',
-            JSON.stringify(msg.content || msg)
+            JSON.stringify(contentToSave)
           ]
         );
       }
     }
-    
-    res.json(success({ 
-      id, 
-      title, 
-      messages, 
-      created_at: new Date(), 
-      updated_at: new Date() 
+
+    res.json(success({
+      id,
+      title,
+      messages,
+      created_at: new Date(),
+      updated_at: new Date()
     }));
   } catch (err: any) {
     console.error('[Create Conversation] Error:', err);
@@ -1111,7 +1144,7 @@ router.put('/crawler-conversations/:id', requirePermission('ai:view'), async (re
     const { title, messages } = req.body;
     const { pool } = require('../../core/database');
     const { v4: uuidv4 } = require('uuid');
-    
+
     // 更新标题
     if (title !== undefined) {
       await pool.execute(
@@ -1119,7 +1152,7 @@ router.put('/crawler-conversations/:id', requirePermission('ai:view'), async (re
         [title, req.params.id]
       );
     }
-    
+
     // 更新消息
     if (messages !== undefined && Array.isArray(messages)) {
       // 删除旧消息
@@ -1127,24 +1160,28 @@ router.put('/crawler-conversations/:id', requirePermission('ai:view'), async (re
         'DELETE FROM crawler_assistant_messages WHERE conversation_id = ?',
         [req.params.id]
       );
-      
+
       // 插入新消息
       for (const msg of messages) {
         const msgId = msg.id || uuidv4();
+        const contentToSave = {
+          type: msg.type || 'text',
+          data: msg.content || msg
+        };
+
         await pool.execute(
-          `INSERT INTO crawler_assistant_messages (id, conversation_id, role, type, content) 
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO crawler_assistant_messages (id, conversation_id, role, content) 
+           VALUES (?, ?, ?, ?)`,
           [
             msgId,
             req.params.id,
             msg.role || 'user',
-            msg.type || 'text',
-            JSON.stringify(msg.content || msg)
+            JSON.stringify(contentToSave)
           ]
         );
       }
     }
-    
+
     res.json(success({ message: '更新成功' }));
   } catch (err: any) {
     console.error('[Update Conversation] Error:', err);
@@ -1158,19 +1195,19 @@ router.put('/crawler-conversations/:id', requirePermission('ai:view'), async (re
 router.delete('/crawler-conversations/:id', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
     const { pool } = require('../../core/database');
-    
+
     // 先删除该对话的所有消息
     await pool.execute(
       'DELETE FROM crawler_assistant_messages WHERE conversation_id = ?',
       [req.params.id]
     );
-    
+
     // 再删除对话
     await pool.execute(
       'DELETE FROM crawler_assistant_conversations WHERE id = ?',
       [req.params.id]
     );
-    
+
     res.json(success({ message: '删除成功' }));
   } catch (err: any) {
     console.error('[Delete Conversation] Error:', err);

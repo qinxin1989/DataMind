@@ -41,7 +41,7 @@
             <span class="ai-avatar">🤖</span>
           </div>
           <div class="message-content">
-            <div v-if="msg.type === 'text'" class="message-text" v-html="msg.content"></div>
+            <div v-if="msg.type === 'text'" class="message-text" v-html="msg.content" @click="handleLinkClick($event)"></div>
             <div v-else-if="msg.type === 'analyzing'" class="message-analyzing">
               <a-spin :spinning="true" />
               <span>正在分析网页结构...</span>
@@ -164,28 +164,16 @@
     <div class="preview-panel">
       <a-tabs v-model:activeKey="activePreviewTab">
         <a-tab-pane key="webpage" tab="网页预览">
-          <div v-if="previewUrl" class="webpage-preview">
-            <div class="preview-header">
-              <span class="preview-url">{{ previewUrl }}</span>
-              <a-button type="primary" size="small" @click="openInNewTab">
-                在新窗口打开
-              </a-button>
-            </div>
-            <div class="preview-content" ref="previewContent">
-              <a-alert 
-                message="网页预览" 
-                description="由于跨域限制，无法在此直接预览。请点击'在新窗口打开'在浏览器中查看原网页。"
-                type="info" 
-                show-icon
-                style="margin-bottom: 16px"
-              />
-              <div class="preview-info">
-                <p><strong>网址：</strong> <a :href="previewUrl" target="_blank">{{ previewUrl }}</a></p>
-                <p><strong>状态：</strong> 点击上方按钮在新窗口打开查看</p>
-              </div>
-            </div>
+          <div class="webpage-preview-wrapper" style="height: 100%; display: flex; flex-direction: column; min-height: 500px;">
+            <WebpagePreview 
+              v-if="targetUrl && userStore.token" 
+              ref="webpagePreviewRef"
+              :url="targetUrl"
+              :token="userStore.token || undefined"
+              @elementSelected="handleElementSelected"
+            />
+            <a-empty v-else description="暂无预览，请在对话中发送网址" />
           </div>
-          <a-empty v-else description="暂无网页预览" />
         </a-tab-pane>
 
         <a-tab-pane key="selectors" tab="选择器可视化">
@@ -363,8 +351,11 @@ import { message } from 'ant-design-vue'
 import { HistoryOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { aiApi } from '@/api/ai'
 import { useUserStore } from '@/stores/user'
+import { useRouter } from 'vue-router'
+import WebpagePreview from '@/components/crawler/WebpagePreview.vue'
 
 const userStore = useUserStore()
+const router = useRouter()
 
 interface Message {
   role: 'user' | 'ai'
@@ -392,6 +383,8 @@ const iframeLoading = ref(false)
 const currentSelectors = ref<any>(null)
 const previewData = ref<any[]>([])
 const previewColumns = ref<any[]>([])
+const targetUrl = ref('')
+const webpagePreviewRef = ref(null)
 
 // 编辑相关
 const editModalVisible = ref(false)
@@ -555,10 +548,42 @@ watch(messages, () => {
   }
 }, { deep: true })
 
+// 处理消息内的链接点击
+function handleLinkClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  const link = target.closest('a')
+  if (link && link.hasAttribute('data-path')) {
+    e.preventDefault()
+    const path = link.getAttribute('data-path')
+    if (path) router.push(path)
+  }
+}
+
 // 发送消息
 async function handleSend(parentMsgId?: string) {
   const content = inputMessage.value.trim()
   if (!content) return
+
+  // 确保有当前对话ID
+  if (!currentConversationId.value) {
+    try {
+      const res = await aiApi.createCrawlerConversation({
+        title: content.substring(0, 20) || '新对话',
+        messages: []
+      })
+      if (res.success && res.data) {
+        currentConversationId.value = res.data.id
+      }
+    } catch (e) {
+      console.error('创建对话失败', e)
+    }
+  }
+
+  // 尝试从输入中提取URL以更新预览
+  const urlMatches = content.match(/https?:\/\/[^\s]+/)
+  if (urlMatches && urlMatches[0]) {
+    targetUrl.value = urlMatches[0]
+  }
 
   const userMsgId = generateId()
 
@@ -687,7 +712,13 @@ async function handleSend(parentMsgId?: string) {
                   timestamp: Date.now()
                 })
               } else {
-                const url = res.url
+                let url = res.url
+                // 如果AI未返回URL，尝试使用上下文中提取的URL
+                if (!url && targetUrl.value) {
+                  url = targetUrl.value
+                }
+                if (url) targetUrl.value = url
+                
                 // 设置为当前预览
                 iframeLoading.value = true
                 previewUrl.value = `/api/admin/ai/crawler/proxy?url=${encodeURIComponent(url)}${token ? `&token=${token}` : ''}`
@@ -786,6 +817,11 @@ async function handleSend(parentMsgId?: string) {
   }
 }
 
+function handleElementSelected(selector: string) {
+  message.success('已捕获选择器')
+  inputMessage.value = `我选择了页面元素: ${selector}，请帮我分析`
+}
+
 // 获取快捷追问问题
 function getQuickQuestions(msg: Message): string[] {
   if (msg.type === 'selectors') {
@@ -835,11 +871,19 @@ function handleSaveEditedSelectors() {
 // 预览选择器效果
 async function handlePreviewSelectors(content: any) {
   try {
+    // 确保有URL
+    const url = content.url || targetUrl.value
+
     console.log('=== 预览数据开始 ===')
-    console.log('URL:', content.url)
+    console.log('URL:', url)
     console.log('选择器:', JSON.stringify(content.selectors, null, 2))
     
-    const response = await aiApi.previewCrawler(content.url, content.selectors)
+    if (!url) {
+      message.error('无法预览：缺少URL')
+      return
+    }
+    
+    const response = await aiApi.previewCrawler(url, content.selectors)
     console.log('预览响应:', response)
     
     if (response.success && response.data) {
@@ -940,14 +984,22 @@ async function handleConfirmSaveTemplate() {
   if (!lastSelectorMsg) return
 
   try {
-    const response = await aiApi.saveCrawlerTemplate({
+    // 构造符合 crawler-template-config 模块要求的请求体
+    const payload = {
       name: templateForm.value.name,
       description: templateForm.value.description,
       url: lastSelectorMsg.content.url,
       department: templateForm.value.department,
-      data_type: templateForm.value.dataType, // 确保传递了数据类型
+      dataType: templateForm.value.dataType, 
+      containerSelector: lastSelectorMsg.content.selectors.container,
+      fields: lastSelectorMsg.content.selectors.fields,
+      // 保留 selectors 以防万一，但主要依赖上述字段
       selectors: lastSelectorMsg.content.selectors
-    } as any)
+    };
+    
+    console.log('[AI Assistant] Saving template with payload:', payload);
+
+    const response = await aiApi.saveCrawlerTemplate(payload as any)
 
     if (response.success) {
       message.success('模板保存成功！')
@@ -961,11 +1013,11 @@ async function handleConfirmSaveTemplate() {
           <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-left: 3px solid #1890ff; border-radius: 4px;">
             <div style="margin-bottom: 8px;">📋 您可以在以下位置管理此模板：</div>
             <div style="display: flex; gap: 8px;">
-              <a href="#/ai/crawler-template-config" style="color: #1890ff; text-decoration: none; font-weight: 500;">
+              <a href="javascript:;" data-path="/ai/crawler-template-config" style="color: #1890ff; text-decoration: none; font-weight: 500;">
                 → 采集模板配置
               </a>
               <span style="color: #999;">|</span>
-              <a href="#/ai/crawler" style="color: #1890ff; text-decoration: none; font-weight: 500;">
+              <a href="javascript:;" data-path="/ai/crawler" style="color: #1890ff; text-decoration: none; font-weight: 500;">
                 → 爬虫管理
               </a>
             </div>

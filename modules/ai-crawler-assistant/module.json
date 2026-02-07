@@ -55,6 +55,15 @@
   "config": {
     "schema": "./config/schema.json"
   },
+  "database": {
+    "tables": [
+      "crawler_templates",
+      "crawler_template_fields",
+      "crawler_assistant_conversations",
+      "crawler_assistant_messages"
+    ],
+    "version": "1.0.0"
+  },
   "hooks": {
     "beforeInstall": "./backend/hooks/beforeInstall.ts",
     "afterInstall": "./backend/hooks/afterInstall.ts",
@@ -64,15 +73,6 @@
     "afterEnable": "./backend/hooks/afterEnable.ts",
     "beforeDisable": "./backend/hooks/beforeDisable.ts",
     "afterDisable": "./backend/hooks/afterDisable.ts"
-  },
-  "database": {
-    "tables": [
-      "crawler_templates",
-      "crawler_template_fields",
-      "crawler_assistant_conversations",
-      "crawler_assistant_messages"
-    ],
-    "version": "1.0.0"
   },
   "api": {
     "endpoints": [

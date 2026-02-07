@@ -1,6 +1,6 @@
 {
   "name": "DataMind",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "DataMind - 支持多数据源连接和自然语言查询的智能数据分析平台",
   "main": "dist/index.js",
   "scripts": {

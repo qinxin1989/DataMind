@@ -6,6 +6,7 @@
 import { pool } from '../../../src/admin/core/database';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
+import { RowDataPacket } from 'mysql2';
 import type {
   ChatMessage,
   AnalysisResult,
@@ -14,7 +15,8 @@ import type {
   ChatProgressData,
   SaveTemplateRequest,
   CrawlerTemplate,
-  UpdateTemplateRequest
+  UpdateTemplateRequest,
+  CrawlerConversation
 } from './types';
 
 // 获取随机 User-Agent
@@ -34,8 +36,8 @@ export class CrawlerAssistantService {
    * 核心对话处理方法
    */
   async processChat(
-    messages: ChatMessage[], 
-    userId: string, 
+    messages: ChatMessage[],
+    userId: string,
     onProgress?: (data: ChatProgressData) => void
   ): Promise<ProcessChatResponse> {
     const lastMessage = messages[messages.length - 1].content;
@@ -47,13 +49,13 @@ export class CrawlerAssistantService {
     const { AIConfigService } = require('../../ai-config/backend/service');
     const aiConfigService = new AIConfigService(pool);
     const configs = await aiConfigService.getActiveConfigsByPriority();
-    
+
     if (!configs || configs.length === 0) {
       const err = '未配置 AI 服务';
       onProgress?.({ type: 'error', content: err });
       throw new Error(err);
     }
-    
+
     const aiConfig = configs[0];
     const OpenAI = require('openai').default;
     const openai = new OpenAI({
@@ -208,7 +210,7 @@ export class CrawlerAssistantService {
     const { AIConfigService } = require('../../ai-config/backend/service');
     const aiConfigService = new AIConfigService(pool);
     const configs = await aiConfigService.getActiveConfigsByPriority();
-    
+
     if (!configs || configs.length === 0) {
       throw new Error('未配置 AI 服务，无法分析网页结构。请在"AI模型配置"中添加启用中的AI配置。');
     }
@@ -517,6 +519,7 @@ JSON 格式:
    * 保存爬虫模板
    */
   async saveTemplate(data: SaveTemplateRequest): Promise<string> {
+    console.log('[AI Assistant] saveTemplate called with:', JSON.stringify(data, null, 2));
     const id = uuidv4();
     const userId = data.userId || 'admin';
 
@@ -528,8 +531,8 @@ JSON 格式:
 
     // 插入模板
     await pool.execute(
-      `INSERT INTO crawler_templates (id, user_id, name, url, department, data_type, container_selector)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO crawler_templates (id, user_id, name, url, department, data_type, container_selector, fields)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         userId,
@@ -537,7 +540,8 @@ JSON 格式:
         data.url,
         data.department || '',
         data.data_type || '',
-        data.selectors.container || null
+        data.selectors.container || null,
+        JSON.stringify(fields)
       ]
     );
 
@@ -551,6 +555,30 @@ JSON 格式:
     }
 
     return id;
+  }
+
+  /**
+   * 获取最新对话
+   */
+  async getLatestConversation(userId: string): Promise<CrawlerConversation | null> {
+    console.log('[AI Assistant] getLatestConversation for user:', userId);
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM crawler_assistant_conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1',
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const conversation = rows[0];
+    return {
+      id: conversation.id,
+      userId: conversation.user_id,
+      messages: JSON.parse(conversation.messages),
+      createdAt: new Date(conversation.created_at).getTime(),
+      updatedAt: new Date(conversation.updated_at).getTime()
+    };
   }
 
   /**

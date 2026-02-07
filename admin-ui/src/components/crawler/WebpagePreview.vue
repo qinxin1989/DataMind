@@ -69,13 +69,16 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { ReloadOutlined, ExportOutlined, AimOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { createElementPicker, type ElementPicker } from '@/utils/elementPicker'
+import { useUserStore } from '@/stores/user'
 
 // Props
 interface Props {
   url: string
+  token?: string
 }
 
 const props = defineProps<Props>()
+const userStore = useUserStore()
 
 // Emits
 const emit = defineEmits<{
@@ -94,8 +97,21 @@ let elementPicker: ElementPicker | null = null
 // Computed
 const proxyUrl = computed(() => {
   if (!props.url) return ''
+  
+  // 优先使用传入的token，否则使用store中的token
+  const token = props.token || userStore.token
+  
+  // 如果没有token，不加载（避免401）
+  if (!token) {
+    console.warn('[WebpagePreview] Token missing, waiting...')
+    return ''
+  }
+
   // 使用后端代理服务加载网页，避免跨域问题
-  return `/api/admin/ai/crawler/proxy?url=${encodeURIComponent(props.url)}`
+  let url = `/api/admin/ai/crawler/proxy?url=${encodeURIComponent(props.url)}`
+  url += `&token=${token}`
+  
+  return url
 })
 
 // Watch URL changes
