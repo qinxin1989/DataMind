@@ -217,6 +217,13 @@ export class ModuleRegistry {
       // 插入依赖关系
       if (manifest.dependencies) {
         for (const [depName, versionRange] of Object.entries(manifest.dependencies)) {
+          // 稳定性增强：自动忽略常见的误配非模块依赖（npm包）
+          // 这防止了将工具库误当成系统模块依赖导致的启动失败
+          if (['uuid', 'openai', 'mysql2', 'express', 'axios', 'fs', 'path'].includes(depName)) {
+            console.warn(`[ModuleRegistry] Stability Fix: Ignoring invalid dependency '${depName}' for module '${manifest.name}'`);
+            continue;
+          }
+
           await connection.execute(
             `INSERT INTO sys_module_dependencies (id, module_name, dependency_name, version_range) VALUES (?, ?, ?, ?)`,
             [uuidv4(), manifest.name, depName, versionRange]
