@@ -390,7 +390,7 @@ JSON 格式:
           temperature: 0.1,
           response_format: { type: 'json_object' }
         }),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('AI 模型响应超时（30秒）')), 30000)
         )
       ]);
@@ -411,7 +411,7 @@ JSON 格式:
   /**
    * 预览抓取效果（使用 Python 引擎，支持动态渲染）
    */
-  public async previewExtraction(url: string, selectors: any): Promise<any[]> {
+  public async previewExtraction(url: string, selectors: any, paginationConfig?: any): Promise<any[]> {
     const { exec } = require('child_process');
     const path = require('path');
     const fs = require('fs');
@@ -425,10 +425,11 @@ JSON 格式:
         if (fs.existsSync(exePath)) pythonPath = exePath;
       }
 
-      const enginePath = path.join(__dirname, '../../../agent/skills/crawler/engine.py');
+      // Use modular engine path (Fixing loading issue)
+      const enginePath = path.join(process.cwd(), 'modules', 'ai-crawler-assistant', 'backend', 'skills', 'engine.py');
       const safeSelectors = JSON.stringify(selectors).replace(/"/g, '\\"');
 
-      console.log(`[CrawlerAssistant] Preparing preview for: ${url}`);
+      console.log(`[CrawlerAssistant] Preparing preview for: ${url} (Modular Engine)`);
 
       let sourceArg = url;
       let baseUrlArg = '';
@@ -436,9 +437,11 @@ JSON 格式:
 
       // 2. 尝试使用动态引擎获取内容（解决预览为空的问题）
       try {
-        const { DynamicEngine } = require('../../../agent/skills/crawler/dynamic_engine');
+        const { DynamicEngine } = require('../../../../modules/ai-crawler-assistant/backend/skills/dynamic_engine');
         console.log(`[CrawlerAssistant] Fetching dynamic HTML for preview...`);
-        const htmlContent = await DynamicEngine.fetchHtml(url);
+        // Add waitSelector to ensure content is loaded
+        const fetchOptions = selectors.container ? { waitSelector: selectors.container } : {};
+        const htmlContent = await DynamicEngine.fetchHtml(url, fetchOptions);
 
         const tempDir = os.tmpdir();
         tempFilePath = path.join(tempDir, `preview_${Date.now()}.html`);
@@ -454,9 +457,9 @@ JSON 格式:
       // 3. 使用 spawn 替代 exec，能更好地处理 Windows 路径和引号
       const { spawn } = require('child_process');
 
-      // 预览时不启用分页，只抓取第一页
-      const paginationConfig = { enabled: false, max_pages: 1 };
-      const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg, JSON.stringify(paginationConfig)];
+      // 使用传入的分页配置，或者默认只抓取第一页 (修复分页测试问题)
+      const pgConfig = paginationConfig || { enabled: false, max_pages: 1 };
+      const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg, JSON.stringify(pgConfig)];
 
       console.log(`[CrawlerAssistant] Spawning: ${pythonPath} ${args.map(a => a.length > 100 ? a.substring(0, 100) + '...' : a).join(' ')}`);
 
@@ -465,7 +468,14 @@ JSON 格式:
       let stderr = '';
 
       child.stdout.on('data', (data: any) => { stdout += data; });
-      child.stderr.on('data', (data: any) => { stderr += data; });
+      child.stderr.on('data', (data: any) => {
+        const output = data.toString();
+        // 忽略一些无关的警告
+        if (!output.includes('DeprecationWarning')) {
+          console.error('[CrawlerAssistant] [Python Engine]:', output.trim());
+        }
+        stderr += output;
+      });
 
       child.on('close', (code: number) => {
         // 清理临时文件

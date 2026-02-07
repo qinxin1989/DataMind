@@ -129,6 +129,7 @@ export class DynamicEngine {
                     await page.waitForSelector(options.waitSelector, { timeout: 10000 });
                 } catch (e) {
                     console.warn(`[DynamicEngine] Wait selector timeout: ${options.waitSelector}`);
+                    throw new Error(`Timeout waiting for selector: ${options.waitSelector}`);
                 }
             } else {
                 // 默认留出 2秒渲染时间

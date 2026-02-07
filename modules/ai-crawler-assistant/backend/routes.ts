@@ -320,7 +320,7 @@ router.post('/crawler/test', requirePermission('ai:view'), async (req: Request, 
     let testError: string | null = null;
 
     try {
-      testResult = await crawlerAssistantService.previewExtraction(url, selectors);
+      testResult = await crawlerAssistantService.previewExtraction(url, selectors, paginationConfig);
     } catch (extractErr: any) {
       testError = extractErr.message;
       testResult = [];
@@ -399,7 +399,7 @@ router.get('/crawler/proxy', requirePermission('ai:view'), async (req: Request, 
  */
 router.post('/crawler/template', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
-    const { name, description, url, selectors } = req.body;
+    const { name, description, url, selectors, department, dataType } = req.body;
 
     if (!name || !url || !selectors) {
       return res.status(400).json(error('VALID_PARAM_MISSING', '缺少必要参数'));
@@ -411,6 +411,8 @@ router.post('/crawler/template', requirePermission('ai:view'), async (req: Reque
       description: description || '',
       url,
       selectors,
+      department,
+      data_type: dataType,
       userId
     });
 
@@ -546,7 +548,13 @@ router.get('/crawler/templates/:id', requirePermission('ai:view'), async (req: R
 router.put('/crawler/templates/:id', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || 'admin';
-    await crawlerAssistantService.updateTemplate(req.params.id, userId, req.body);
+    const { dataType, ...otherData } = req.body;
+
+    await crawlerAssistantService.updateTemplate(req.params.id, userId, {
+      ...otherData,
+      data_type: dataType
+    });
+
     res.json(success({ message: '更新成功' }));
   } catch (err: any) {
     if (err.message.includes('不存在')) {

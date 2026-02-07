@@ -263,6 +263,7 @@ const rightPanelCollapsed = ref(false)
 
 const formState = ref({
   name: '',
+  description: '',
   department: '',
   dataType: '',
   url: '',
@@ -376,6 +377,7 @@ function handleAdd() {
   editingTemplate.value = null
   formState.value = {
     name: '',
+    description: '',
     department: '',
     dataType: '',
     url: '',
@@ -398,10 +400,11 @@ function handleEdit(record: any) {
   editingTemplate.value = record
   formState.value = {
     name: record.name,
+    description: record.description || '',
     department: record.department || '',
     dataType: record.data_type || '',
     url: record.url,
-    containerSelector: record.container_selector,
+    containerSelector: record.containerSelector || record.container_selector,
     fields: record.fields || [],
     paginationEnabled: record.pagination_enabled || false,
     paginationNextSelector: record.pagination_next_selector || '',
@@ -435,13 +438,21 @@ async function handleSaveConfig() {
 
   saving.value = true
   try {
+    // Construct payload matching SaveTemplateRequest interface
     const data = {
       name: formState.value.name,
+      description: formState.value.description,
       department: formState.value.department,
-      dataType: formState.value.dataType,
+      dataType: formState.value.dataType, // maps to data_type in backend
       url: formState.value.url,
-      containerSelector: formState.value.containerSelector,
-      fields: formState.value.fields,
+      // Backend expects 'selectors' object with 'container' and 'fields'
+      selectors: {
+        container: formState.value.containerSelector,
+        fields: formState.value.fields.reduce((acc: any, field: any) => {
+          acc[field.name] = field.selector
+          return acc
+        }, {})
+      },
       paginationEnabled: formState.value.paginationEnabled,
       paginationNextSelector: formState.value.paginationNextSelector,
       paginationMaxPages: formState.value.paginationMaxPages
@@ -580,11 +591,29 @@ async function handleTest(record: any) {
   testResult.value = null
 
   try {
-    const res = await aiApi.testCrawlerTemplate(record.id)
-    testResult.value = res
+    // Construct selectors object from array
+    const selectors = {
+      container: record.containerSelector || record.container_selector,
+      fields: Array.isArray(record.fields)
+        ? record.fields.reduce((acc: any, field: any) => {
+            acc[field.name] = field.selector
+            return acc
+          }, {})
+        : record.fields
+    }
 
-    if (res.success && res.data && res.data.length > 0) {
-      const fields = Object.keys(res.data[0])
+    const paginationConfig = {
+      enabled: record.pagination_enabled,
+      maxPages: record.pagination_max_pages,
+      nextPageSelector: record.pagination_next_selector
+    }
+
+    const res = await aiApi.testCrawlerTemplate(record.url, selectors, paginationConfig)
+    testResult.value = res.data // Note: res.data contains the result object (success, data, count, etc)
+
+    if (res.success && res.data && res.data.success && res.data.data && res.data.data.length > 0) {
+      const firstRow = res.data.data[0]
+      const fields = Object.keys(firstRow)
       testColumns.value = fields.map(f => ({
         title: f,
         dataIndex: f,

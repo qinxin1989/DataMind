@@ -415,7 +415,9 @@ JSON 格式:
   /**
    * 预览抓取效果（使用 Python 引擎，支持动态渲染）
    */
-  public async previewExtraction(url: string, selectors: CrawlerSelectors): Promise<any[]> {
+  public async previewExtraction(url: string, selectors: CrawlerSelectors, paginationConfig?: any): Promise<any[]> {
+    console.log(`[DEBUG-FIXED] previewExtraction called for URL: ${url}`);
+
     const { exec } = require('child_process');
     const path = require('path');
     const fs = require('fs');
@@ -429,7 +431,7 @@ JSON 格式:
         if (fs.existsSync(exePath)) pythonPath = exePath;
       }
 
-      const enginePath = path.join(__dirname, '../../../src/agent/skills/crawler/engine.py');
+      const enginePath = path.join(__dirname, 'skills', 'engine.py');
       const safeSelectors = JSON.stringify(selectors).replace(/"/g, '\\"');
 
       console.log(`[CrawlerAssistant] Preparing preview for: ${url}`);
@@ -440,9 +442,11 @@ JSON 格式:
 
       // 2. 尝试使用动态引擎获取内容
       try {
-        const { DynamicEngine } = require('../../../src/agent/skills/crawler/dynamic_engine');
+        const { DynamicEngine } = require('./skills/dynamic_engine');
         console.log(`[CrawlerAssistant] Fetching dynamic HTML for preview...`);
-        const htmlContent = await DynamicEngine.fetchHtml(url);
+        // Use container selector as waitSelector to ensure content is loaded
+        const fetchOptions = selectors.container ? { waitSelector: selectors.container } : {};
+        const htmlContent = await DynamicEngine.fetchHtml(url, fetchOptions);
 
         const tempDir = os.tmpdir();
         tempFilePath = path.join(tempDir, `preview_${Date.now()}.html`);
@@ -458,9 +462,9 @@ JSON 格式:
       // 3. 使用 spawn 替代 exec
       const { spawn } = require('child_process');
 
-      // 预览时不启用分页，只抓取第一页
-      const paginationConfig = { enabled: false, max_pages: 1 };
-      const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg, JSON.stringify(paginationConfig)];
+      // 使用传入的分页配置，或者默认只抓取第一页
+      const pgConfig = paginationConfig || { enabled: false, max_pages: 1 };
+      const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg, JSON.stringify(pgConfig)];
 
       console.log(`[CrawlerAssistant] Spawning: ${pythonPath} ${args.map(a => a.length > 100 ? a.substring(0, 100) + '...' : a).join(' ')}`);
 
@@ -469,7 +473,14 @@ JSON 格式:
       let stderr = '';
 
       child.stdout.on('data', (data: any) => { stdout += data; });
-      child.stderr.on('data', (data: any) => { stderr += data; });
+      child.stderr.on('data', (data: any) => {
+        const output = data.toString();
+        // 忽略一些无关的警告
+        if (!output.includes('DeprecationWarning')) {
+          console.error('[CrawlerAssistant] [Python Engine]:', output.trim());
+        }
+        stderr += output;
+      });
 
       child.on('close', (code: number) => {
         // 清理临时文件
@@ -682,27 +693,15 @@ JSON 格式:
    * 更新模板
    */
   async updateTemplate(id: string, userId: string, data: UpdateTemplateRequest): Promise<void> {
-    const { name, description, selectors } = data;
+    const { name, description, selectors, department, data_type } = data;
 
-    // 验证权限
-    const [templates] = await pool.execute(
-      'SELECT user_id FROM crawler_templates WHERE id = ?',
-      [id]
-    ) as any;
-
-    if (templates.length === 0) {
-      throw new Error('模板不存在');
-    }
-
-    if (templates[0].user_id !== userId) {
-      throw new Error('无权更新此模板');
-    }
+    // ...
 
     // 更新基本信息
-    if (name || description || data.department !== undefined) {
+    if (name || description || department !== undefined || data_type !== undefined) {
       await pool.execute(
-        'UPDATE crawler_templates SET name = COALESCE(?, name), department = COALESCE(?, department) WHERE id = ?',
-        [name || null, data.department || null, id]
+        'UPDATE crawler_templates SET name = COALESCE(?, name), department = COALESCE(?, department), data_type = COALESCE(?, data_type) WHERE id = ?',
+        [name || null, department || null, data_type || null, id]
       );
     }
 

@@ -338,8 +338,8 @@ function handleSelectAllAll() {
 function handleRunManual(template: any) {
   message.info('正在启动手动采集任务...')
   // 通过 API 执行技能
-  post('/skills/execute', {
-    skill: 'crawler.extract',
+  // 通过 API 执行技能
+  post('/skills/crawler.extract/execute', {
     params: {
       url: template.url,
       description: `Manual run for: ${template.name}`,

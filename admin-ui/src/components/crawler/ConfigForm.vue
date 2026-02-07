@@ -12,6 +12,15 @@
         />
       </a-form-item>
 
+      <a-form-item label="描述">
+        <a-textarea 
+          v-model:value="formData.description" 
+          placeholder="请输入模板描述"
+          :rows="2"
+          @change="handleChange"
+        />
+      </a-form-item>
+
       <a-form-item label="目标URL" required>
         <a-space style="width: 100%">
           <a-input 
@@ -169,6 +178,7 @@ interface Props {
 
 interface TemplateConfig {
   name: string
+  description?: string
   url: string
   department: string
   dataType: string
@@ -255,7 +265,27 @@ async function handleAIAnalyze() {
     )
     
     if (res.success && res.data) {
-      aiRecommendations.value = res.data
+      // Transform backend response to match UI expected format
+      const rawData = res.data;
+      const selectors = rawData.selectors || {};
+      
+      const transformedData = {
+        containerSelector: selectors.container,
+        fields: Object.entries(selectors.fields || {}).map(([key, value]) => ({
+          name: key,
+          selector: value,
+          confidence: 0.9 // Default confidence
+        }))
+      };
+
+      aiRecommendations.value = transformedData
+      
+      // Auto-fill container selector if available
+      if (transformedData.containerSelector) {
+        formData.value.containerSelector = transformedData.containerSelector;
+        message.success('已自动填充容器选择器');
+      }
+
       message.success('AI分析完成！请查看推荐字段')
     } else {
       message.error('AI分析失败，请稍后重试')

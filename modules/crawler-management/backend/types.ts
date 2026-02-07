@@ -10,10 +10,24 @@ export interface CrawlerTemplate {
   userId: string;
   name: string;
   url: string;
+  department?: string;
+  data_type?: string;
   containerSelector?: string;
   fields: CrawlerTemplateField[];
   createdAt?: Date;
   updatedAt?: Date;
+}
+// ... (skip lines)
+export interface SaveTemplateRequest {
+  name: string;
+  description?: string;
+  url: string;
+  department?: string;
+  data_type?: string;
+  selectors: {
+    container?: string;
+    fields: Record<string, string>;
+  };
 }
 
 /**

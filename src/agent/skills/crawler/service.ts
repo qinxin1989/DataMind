@@ -27,8 +27,19 @@ export class CrawlerService {
             await connection.beginTransaction();
 
             await connection.execute(
-                'INSERT INTO crawler_templates (id, user_id, name, url, department, data_type, container_selector) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [id, template.userId, template.name, template.url, template.department || null, template.data_type || null, template.containerSelector]
+                'INSERT INTO crawler_templates (id, user_id, name, url, department, data_type, container_selector, pagination_enabled, pagination_next_selector, pagination_max_pages) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    id,
+                    template.userId,
+                    template.name,
+                    template.url,
+                    template.department || null,
+                    template.data_type || null,
+                    template.containerSelector,
+                    template.paginationEnabled ? 1 : 0,
+                    template.paginationNextSelector || null,
+                    template.paginationMaxPages || 1
+                ]
             );
 
             for (const field of template.fields) {
@@ -266,7 +277,7 @@ export class CrawlerService {
             for (const rowData of data) {
                 const title = rowData['标题'] || rowData['title'] || '';
                 const link = rowData['链接'] || rowData['link'] || '';
-                
+
                 if (!title && !link) {
                     continue; // 跳过无效数据
                 }

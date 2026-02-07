@@ -159,8 +159,21 @@ const extractWebData: SkillDefinition = {
             console.log(`[Crawler] Starting Python engine...`);
 
             const result: any = await new Promise((resolve) => {
+                // 准备分页配置
+                const paginationConfig = {
+                    enabled: selectors.paginationEnabled !== false, // Default to true if not specified
+                    next_selector: selectors.paginationNextSelector,
+                    max_pages: selectors.paginationMaxPages || 50
+                };
+
                 // 使用 spawn 代替 exec，避免路径问题
-                const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg];
+                const args = [
+                    enginePath,
+                    sourceArg,
+                    JSON.stringify(selectors),
+                    baseUrlArg,
+                    JSON.stringify(paginationConfig)
+                ];
                 const pythonProcess = spawn(pythonPath, args, {
                     cwd: process.cwd(),
                     windowsHide: true
@@ -444,7 +457,7 @@ const extractWithTemplate: SkillDefinition = {
                     const htmlContent = await DynamicEngine.fetchHtml(url, {
                         cookies: config?.cookies,
                         headers: config?.headers,
-                        waitSelector: config?.waitSelector
+                        waitSelector: config?.waitSelector || selectors.container
                     });
 
                     const fs = require('fs');
@@ -462,11 +475,12 @@ const extractWithTemplate: SkillDefinition = {
             }
 
             const result: any = await new Promise((resolve) => {
-                // 准备分页配置 - 默认启用全页采集
+                // 准备分页配置
+                const t = usedTemplate as any;
                 const paginationConfig = {
-                    enabled: true,
-                    next_selector: usedTemplate?.paginationNextSelector || undefined,
-                    max_pages: usedTemplate?.paginationMaxPages || 50  // 默认最多50页
+                    enabled: t?.paginationEnabled ?? t?.pagination_enabled ?? true,
+                    next_selector: t?.paginationNextSelector ?? t?.pagination_next_selector,
+                    max_pages: t?.paginationMaxPages ?? t?.pagination_max_pages ?? 50
                 };
 
                 console.log(`[Crawler] Running with pagination: enabled, max_pages: ${paginationConfig.max_pages}`);

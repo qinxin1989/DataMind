@@ -70,238 +70,7 @@ async function identifySelectors(url: string, description: string, openai: any, 
     return JSON.parse(aiResponse.choices[0].message.content || '{}');
 }
 
-// 网页数据提取技能
-const extractWebData: SkillDefinition = {
-    name: 'crawler.extract',
-    category: 'data',
-    displayName: '网页数据抓取',
-    description: '从指定网址提取结构化数据（支持模板化与持久化存储）',
-    parameters: [
-        { name: 'url', type: 'string', description: '目标网页地址', required: true },
-        { name: 'description', type: 'string', description: '需要提取的内容描述', required: true },
-        { name: 'templateId', type: 'string', description: '（可选）已保存的模板 ID', required: false },
-        { name: 'templateName', type: 'string', description: '（可选）保存为新模板时的名称', required: false }
-    ],
-    execute: async (params, context): Promise<SkillResult> => {
-        const { url, description, templateId, templateName } = params;
-        const { openai, model, userId } = context;
-
-        if (!url.startsWith('http')) {
-            return { success: false, message: '无效的网址，请确保以 http 或 https 开头' };
-        }
-
-        try {
-            let selectors: any;
-            let finalTemplateId = templateId;
-
-            // 第一阶段：获取选择器 (从模板加载或 AI 识别)
-            if (templateId) {
-                const template = await crawlerService.getTemplate(templateId);
-                if (template) {
-                    selectors = {
-                        container: template.containerSelector,
-                        fields: template.fields.reduce((acc: any, f) => ({ ...acc, [f.name]: f.selector }), {})
-                    };
-                    console.log(`[Crawler] Loaded selectors from template: ${templateId}`);
-                }
-            }
-
-            if (!selectors) {
-                if (!openai) {
-                    return { success: false, message: '此任务需要 AI 服务识别结构，但当前未配置' };
-                }
-                selectors = await identifySelectors(url, description, openai, model || 'gpt-4o');
-
-                // 如果用户提供了模板名称，保存为新模板
-                if (templateName && userId) {
-                    finalTemplateId = await crawlerService.saveTemplate({
-                        userId,
-                        name: templateName,
-                        url,
-                        containerSelector: selectors.container,
-                        fields: Object.entries(selectors.fields).map(([name, selector]: any) => ({ name, selector }))
-                    });
-                    console.log(`[Crawler] Saved new template: ${finalTemplateId}`);
-                }
-            }
-
-            // 第二阶段：执行 Python 引擎
-            const pythonPath = process.env.PYTHON_PATH || path.join(process.cwd(), '.venv', 'Scripts', 'python');
-            const enginePath = path.join(__dirname, 'engine.py');
-            const safeSelectors = JSON.stringify(selectors).replace(/"/g, '\\"');
-
-            console.log(`[Crawler] Fetching content using DynamicEngine...`);
-            let sourceArg = url;
-            let baseUrlArg = '';
-            let tempFilePath = '';
-
-            try {
-                // 尝试使用动态引擎抓取
-                const { DynamicEngine } = require('./dynamic_engine');
-                const htmlContent = await DynamicEngine.fetchHtml(url);
-
-                // 将 HTML 保存到临时文件
-                const fs = require('fs');
-                const os = require('os');
-                const tempDir = os.tmpdir();
-                tempFilePath = path.join(tempDir, `crawler_${Date.now()}.html`);
-                fs.writeFileSync(tempFilePath, htmlContent);
-
-                sourceArg = tempFilePath;
-                baseUrlArg = url; // 传递原始 URL 用于解析相对链接
-                console.log(`[Crawler] Dynamic content saved to: ${tempFilePath}`);
-
-            } catch (err: any) {
-                console.warn(`[Crawler] Dynamic fetch failed (${err.message}), falling back to static crawl.`);
-                // Keep sourceArg as url to let python engine do the static fetch
-            }
-
-            console.log(`[Crawler] Starting Python engine...`);
-
-            const result: any = await new Promise((resolve) => {
-                // 使用 spawn 代替 exec，避免路径问题
-                const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg];
-                const pythonProcess = spawn(pythonPath, args, {
-                    cwd: process.cwd(),
-                    windowsHide: true
-                });
-
-                let stdout = '';
-                let stderr = '';
-
-                pythonProcess.stdout.on('data', (data) => {
-                    stdout += data.toString();
-                });
-
-                pythonProcess.stderr.on('data', (data) => {
-                    stderr += data.toString();
-                });
-
-                pythonProcess.on('close', (code) => {
-                    // 清理临时文件
-                    if (tempFilePath && require('fs').existsSync(tempFilePath)) {
-                        try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
-                    }
-
-                    if (code !== 0) {
-                        console.error('[Crawler] Python stderr:', stderr);
-                        resolve({ success: false, message: `引擎执行失败 (exit code ${code}): ${stderr}` });
-                        return;
-                    }
-
-                    try {
-                        resolve(JSON.parse(stdout));
-                    } catch (e) {
-                        console.error('[Crawler] Engine output:', stdout);
-                        resolve({ success: false, message: '解析引擎输出失败' });
-                    }
-                });
-
-                pythonProcess.on('error', (error) => {
-                    // 清理临时文件
-                    if (tempFilePath && require('fs').existsSync(tempFilePath)) {
-                        try { require('fs').unlinkSync(tempFilePath); } catch (e) { }
-                    }
-                    resolve({ success: false, message: `启动 Python 失败: ${error.message}` });
-                });
-            });
-
-            if (!result.success) {
-                return { success: false, message: `抓取失败: ${result.error}` };
-            }
-
-            // --- 新增：AI 智能分类逻辑 ---
-            if (openai && result.data.length > 0) {
-                console.log(`[Crawler] Categorizing ${result.data.length} items by AI...`);
-                const itemsToCategorize = result.data.map((item: any, index: number) => ({
-                    index,
-                    title: item['标题'] || item['title'] || '无标题'
-                }));
-
-                try {
-                    const aiCategoryResponse = await openai.chat.completions.create({
-                        model: model || 'gpt-4o',
-                        messages: [
-                            {
-                                role: 'system',
-                                content: `你是一个政务数据分类专家。请将提供的网页标题分类为"解读"或"政策"。
-
-分类标准：
-【解读类】包含以下关键词之一：
-- 解读、解析、回答、专家谈、访谈、图解、问答、说明
-- 简明回答、政策问答、一图读懂、图文解读
-
-【政策类】包含以下关键词之一：
-- 通知、公告、意见、办法、规定、印发、发布、决定、命令
-- 规划、纲要、方案、实施细则、管理办法、暂行规定
-
-特殊规则：
-1. 如果标题难以判断，优先归类为"政策"
-2. 如果标题同时包含解读和政策关键词，归类为"解读"
-3. 每个标题必须且只能归类为"解读"或"政策"之一
-
-只需返回如下格式的 JSON：
-{
-  "categories": ["类型1", "类型2", ...]
-}`
-                            },
-                            {
-                                role: 'user',
-                                content: `标题列表：\n${itemsToCategorize.map((it: any) => `${it.index + 1}. ${it.title}`).join('\n')}`
-                            }
-                        ],
-                        temperature: 0.1,
-                        response_format: { type: 'json_object' }
-                    });
-
-                    const categories = JSON.parse(aiCategoryResponse.choices[0].message.content || '{}').categories;
-                    if (Array.isArray(categories)) {
-                        result.data.forEach((item: any, index: number) => {
-                            if (categories[index]) {
-                                // 确保分类结果只能是"解读"或"政策"
-                                const category = categories[index];
-                                if (category === '解读' || category === '政策') {
-                                    item['类型'] = category;
-                                } else {
-                                    // 如果 AI 返回了其他类型，强制设为"政策"
-                                    console.warn(`[Crawler] Invalid category "${category}", defaulting to "政策"`);
-                                    item['类型'] = '政策';
-                                }
-                            }
-                        });
-                    }
-                } catch (catError) {
-                    console.error('[Crawler] AI categorization failed:', catError);
-                    // 失败了也不影响主流程，保持原样
-                }
-            }
-
-            // 第三阶段：持久化结果 (如果已知用户或根据任务)
-            if (userId && result.data.length > 0) {
-                const idToStore = finalTemplateId || 'temp_extraction';
-                await crawlerService.saveResults(userId, idToStore, result.data);
-            }
-
-            // 第四阶段：可视化与返回
-            const fields = Object.keys(result.data[0] || {});
-            const htmlOutput = crawlerService.renderHtml(fields, result.data);
-
-            return {
-                success: true,
-                data: result.data,
-                message: `成功抓取 ${result.count} 条记录${finalTemplateId ? '（已保存至模板/结果库）' : ''}`,
-                visualization: {
-                    type: 'html',
-                    content: htmlOutput
-                }
-            };
-
-        } catch (error: any) {
-            console.error(`[Crawler] Error: ${error.message}`);
-            return { success: false, message: `抓取任务异常: ${error.message}` };
-        }
-    }
-};
+// 核心提取逻辑 (原 extractWebData 已移除，逻辑已整合至 extractWithTemplate)
 
 // 智能爬虫分析技能
 const analyzeCrawler: SkillDefinition = {
@@ -421,11 +190,20 @@ const extractWithTemplate: SkillDefinition = {
             }
 
             // 2. 执行爬取
-            const pythonPath = process.env.PYTHON_PATH || path.join(process.cwd(), '.venv', 'Scripts', 'python');
-            const enginePath = path.join(__dirname, 'engine.py');
+            const path = require('path');
+            const fs = require('fs');
+            // 1. 自动检测 python 路径 (支持 Windows .exe 补全) - Standardized logic
+            let pythonPath = process.env.PYTHON_PATH || path.join(process.cwd(), '.venv', 'Scripts', 'python');
+            if (process.platform === 'win32' && !pythonPath.endsWith('.exe')) {
+                const exePath = pythonPath + '.exe';
+                if (fs.existsSync(exePath)) pythonPath = exePath;
+            }
+
+            // Use modular engine path
+            const enginePath = path.join(process.cwd(), 'modules', 'ai-crawler-assistant', 'backend', 'skills', 'engine.py');
             const safeSelectors = JSON.stringify(selectors).replace(/"/g, '\\"');
 
-            console.log(`[Crawler] Extracting data from: ${url}`);
+            console.log(`[Crawler] Extracting data from: ${url} (Modular Engine)`);
 
             // 判断是否需要动态渲染
             const needDynamic = usedTemplate?.pageType === 'dynamic' ||
@@ -437,17 +215,17 @@ const extractWithTemplate: SkillDefinition = {
 
             if (needDynamic) {
                 try {
-                    const { DynamicEngine } = require('./dynamic_engine');
+                    // Use modular DynamicEngine
+                    const { DynamicEngine } = require('../../../../modules/ai-crawler-assistant/backend/skills/dynamic_engine');
                     const { getProvinceConfigByUrl } = require('./provinces.config');
                     const config = getProvinceConfigByUrl(url);
 
                     const htmlContent = await DynamicEngine.fetchHtml(url, {
                         cookies: config?.cookies,
                         headers: config?.headers,
-                        waitSelector: config?.waitSelector
+                        waitSelector: config?.waitSelector || selectors.container // Use container as waitSelector
                     });
 
-                    const fs = require('fs');
                     const os = require('os');
                     const tempDir = os.tmpdir();
                     tempFilePath = path.join(tempDir, `crawler_${Date.now()}.html`);
@@ -462,14 +240,15 @@ const extractWithTemplate: SkillDefinition = {
             }
 
             const result: any = await new Promise((resolve) => {
-                // 准备分页配置 - 默认启用全页采集
+                // 准备分页配置
+                const t = usedTemplate as any;
                 const paginationConfig = {
-                    enabled: true,
-                    next_selector: usedTemplate?.paginationNextSelector || undefined,
-                    max_pages: usedTemplate?.paginationMaxPages || 50  // 默认最多50页
+                    enabled: t?.paginationEnabled ?? t?.pagination_enabled ?? true,
+                    next_selector: t?.paginationNextSelector ?? t?.pagination_next_selector,
+                    max_pages: t?.paginationMaxPages ?? t?.pagination_max_pages ?? 50
                 };
 
-                console.log(`[Crawler] Running with pagination: enabled, max_pages: ${paginationConfig.max_pages}`);
+                console.log(`[Crawler] Running with pagination: enabled=${paginationConfig.enabled}, max_pages=${paginationConfig.max_pages}`);
 
                 // 使用 spawn 代替 exec
                 const args = [

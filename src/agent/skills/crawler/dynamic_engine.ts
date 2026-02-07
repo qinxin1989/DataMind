@@ -129,6 +129,7 @@ export class DynamicEngine {
                     await page.waitForSelector(options.waitSelector, { timeout: 10000 });
                 } catch (e) {
                     console.warn(`[DynamicEngine] Wait selector timeout: ${options.waitSelector}`);
+                    throw new Error(`Timeout waiting for selector: ${options.waitSelector}`);
                 }
             } else {
                 // 默认留出 2秒渲染时间
@@ -137,13 +138,13 @@ export class DynamicEngine {
 
             const content = await page.content();
 
-            // 调试用截图
-            try {
-                const screenshotDir = path.join(process.cwd(), 'scripts', 'screenshots');
-                if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
-                const screenshotPath = path.join(screenshotDir, `render_${Date.now()}.png`);
-                await page.screenshot({ path: screenshotPath, fullPage: false });
-            } catch (shotErr) { }
+            // 调试用截图 (已禁用)
+            // try {
+            //     const screenshotDir = path.join(process.cwd(), 'scripts', 'screenshots');
+            //     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+            //     const screenshotPath = path.join(screenshotDir, `render_${Date.now()}.png`);
+            //     await page.screenshot({ path: screenshotPath, fullPage: false });
+            // } catch (shotErr) { }
 
             return content;
 

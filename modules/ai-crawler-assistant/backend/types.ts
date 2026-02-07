@@ -102,6 +102,7 @@ export interface UpdateTemplateRequest {
   name?: string;
   description?: string;
   department?: string;
+  data_type?: string;
   selectors?: CrawlerSelectors;
 }
 

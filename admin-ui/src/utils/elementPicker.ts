@@ -60,7 +60,11 @@ export class ElementPicker {
    */
   private removeHighlightBox() {
     if (this.highlightBox && this.highlightBox.parentNode) {
-      this.highlightBox.parentNode.removeChild(this.highlightBox)
+      try {
+        this.highlightBox.parentNode.removeChild(this.highlightBox)
+      } catch (e) {
+        // Ignore error if already removed
+      }
       this.highlightBox = null
     }
   }
@@ -137,6 +141,9 @@ export class ElementPicker {
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop
     const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft
 
+    if (!this.highlightBox) return
+
+    // Add null check for highlightBox before accessing style
     this.highlightBox.style.top = `${rect.top + scrollTop}px`
     this.highlightBox.style.left = `${rect.left + scrollLeft}px`
     this.highlightBox.style.width = `${rect.width}px`
@@ -162,12 +169,12 @@ export class ElementPicker {
       if (classes.length > 0) {
         const classSelector = '.' + classes.join('.')
         const tagWithClass = `${element.tagName.toLowerCase()}${classSelector}`
-        
+
         // 检查是否唯一
         if (document.querySelectorAll(tagWithClass).length === 1) {
           return tagWithClass
         }
-        
+
         // 如果不唯一，尝试添加父级
         const parent = element.parentElement
         if (parent) {

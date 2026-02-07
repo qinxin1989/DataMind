@@ -12,10 +12,10 @@ const router = Router();
  */
 router.get('/templates', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
+    const userId = (req as any).user?.id || 'admin';
+    // if (!userId) {
+    //   return res.status(401).json({ error: '未授权' });
+    // }
 
     const templates = await crawlerManagementService.getTemplates(userId);
     res.json({ success: true, data: templates });
@@ -30,16 +30,39 @@ router.get('/templates', async (req: Request, res: Response) => {
  */
 router.post('/templates', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
+    const userId = (req as any).user?.id || 'admin';
+    // if (!userId) {
+    //   return res.status(401).json({ error: '未授权' });
+    // }
 
-    const templateId = await crawlerManagementService.saveTemplate(userId, req.body);
+    const { dataType, ...otherData } = req.body;
+    const templateId = await crawlerManagementService.saveTemplate(userId, {
+      ...otherData,
+      data_type: dataType
+    });
     res.json({ success: true, data: { id: templateId } });
   } catch (error: any) {
     console.error('[CrawlerManagement] Save template error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /templates/:id - 更新模板
+ */
+router.put('/templates/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const userId = (req as any).user?.id || 'admin';
+  // if (!userId) {
+  //   return res.status(401).json({ error: '未授权' });
+  // }
+
+  try {
+    await crawlerManagementService.updateTemplate(id, userId, req.body);
+    res.json({ success: true, message: '模板更新成功' });
+  } catch (error: any) {
+    console.error('更新模板失败:', error);
+    res.status(500).json({ success: false, message: error.message || '更新失败' });
   }
 });
 

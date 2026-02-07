@@ -35,19 +35,21 @@ export class CrawlerManagementService {
         'SELECT field_name as name, field_selector as selector FROM crawler_template_fields WHERE template_id = ?',
         [row.id]
       );
-      
+
       templates.push({
         id: row.id,
         userId: row.user_id,
         name: row.name,
         url: row.url,
+        department: row.department,
+        data_type: row.data_type,
         containerSelector: row.container_selector,
         fields: fields as any[],
         createdAt: row.created_at,
         updatedAt: row.updated_at
       });
     }
-    
+
     return templates;
   }
 
@@ -73,6 +75,8 @@ export class CrawlerManagementService {
       userId: row.user_id,
       name: row.name,
       url: row.url,
+      department: row.department,
+      data_type: row.data_type,
       containerSelector: row.container_selector || '',
       fields: fields as any[],
       createdAt: row.created_at,
@@ -86,20 +90,22 @@ export class CrawlerManagementService {
   async saveTemplate(userId: string, data: SaveTemplateRequest): Promise<string> {
     const id = uuidv4();
     const connection = await pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
       // 插入模板
       await connection.execute(
         `INSERT INTO crawler_templates 
-         (id, user_id, name, url, container_selector) 
-         VALUES (?, ?, ?, ?, ?)`,
+         (id, user_id, name, url, department, data_type, container_selector) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           userId,
           data.name,
           data.url,
+          data.department || '',
+          data.data_type || '',
           data.selectors.container || null
         ]
       );
@@ -124,11 +130,11 @@ export class CrawlerManagementService {
   }
 
   /**
-   * 删除模板
+   * 更新模板
    */
-  async deleteTemplate(id: string, userId: string): Promise<void> {
+  async updateTemplate(id: string, userId: string, data: any): Promise<void> {
     const connection = await pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
@@ -137,11 +143,96 @@ export class CrawlerManagementService {
         'SELECT user_id FROM crawler_templates WHERE id = ?',
         [id]
       );
-      
+
       if ((rows as any[]).length === 0) {
         throw new Error('模板不存在');
       }
-      
+
+      if ((rows as any[])[0].user_id !== userId) {
+        throw new Error('无权更新此模板');
+      }
+
+      // 更新基本信息
+      // 注意：这里需要处理下划线和驼峰命名的兼容，数据库是下划线
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+
+      if (data.name) { updateFields.push('name = ?'); updateValues.push(data.name); }
+      if (data.url) { updateFields.push('url = ?'); updateValues.push(data.url); }
+      if (data.department !== undefined) { updateFields.push('department = ?'); updateValues.push(data.department); }
+      if (data.data_type !== undefined || data.dataType !== undefined) {
+        updateFields.push('data_type = ?');
+        updateValues.push(data.data_type || data.dataType);
+      }
+      if (data.selectors?.container !== undefined || data.containerSelector !== undefined) {
+        updateFields.push('container_selector = ?');
+        updateValues.push(data.selectors?.container || data.containerSelector);
+      }
+
+      updateFields.push('updated_at = NOW()');
+
+      if (updateFields.length > 0) {
+        updateValues.push(id); // Where cause
+        await connection.execute(
+          `UPDATE crawler_templates SET ${updateFields.join(', ')} WHERE id = ?`,
+          updateValues
+        );
+      }
+
+      // 更新字段 (策略：先删后加)
+      // 兼容两种格式：selectors.fields (kv对象) 或 fields (对象数组)
+      let fieldsToUpdate: { name: string, selector: string }[] = [];
+
+      if (data.selectors?.fields) {
+        fieldsToUpdate = Object.entries(data.selectors.fields).map(([k, v]) => ({ name: k, selector: String(v) }));
+      } else if (Array.isArray(data.fields)) {
+        fieldsToUpdate = data.fields;
+      }
+
+      if (fieldsToUpdate.length > 0) {
+        // 删除旧字段
+        await connection.execute(
+          'DELETE FROM crawler_template_fields WHERE template_id = ?',
+          [id]
+        );
+
+        // 插入新字段
+        for (const field of fieldsToUpdate) {
+          await connection.execute(
+            'INSERT INTO crawler_template_fields (id, template_id, field_name, field_selector) VALUES (?, ?, ?, ?)',
+            [uuidv4(), id, field.name, field.selector]
+          );
+        }
+      }
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  /**
+   * 删除模板
+   */
+  async deleteTemplate(id: string, userId: string): Promise<void> {
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // 验证权限
+      const [rows] = await connection.execute(
+        'SELECT user_id FROM crawler_templates WHERE id = ?',
+        [id]
+      );
+
+      if ((rows as any[]).length === 0) {
+        throw new Error('模板不存在');
+      }
+
       if ((rows as any[])[0].user_id !== userId) {
         throw new Error('无权删除此模板');
       }
@@ -204,11 +295,11 @@ export class CrawlerManagementService {
       'SELECT user_id FROM crawler_tasks WHERE id = ?',
       [id]
     );
-    
+
     if ((rows as any[]).length === 0) {
       throw new Error('任务不存在');
     }
-    
+
     if ((rows as any[])[0].user_id !== userId) {
       throw new Error('无权操作此任务');
     }
@@ -254,11 +345,11 @@ export class CrawlerManagementService {
       'SELECT user_id FROM crawler_results WHERE id = ?',
       [id]
     );
-    
+
     if ((resultRows as any[]).length === 0) {
       throw new Error('结果不存在');
     }
-    
+
     if ((resultRows as any[])[0].user_id !== userId) {
       throw new Error('无权查看此结果');
     }
@@ -275,16 +366,16 @@ export class CrawlerManagementService {
         'SELECT field_name, field_value FROM crawler_result_items WHERE row_id = ?',
         [row.id]
       );
-      
-      const rowData: Record<string, any> = { 
-        id: row.id, 
-        created_at: row.created_at 
+
+      const rowData: Record<string, any> = {
+        id: row.id,
+        created_at: row.created_at
       };
-      
+
       (items as any[]).forEach((item: any) => {
         rowData[item.field_name] = item.field_value;
       });
-      
+
       fullRows.push({
         id: row.id,
         resultId: id,
@@ -292,7 +383,7 @@ export class CrawlerManagementService {
         createdAt: row.created_at
       });
     }
-    
+
     return fullRows;
   }
 
@@ -301,7 +392,7 @@ export class CrawlerManagementService {
    */
   async deleteResult(id: string, userId: string): Promise<void> {
     const connection = await pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
@@ -310,11 +401,11 @@ export class CrawlerManagementService {
         'SELECT user_id FROM crawler_results WHERE id = ?',
         [id]
       );
-      
+
       if ((rows as any[]).length === 0) {
         throw new Error('结果不存在');
       }
-      
+
       if ((rows as any[])[0].user_id !== userId) {
         throw new Error('无权删除此结果');
       }
@@ -352,7 +443,7 @@ export class CrawlerManagementService {
   async executeSkill(userId: string, request: ExecuteSkillRequest): Promise<any> {
     // 这里调用agent/skills中的爬虫技能
     const { crawlerSkills } = await import('../../../src/agent/skills/crawler/index');
-    
+
     // 查找对应的技能
     const skill = crawlerSkills.find(s => s.name === request.skill);
     if (!skill) {
@@ -362,8 +453,8 @@ export class CrawlerManagementService {
     // 执行技能
     const context = {
       userId,
-      openai: null, // 需要从AI配置模块获取
-      model: null
+      openai: undefined, // 需要从AI配置模块获取
+      model: undefined
     };
 
     return await skill.execute(request.params, context);
@@ -375,7 +466,7 @@ export class CrawlerManagementService {
   async saveResults(userId: string, templateId: string, data: any[]): Promise<string> {
     const resultId = uuidv4();
     const connection = await pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
@@ -424,7 +515,7 @@ export class CrawlerManagementService {
       html += `<th style="padding: 8px; background: #f0f0f0;">${f}</th>`;
     });
     html += '</tr></thead><tbody>';
-    
+
     data.forEach(row => {
       html += '<tr>';
       fields.forEach(f => {
@@ -433,7 +524,7 @@ export class CrawlerManagementService {
       });
       html += '</tr>';
     });
-    
+
     html += '</tbody></table>';
     return html;
   }

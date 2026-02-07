@@ -99,6 +99,14 @@ export const aiApi = {
   toggleCrawlerTask: (id: string, status: 'active' | 'paused') =>
     post(`/skills/crawler/tasks/${id}/toggle`, { status }),
 
+  // 创建爬虫模板
+  createCrawlerTemplate: (data: any) =>
+    post<{ id: string; message: string }>('/skills/crawler/templates', data),
+
+  // 更新爬虫模板
+  updateCrawlerTemplate: (id: string, data: any) =>
+    put<{ message: string }>(`/skills/crawler/templates/${id}`, data),
+
   // 删除爬虫模板
   deleteCrawlerTemplate: (id: string) =>
     del(`/skills/crawler/templates/${id}`),

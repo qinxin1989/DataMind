@@ -368,7 +368,13 @@ def crawl(source, selectors, base_url=None, pagination_config=None):
 
             # 提取当前页数据
             if container_selector:
+                print(f'[Engine] Searching for container: {container_selector}', file=sys.stderr)
                 containers = soup.select(container_selector)
+                print(f'[Engine] Found {len(containers)} items', file=sys.stderr)
+                
+                if len(containers) == 0:
+                     print(f'[Engine] HTML Start: {html_content[:500]}', file=sys.stderr)
+
                 for item in containers:
                     data = {}
                     for field_name, selector in fields.items():
