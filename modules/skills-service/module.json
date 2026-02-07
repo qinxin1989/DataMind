@@ -13,10 +13,7 @@
     "agent",
     "automation"
   ],
-  "dependencies": {
-    "openai": "^4.0.0",
-    "uuid": "^9.0.0"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "node": ">=18.0.0"
   },
