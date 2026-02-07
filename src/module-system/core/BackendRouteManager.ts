@@ -173,9 +173,9 @@ export class BackendRouteManager {
           const existingMethod = routeInfo.methods[i];
 
           if (this.pathsMatch(newRoute.path, existingPath)) {
-            if (newRoute.method === existingMethod || 
-                newRoute.method === '*' || 
-                existingMethod === '*') {
+            if (newRoute.method === existingMethod ||
+              newRoute.method === '*' ||
+              existingMethod === '*') {
               conflicts.push({
                 path: newRoute.path,
                 method: newRoute.method,
@@ -202,7 +202,7 @@ export class BackendRouteManager {
     // 找到并移除匹配的路由
     for (let i = stack.length - 1; i >= 0; i--) {
       const layer = stack[i];
-      
+
       // 检查是否是我们要移除的路由
       if (layer.handle === router) {
         stack.splice(i, 1);
@@ -239,7 +239,7 @@ export class BackendRouteManager {
         // 这是一个路由
         const path = this.joinPaths(prefix, layer.route.path);
         const methods = Object.keys(layer.route.methods);
-        
+
         for (const method of methods) {
           routes.push({
             path,
@@ -262,17 +262,17 @@ export class BackendRouteManager {
    */
   private normalizePrefix(prefix: string): string {
     if (!prefix) return '';
-    
+
     // 确保以 / 开头
     if (!prefix.startsWith('/')) {
       prefix = '/' + prefix;
     }
-    
+
     // 移除末尾的 /
     if (prefix.endsWith('/') && prefix.length > 1) {
       prefix = prefix.slice(0, -1);
     }
-    
+
     return prefix;
   }
 
@@ -281,12 +281,12 @@ export class BackendRouteManager {
    */
   private normalizePath(path: string): string {
     if (!path) return '/';
-    
+
     // 确保以 / 开头
     if (!path.startsWith('/')) {
       path = '/' + path;
     }
-    
+
     return path;
   }
 
@@ -346,20 +346,17 @@ export class BackendRouteManager {
 }
 
 // 导出单例（可选）
-let instance: BackendRouteManager | null = null;
-
 export function getBackendRouteManager(app?: Express): BackendRouteManager {
-  if (!instance && !app) {
-    throw new Error('BackendRouteManager not initialized. Provide Express app instance.');
+  if (app) {
+    return BackendRouteManager.init(app);
   }
-  
-  if (app && !instance) {
-    instance = new BackendRouteManager(app);
-  }
-  
-  return instance!;
+  return BackendRouteManager.getInstance();
 }
 
 export function resetBackendRouteManager(): void {
-  instance = null;
+  // 无法直接重置私有静态属性，但可以通过重新初始化覆盖（如果需要），
+  // 或者在类中添加 reset 方法。
+  // 这里暂时留空或抛出警告，或者需要在类中添加静态 reset 方法。
+  // 为了简单起见，且考虑到这通常用于测试，我们可以在类中加一个 reset 方法。
+  (BackendRouteManager as any).instance = null;
 }

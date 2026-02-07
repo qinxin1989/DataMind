@@ -263,16 +263,16 @@ export class ModuleRegistry {
       // 插入后端配置
       if (manifest.backend) {
         await connection.execute(
-          `INSERT INTO sys_module_backend (id, module_name, entry_file, routes_prefix, routes_file) VALUES (?, ?, ?, ?, ?)`,
-          [uuidv4(), manifest.name, manifest.backend.entry, manifest.backend.routes?.prefix || null, manifest.backend.routes?.file || null]
+          `INSERT INTO sys_module_backend (module_name, entry_file, routes_prefix, routes_file) VALUES (?, ?, ?, ?)`,
+          [manifest.name, manifest.backend.entry, manifest.backend.routes?.prefix || null, manifest.backend.routes?.file || null]
         );
       }
 
       // 插入前端配置
       if (manifest.frontend) {
         await connection.execute(
-          `INSERT INTO sys_module_frontend (id, module_name, entry_file, routes_file) VALUES (?, ?, ?, ?)`,
-          [uuidv4(), manifest.name, manifest.frontend.entry, manifest.frontend.routes || null]
+          `INSERT INTO sys_module_frontend (module_name, entry_file, routes_file) VALUES (?, ?, ?)`,
+          [manifest.name, manifest.frontend.entry, manifest.frontend.routes || null]
         );
       }
 

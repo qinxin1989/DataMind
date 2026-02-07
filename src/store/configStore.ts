@@ -2,6 +2,7 @@ import mysql from 'mysql2/promise';
 import { DataSourceConfig } from '../types';
 import { pool } from '../admin/core/database';
 import { encrypt, decrypt } from '../admin/utils/crypto';
+import { v4 as uuidv4 } from 'uuid';
 
 // 上传文件基础路径（用于相对路径转换）
 const UPLOAD_BASE_PATH = process.env.UPLOAD_PATH || './uploads';
@@ -533,71 +534,191 @@ export class ConfigStore {
 
   async initSchemaAnalysisTable(): Promise<void> {
     try {
+      // 1. schema_analysis
       await this.pool.execute(`
         CREATE TABLE IF NOT EXISTS schema_analysis (
-          id INT AUTO_INCREMENT PRIMARY KEY,
+          id VARCHAR(36) PRIMARY KEY,
           user_id VARCHAR(36) NOT NULL,
           datasource_id VARCHAR(36) NOT NULL,
-          tables JSON NOT NULL,
-          suggested_questions JSON NOT NULL,
           analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           is_user_edited BOOLEAN DEFAULT FALSE,
           UNIQUE KEY unique_user_ds (user_id, datasource_id)
-        )
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
 
-      // 检查是否需要添加 user_id 列（兼容旧表）
-      try {
-        await this.pool.execute(`ALTER TABLE schema_analysis ADD COLUMN user_id VARCHAR(36) NOT NULL DEFAULT '' AFTER id`);
-        await this.pool.execute(`ALTER TABLE schema_analysis DROP PRIMARY KEY`);
-        await this.pool.execute(`ALTER TABLE schema_analysis ADD PRIMARY KEY (id)`);
-        await this.pool.execute(`ALTER TABLE schema_analysis ADD UNIQUE KEY unique_user_ds (user_id, datasource_id)`);
-      } catch (e) {
-        // 列已存在，忽略
-      }
+      // 2. schema_tables
+      await this.pool.execute(`
+        CREATE TABLE IF NOT EXISTS schema_tables (
+          id VARCHAR(36) PRIMARY KEY,
+          analysis_id VARCHAR(36) NOT NULL,
+          table_name VARCHAR(100) NOT NULL,
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_analysis (analysis_id),
+          FOREIGN KEY (analysis_id) REFERENCES schema_analysis(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+
+      // 3. schema_columns
+      await this.pool.execute(`
+        CREATE TABLE IF NOT EXISTS schema_columns (
+          id VARCHAR(36) PRIMARY KEY,
+          table_id VARCHAR(36) NOT NULL,
+          column_name VARCHAR(100) NOT NULL,
+          data_type VARCHAR(50),
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_table (table_id),
+          FOREIGN KEY (table_id) REFERENCES schema_tables(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+
+      // 4. schema_questions
+      await this.pool.execute(`
+        CREATE TABLE IF NOT EXISTS schema_questions (
+          id VARCHAR(36) PRIMARY KEY,
+          analysis_id VARCHAR(36) NOT NULL,
+          question TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_analysis (analysis_id),
+          FOREIGN KEY (analysis_id) REFERENCES schema_analysis(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+
     } catch (error: any) {
-      console.warn('Schema分析表初始化失败，将以内存模式运行:', error.message);
+      console.warn('Schema分析表初始化失败:', error.message);
     }
   }
 
   async saveSchemaAnalysis(analysis: SchemaAnalysis, userId: string): Promise<void> {
+    const connection = await this.pool.getConnection();
     try {
-      await this.pool.execute(
-        `INSERT INTO schema_analysis (user_id, datasource_id, tables, suggested_questions, analyzed_at, is_user_edited) 
-         VALUES (?, ?, ?, ?, NOW(), ?)
-         ON DUPLICATE KEY UPDATE tables=VALUES(tables), suggested_questions=VALUES(suggested_questions), updated_at=NOW(), is_user_edited=VALUES(is_user_edited)`,
-        [
-          userId,
-          analysis.datasourceId,
-          JSON.stringify(analysis.tables),
-          JSON.stringify(analysis.suggestedQuestions),
-          analysis.isUserEdited || false
-        ]
+      await connection.beginTransaction();
+
+      // 1. 获取或创建 Analysis ID
+      const [existing] = await connection.execute<mysql.RowDataPacket[]>(
+        'SELECT id FROM schema_analysis WHERE datasource_id = ? AND user_id = ?',
+        [analysis.datasourceId, userId]
       );
+
+      let analysisId: string;
+
+      if (existing.length > 0) {
+        analysisId = existing[0].id;
+        await connection.execute(
+          'UPDATE schema_analysis SET analyzed_at = FROM_UNIXTIME(?/1000), updated_at = NOW(), is_user_edited = ? WHERE id = ?',
+          [analysis.analyzedAt, analysis.isUserEdited ? 1 : 0, analysisId]
+        );
+      } else {
+        analysisId = uuidv4();
+        await connection.execute(
+          'INSERT INTO schema_analysis (id, user_id, datasource_id, analyzed_at, is_user_edited) VALUES (?, ?, ?, FROM_UNIXTIME(?/1000), ?)',
+          [analysisId, userId, analysis.datasourceId, analysis.analyzedAt, analysis.isUserEdited ? 1 : 0]
+        );
+      }
+
+      // 2. 清理旧数据 (schema_tables, schema_questions)
+      // 由于外键级联删除，删除 table 会自动删除 columns
+      await connection.execute('DELETE FROM schema_tables WHERE analysis_id = ?', [analysisId]);
+      await connection.execute('DELETE FROM schema_questions WHERE analysis_id = ?', [analysisId]);
+
+      // 3. 插入 Tables 和 Columns
+      if (analysis.tables && analysis.tables.length > 0) {
+        for (const table of analysis.tables) {
+          const tableId = uuidv4();
+          await connection.execute(
+            'INSERT INTO schema_tables (id, analysis_id, table_name, description) VALUES (?, ?, ?, ?)',
+            [tableId, analysisId, table.tableName, table.description || null]
+          );
+
+          if (table.columns && table.columns.length > 0) {
+            const columnValues = table.columns.map(col => [
+              uuidv4(),
+              tableId,
+              col.name,
+              col.type,
+              col.description || (col.nameCn ? `[${col.nameCn}]` : null)
+            ]);
+            await connection.query(
+              'INSERT INTO schema_columns (id, table_id, column_name, data_type, description) VALUES ?',
+              [columnValues]
+            );
+          }
+        }
+      }
+
+      // 4. 插入 Suggested Questions
+      if (analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0) {
+        const questionValues = analysis.suggestedQuestions.map(q => [
+          uuidv4(),
+          analysisId,
+          q
+        ]);
+        await connection.query(
+          'INSERT INTO schema_questions (id, analysis_id, question) VALUES ?',
+          [questionValues]
+        );
+      }
+
+      await connection.commit();
     } catch (error: any) {
+      await connection.rollback();
       console.error('保存Schema分析失败:', error.message);
       throw error;
+    } finally {
+      connection.release();
     }
   }
 
   async getSchemaAnalysis(datasourceId: string, userId: string): Promise<SchemaAnalysis | null> {
-    const [rows] = await this.pool.execute(
+    const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
       'SELECT * FROM schema_analysis WHERE datasource_id = ? AND user_id = ?',
       [datasourceId, userId]
     );
-    const row = (rows as any[])[0];
+    const row = rows[0];
     if (!row) return null;
+
+    // 获取 tables
+    const [tableRows] = await this.pool.execute<mysql.RowDataPacket[]>(
+      'SELECT * FROM schema_tables WHERE analysis_id = ?',
+      [row.id]
+    );
+
+    const tables: TableAnalysis[] = [];
+    for (const tableRow of tableRows) {
+      // 获取 columns
+      const [colRows] = await this.pool.execute<mysql.RowDataPacket[]>(
+        'SELECT * FROM schema_columns WHERE table_id = ?',
+        [tableRow.id]
+      );
+
+      tables.push({
+        tableName: tableRow.table_name,
+        tableNameCn: '',
+        description: tableRow.description,
+        columns: colRows.map((c: any) => ({
+          name: c.column_name,
+          type: c.data_type,
+          nameCn: '',
+          description: c.description
+        }))
+      });
+    }
+
+    // 获取 questions
+    const [qRows] = await this.pool.execute<mysql.RowDataPacket[]>(
+      'SELECT question FROM schema_questions WHERE analysis_id = ? ORDER BY created_at',
+      [row.id]
+    );
 
     return {
       datasourceId: row.datasource_id,
-      tables: typeof row.tables === 'string' ? JSON.parse(row.tables) : row.tables,
-      suggestedQuestions: typeof row.suggested_questions === 'string'
-        ? JSON.parse(row.suggested_questions)
-        : row.suggested_questions,
+      tables: tables,
+      suggestedQuestions: qRows.map((q: any) => q.question),
       analyzedAt: new Date(row.analyzed_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
-      isUserEdited: row.is_user_edited
+      isUserEdited: !!row.is_user_edited
     };
   }
 

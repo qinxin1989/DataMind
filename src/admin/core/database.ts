@@ -573,7 +573,18 @@ async function initDefaultData(connection: mysql.PoolConnection): Promise<void> 
 export async function syncSystemMenus(connection: mysql.PoolConnection): Promise<void> {
   console.log('菜单系统已模块化，由 MenuManager 统一管理');
 
-  // 添加 module_name 字段（如果不存在）
+  // 1. 确保 module_code 存在 (兼容旧表结构)
+  try {
+    await connection.execute(`
+      ALTER TABLE sys_menus 
+      ADD COLUMN module_code VARCHAR(50) DEFAULT NULL
+    `);
+    console.log('已补全 module_code 字段到 sys_menus 表');
+  } catch (e: any) {
+    // 忽略 Duplicate column 错误
+  }
+
+  // 2. 添加 module_name 字段（如果不存在）
   try {
     await connection.execute(`
       ALTER TABLE sys_menus 
@@ -582,7 +593,19 @@ export async function syncSystemMenus(connection: mysql.PoolConnection): Promise
     console.log('已添加 module_name 字段到 sys_menus 表');
   } catch (e: any) {
     if (!e.message.includes('Duplicate column')) {
-      console.log('module_name 字段已存在或添加失败:', e.message);
+      console.log('尝试带 AFTER 子句添加 module_name 失败，尝试直接添加:', e.message);
+      // 如果 AFTER module_code 失败（极少见），尝试直接添加
+      try {
+        await connection.execute(`
+            ALTER TABLE sys_menus 
+            ADD COLUMN module_name VARCHAR(50) DEFAULT NULL
+          `);
+        console.log('已直接添加 module_name 字段到 sys_menus 表');
+      } catch (e2: any) {
+        if (!e2.message.includes('Duplicate column')) {
+          console.log('module_name 字段添加失败:', e2.message);
+        }
+      }
     }
   }
 
