@@ -611,7 +611,6 @@ export async function syncSystemMenus(connection: mysql.PoolConnection): Promise
 
   // 清理旧的硬编码菜单（保留用户自定义菜单）
   // 注释掉自动删除，避免误删菜单
-  /*
   try {
     await connection.execute(`
       DELETE FROM sys_menus 
@@ -620,9 +619,13 @@ export async function syncSystemMenus(connection: mysql.PoolConnection): Promise
     `);
     console.log('已清理旧的硬编码系统菜单');
   } catch (e: any) {
-    console.log('清理旧菜单时出错:', e.message);
+    if (e.message.includes("is_system")) {
+      // if column missing, ignore
+      console.log('无法清理旧菜单: is_system 列不存在');
+    } else {
+      console.log('清理旧菜单时出错:', e.message);
+    }
   }
-  */
 
   console.log('现在使用模块化菜单管理');
 }

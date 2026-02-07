@@ -310,6 +310,56 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
+  router.get('/chat/session/:sessionId/message/:messageIndex/config', checkAuth, async (req: Request, res: Response) => {
+    try {
+      const { sessionId, messageIndex } = req.params;
+      const idx = parseInt(messageIndex);
+      if (isNaN(idx)) {
+        return res.status(400).json({ success: false, error: { message: '无效的消息索引' } });
+      }
+
+      const session = await service.getChatSession(sessionId, getUserId(req));
+      if (!session) {
+        return res.status(404).json({ success: false, error: { message: '会话不存在' } });
+      }
+
+      const message = session.messages[idx];
+      if (!message) {
+        return res.status(404).json({ success: false, error: { message: '消息不存在' } });
+      }
+
+      res.json({ success: true, data: message.chartConfig || {} });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { message: error.message } });
+    }
+  });
+
+  // ==================== 消息配置 ====================
+
+  router.get('/chat/session/:sessionId/message/:messageIndex/config', checkAuth, async (req: Request, res: Response) => {
+    try {
+      const { sessionId, messageIndex } = req.params;
+      const idx = parseInt(messageIndex, 10);
+      if (isNaN(idx)) {
+        return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '无效的消息索引' } });
+      }
+
+      const session = await service.getChatSession(sessionId, getUserId(req));
+      if (!session) {
+        return res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '会话不存在' } });
+      }
+
+      const message = session.messages[idx];
+      if (!message) {
+        return res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '消息不存在' } });
+      }
+
+      res.json({ success: true, data: message.chartConfig || {} });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+    }
+  });
+
   // ==================== Agent 技能和工具 ====================
 
   router.get('/agent/skills', checkAuth, (_req: Request, res: Response) => {
