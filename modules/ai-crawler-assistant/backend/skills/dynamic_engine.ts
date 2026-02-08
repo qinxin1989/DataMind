@@ -46,8 +46,42 @@ export class DynamicEngine {
         }
 
         console.log('[DynamicEngine] Launching stable browser singleton...');
+
+        // 自动检测系统 Chrome (针对服务器环境)
+        let executablePath: string | undefined = undefined;
+        if (process.platform === 'linux') {
+            const commonPaths = [
+                '/usr/bin/google-chrome',
+                '/usr/bin/google-chrome-stable',
+                '/usr/bin/chromium-browser',
+                '/usr/bin/chromium',
+                '/usr/bin/chrome'
+            ];
+            for (const p of commonPaths) {
+                if (fs.existsSync(p)) {
+                    executablePath = p;
+                    console.log(`[DynamicEngine] Found system Chrome at: ${p}`);
+                    break;
+                }
+            }
+        } else if (process.platform === 'win32') {
+            // Windows 下尝试查找常见安装路径
+            const commonPaths = [
+                'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+                'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
+            ];
+            for (const p of commonPaths) {
+                if (fs.existsSync(p)) {
+                    executablePath = p;
+                    console.log(`[DynamicEngine] Found system Chrome at: ${p}`);
+                    break;
+                }
+            }
+        }
+
         this.launchPromise = puppeteer.launch({
             headless: true,
+            executablePath, // 如果找到系统 Chrome，则使用它
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',

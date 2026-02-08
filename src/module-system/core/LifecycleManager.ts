@@ -124,6 +124,11 @@ export class LifecycleManager {
       }
       */
 
+      // 注册权限
+      if (manifest.permissions) {
+        await this.permissionManager.registerPermissions(moduleName, manifest.permissions);
+      }
+
       // 显示菜单
       if (manifest.menus) {
         await this.menuManager.registerMenus(moduleName, manifest.menus);
