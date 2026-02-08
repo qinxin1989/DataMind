@@ -119,8 +119,8 @@ sudo yum install redis               # CentOS
 
 ```bash
 # 1. 克隆代码
-git clone https://github.com/your-org/ai-data-platform.git
-cd ai-data-platform
+git clone https://github.com/your-org/DataMind.git
+cd datamind
 
 # 2. 配置环境变量
 cp .env.production.example .env.production
@@ -144,8 +144,8 @@ chmod +x scripts/deploy.sh
 
 ```bash
 # 1. 克隆代码
-git clone https://github.com/your-org/ai-data-platform.git
-cd ai-data-platform
+git clone https://github.com/your-org/DataMind.git
+cd datamind
 
 # 2. 配置环境变量
 cp .env.production.example .env.production
@@ -177,7 +177,7 @@ pm2 save
 ```bash
 # 使用 PM2
 pm2 list
-pm2 logs ai-data-platform
+pm2 logs datamind
 
 # 检查进程
 ps aux | grep node
@@ -296,8 +296,8 @@ chmod +x scripts/rollback.sh
 
 ```bash
 # 1. 停止服务
-pm2 stop ai-data-platform
-pm2 delete ai-data-platform
+pm2 stop DataMind
+pm2 delete DataMind
 
 # 2. 恢复代码
 BACKUP_DIR=$(cat .last_backup)
@@ -313,7 +313,7 @@ pm2 start pm2.config.js
 pm2 save
 
 # 5. 验证
-pm2 logs ai-data-platform
+pm2 logs DataMind
 curl http://localhost:3000/health
 ```
 

@@ -1,7 +1,7 @@
 {
   "name": "dashboard",
   "displayName": "大屏管理",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "数据大屏配置和管理模块，支持大屏创建、布局设计、图表配置和发布",
   "author": "System",
   "license": "MIT",
@@ -25,6 +25,15 @@
     "routes": "./frontend/routes.ts"
   },
   "menus": [
+    {
+      "id": "workbench",
+      "title": "工作台",
+      "path": "/workbench",
+      "icon": "DashboardOutlined",
+      "parentId": null,
+      "sortOrder": 0,
+      "permission": "dashboard:view"
+    },
     {
       "id": "dashboard-main",
       "title": "大屏管理",

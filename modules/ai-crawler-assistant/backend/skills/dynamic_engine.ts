@@ -119,22 +119,23 @@ export class DynamicEngine {
 
             // 访问页面
             await page.goto(url, {
-                waitUntil: 'networkidle0',
-                timeout: options.timeout || 60000
+                waitUntil: 'networkidle2', // 使用 networkidle2 代替 networkidle0，对慢速政府网站更友好
+                timeout: options.timeout || 90000 // 增加总超时时间
             });
 
             // 等待特定元素或缓冲
             if (options.waitSelector) {
                 try {
-                    await page.waitForSelector(options.waitSelector, { timeout: 10000 });
+                    // 增加等待选择器的时间到 30秒
+                    await page.waitForSelector(options.waitSelector, { timeout: 30000 });
                 } catch (e) {
-                    console.warn(`[DynamicEngine] Wait selector timeout: ${options.waitSelector}`);
-                    throw new Error(`Timeout waiting for selector: ${options.waitSelector}`);
+                    console.warn(`[DynamicEngine] Wait selector timeout: ${options.waitSelector}, but returning current content anyway.`);
+                    // 超时了也返回当前内容，总比直接报错好
                 }
-            } else {
-                // 默认留出 2秒渲染时间
-                await new Promise(r => setTimeout(r, 2000));
             }
+
+            // 额外留出渲染缓冲
+            await new Promise(r => setTimeout(r, 2000));
 
             const content = await page.content();
 

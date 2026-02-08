@@ -250,7 +250,7 @@ export class CrawlerAssistantService {
   private async fetchWebpageHtml(url: string): Promise<string> {
     try {
       // 尝试使用动态引擎抓取（针对 JS 渲染页面）
-      const { DynamicEngine } = require('../../../src/agent/skills/crawler/dynamic_engine');
+      const { DynamicEngine } = require('./skills/dynamic_engine');
       console.log(`[CrawlerAssistant] >>> Using DynamicEngine for: ${url}`);
       return await DynamicEngine.fetchHtml(url);
     } catch (dynamicError: any) {
@@ -542,8 +542,8 @@ JSON 格式:
 
     // 插入模板
     await pool.execute(
-      `INSERT INTO crawler_templates (id, user_id, name, url, department, data_type, container_selector, fields)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO crawler_templates (id, user_id, name, url, department, data_type, container_selector, pagination_enabled, pagination_next_selector, pagination_max_pages, pagination_url_pattern)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         userId,
@@ -551,8 +551,11 @@ JSON 格式:
         data.url,
         data.department || '',
         data.data_type || '',
-        data.selectors.container || null,
-        JSON.stringify(fields)
+        data.selectors?.container || (data as any).containerSelector || null,
+        (data as any).paginationEnabled ? 1 : (data.selectors?.pagination?.enabled ? 1 : 0),
+        (data as any).paginationNextSelector || data.selectors?.pagination?.next_selector || null,
+        (data as any).paginationMaxPages || data.selectors?.pagination?.max_pages || 1,
+        (data as any).paginationUrlPattern || data.selectors?.pagination?.url_pattern || null
       ]
     );
 
@@ -616,8 +619,12 @@ JSON 格式:
         name: template.name,
         url: template.url,
         department: template.department,
-        data_type: template.data_type,
+        dataType: template.data_type,
         containerSelector: template.container_selector,
+        paginationEnabled: Boolean(template.pagination_enabled),
+        paginationNextSelector: template.pagination_next_selector,
+        paginationMaxPages: template.pagination_max_pages,
+        paginationUrlPattern: template.pagination_url_pattern,
         fields: (fieldRows as any[]).map(f => ({
           name: f.field_name,
           selector: f.field_selector
@@ -654,8 +661,12 @@ JSON 格式:
       name: template.name,
       url: template.url,
       department: template.department,
-      data_type: template.data_type,
+      dataType: template.data_type,
       containerSelector: template.container_selector,
+      paginationEnabled: Boolean(template.pagination_enabled),
+      paginationNextSelector: template.pagination_next_selector,
+      paginationMaxPages: template.pagination_max_pages,
+      paginationUrlPattern: template.pagination_url_pattern,
       fields: (fieldRows as any[]).map((f: any) => ({
         name: f.field_name,
         selector: f.field_selector
@@ -705,18 +716,30 @@ JSON 格式:
       );
     }
 
-    // 更新选择器
-    if (selectors) {
-      // 更新容器选择器
+    // 更新选择器与分页
+    if (selectors || data.paginationEnabled !== undefined) {
+      // 优先从 selectors 获取，如果没有则尝试从外部获取
+      const paginationEnabled = selectors?.pagination?.enabled ?? data.paginationEnabled;
+      const paginationNextSelector = selectors?.pagination?.next_selector ?? data.paginationNextSelector;
+      const paginationMaxPages = selectors?.pagination?.max_pages ?? data.paginationMaxPages;
+      const paginationUrlPattern = selectors?.pagination?.url_pattern ?? data.paginationUrlPattern;
+
+      // 更新容器与分页配置
       await pool.execute(
-        'UPDATE crawler_templates SET container_selector = ? WHERE id = ?',
-        [selectors.container || null, id]
+        'UPDATE crawler_templates SET container_selector = COALESCE(?, container_selector), pagination_enabled = ?, pagination_next_selector = ?, pagination_max_pages = ?, pagination_url_pattern = ? WHERE id = ?',
+        [
+          selectors?.container || null,
+          paginationEnabled ? 1 : 0,
+          paginationNextSelector || null,
+          paginationMaxPages || 1,
+          paginationUrlPattern || null,
+          id
+        ]
       );
 
-      // 重建字段
-      await pool.execute('DELETE FROM crawler_template_fields WHERE template_id = ?', [id]);
-
-      if (selectors.fields) {
+      // 重建字段 (如果有)
+      if (selectors?.fields) {
+        await pool.execute('DELETE FROM crawler_template_fields WHERE template_id = ?', [id]);
         for (const [fieldName, fieldSelector] of Object.entries(selectors.fields)) {
           await pool.execute(
             'INSERT INTO crawler_template_fields (id, template_id, field_name, field_selector) VALUES (?, ?, ?, ?)',
@@ -735,6 +758,77 @@ JSON 格式:
     await pool.execute('DELETE FROM crawler_templates');
     await pool.execute('DELETE FROM crawler_assistant_messages');
     await pool.execute('DELETE FROM crawler_assistant_conversations');
+  }
+
+  /**
+   * 保存采集结果 (核心逻辑迁移)
+   */
+  async saveResults(userId: string, templateId: string, data: any[]): Promise<string> {
+    const resultId = uuidv4();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // 插入结果记录
+      await connection.execute(
+        'INSERT INTO crawler_results (id, user_id, template_id) VALUES (?, ?, ?)',
+        [resultId, userId, templateId]
+      );
+
+      // 插入每一行数据
+      for (const item of data) {
+        const rowId = uuidv4();
+        await connection.execute(
+          'INSERT INTO crawler_result_rows (id, result_id) VALUES (?, ?)',
+          [rowId, resultId]
+        );
+
+        // 插入字段值
+        for (const [fieldName, fieldValue] of Object.entries(item)) {
+          if (fieldName !== 'id' && fieldName !== 'created_at') {
+            await connection.execute(
+              'INSERT INTO crawler_result_items (id, row_id, field_name, field_value) VALUES (?, ?, ?, ?)',
+              [uuidv4(), rowId, fieldName, String(fieldValue)]
+            );
+          }
+        }
+      }
+
+      await connection.commit();
+      console.log(`[CrawlerAssistantService] Successfully saved ${data.length} items to result database.`);
+      return resultId;
+    } catch (error) {
+      await connection.rollback();
+      console.error('[CrawlerAssistantService] Save results failed:', error);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  /**
+   * 渲染HTML表格 (辅助展示)
+   */
+  renderHtml(fields: string[], data: any[]): string {
+    let html = '<table border="1" style="border-collapse: collapse; width: 100%; font-family: sans-serif;">';
+    html += '<thead><tr style="background: #f4f4f4;">';
+    fields.forEach(f => {
+      html += `<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">${f}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    data.forEach((row, i) => {
+      html += `<tr style="background: ${i % 2 === 0 ? '#fff' : '#fafafa'};">`;
+      fields.forEach(f => {
+        const value = row[f] || '';
+        html += `<td style="padding: 8px; border: 1px solid #ddd;">${value}</td>`;
+      });
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    return html;
   }
 }
 

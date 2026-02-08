@@ -76,6 +76,10 @@ export class SkillsService {
         params: Record<string, any>,
         context: SkillContext
     ): Promise<SkillResult> {
+        console.log(`[SkillsService] Requesting execution: ${skillName}`);
+        const skill = this.registry.get(skillName);
+        console.log(`[SkillsService] Skill exists in registry: ${!!skill}`);
+
         const startTime = Date.now();
         const result = await this.registry.execute(skillName, params, context);
         const executionTime = Date.now() - startTime;

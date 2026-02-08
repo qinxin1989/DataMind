@@ -41,7 +41,7 @@ export interface DbConfig {
  * 从主密码生成 SM4 密钥
  */
 function deriveKey(masterPassword: string): string {
-  const salt = 'ai-data-platform-salt';
+  const salt = 'datamind-salt';
   const key = crypto.pbkdf2Sync(masterPassword, salt, 10000, 16, 'sha256');
   return key.toString('hex');
 }
@@ -85,10 +85,10 @@ function readEnvFile(): { lines: string[]; isEncrypted: boolean } {
 function parseLine(line: string): { key: string; value: string } | null {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith('#')) return null;
-  
+
   const eqIndex = line.indexOf('=');
   if (eqIndex === -1) return null;
-  
+
   return {
     key: line.substring(0, eqIndex).trim(),
     value: line.substring(eqIndex + 1),
@@ -131,7 +131,7 @@ class EnvConfigService {
     for (const line of lines) {
       const parsed = parseLine(line);
       if (!parsed) continue;
-      
+
       const { key, value } = parsed;
       if (!EDITABLE_DB_KEYS.includes(key)) continue;
 
@@ -163,7 +163,7 @@ class EnvConfigService {
   async updateDbConfig(newConfig: Partial<DbConfig>): Promise<DbConfig> {
     const { lines, isEncrypted } = readEnvFile();
     const key = isEncrypted ? this.getKey() : null;
-    
+
     // 映射前端字段到环境变量名
     const fieldMap: Record<string, string> = {
       host: 'CONFIG_DB_HOST',
@@ -178,7 +178,7 @@ class EnvConfigService {
 
     for (const line of lines) {
       const parsed = parseLine(line);
-      
+
       if (!parsed) {
         updatedLines.push(line);
         continue;
@@ -228,7 +228,7 @@ class EnvConfigService {
    */
   async testConnection(config: DbConfig): Promise<{ success: boolean; message: string }> {
     const mysql = require('mysql2/promise');
-    
+
     try {
       const connection = await mysql.createConnection({
         host: config.host,
@@ -238,10 +238,10 @@ class EnvConfigService {
         database: config.database,
         connectTimeout: 5000,
       });
-      
+
       await connection.ping();
       await connection.end();
-      
+
       return { success: true, message: '连接成功' };
     } catch (err: any) {
       return { success: false, message: err.message };

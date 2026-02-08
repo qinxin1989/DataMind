@@ -14,7 +14,7 @@ async function check() {
         host: process.env.CONFIG_DB_HOST || 'localhost',
         user: process.env.CONFIG_DB_USER || 'root',
         password: process.env.CONFIG_DB_PASSWORD || '',
-        database: process.env.CONFIG_DB_NAME || 'ai-data-platform',
+        database: process.env.CONFIG_DB_NAME || 'datamind',
         port: Number(process.env.CONFIG_DB_PORT) || 3306,
         waitForConnections: true,
         connectionLimit: 10,

@@ -51,3 +51,6 @@ admin-ui/nul
 
 # Kiro specs (optional - 如果不想上传开发文档可以取消注释)
 # .kiro/
+
+# Screenshots
+scripts/screenshots/

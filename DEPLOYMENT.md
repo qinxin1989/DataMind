@@ -30,7 +30,7 @@ sudo chmod +x /usr/local/bin/docker-compose
 
 ```bash
 git clone <your-repo-url>
-cd ai-data-platform
+cd datamind
 ```
 
 ### 3. 配置环境变量

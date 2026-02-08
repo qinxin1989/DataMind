@@ -5,7 +5,7 @@
 -- 在你的数据库管理工具中运行此脚本以创建爬虫相关表
 -- ============================================
 
-USE `ai-data-platform`;
+USE `datamind`;
 
 -- 1. 爬虫模板表
 CREATE TABLE IF NOT EXISTS crawler_templates (
@@ -90,7 +90,7 @@ SELECT
     TABLE_ROWS,
     CREATE_TIME
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = 'ai-data-platform'
+WHERE TABLE_SCHEMA = 'datamind'
 AND TABLE_NAME LIKE 'crawler%'
 ORDER BY TABLE_NAME;
 

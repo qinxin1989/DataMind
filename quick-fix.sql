@@ -1,5 +1,5 @@
 -- 快速修复脚本
-USE `ai-data-platform`;
+USE `datamind`;
 
 -- 1. 添加菜单
 DELETE FROM admin_menus WHERE id = 'ai-crawler-assistant';

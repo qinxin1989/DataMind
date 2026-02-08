@@ -200,4 +200,47 @@ router.post('/execute', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /items - 获取所有采集结果行
+ */
+router.get('/items', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: '未授权' });
+    }
+
+    const { page, pageSize, department, dataType, title } = req.query;
+    const result = await crawlerManagementService.getResultItems(userId, {
+      page: parseInt(page as string) || 1,
+      pageSize: parseInt(pageSize as string) || 20,
+      department: department as string,
+      dataType: dataType as string,
+      title: title as string
+    });
+    res.json({ success: true, data: result.items, total: result.total });
+  } catch (error: any) {
+    console.error('[CrawlerManagement] Get items error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /options - 获取筛选选项
+ */
+router.get('/options', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: '未授权' });
+    }
+
+    const result = await crawlerManagementService.getFilterOptions(userId);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[CrawlerManagement] Get options error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

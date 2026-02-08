@@ -44,6 +44,10 @@ export class CrawlerManagementService {
         department: row.department,
         data_type: row.data_type,
         containerSelector: row.container_selector,
+        paginationEnabled: Boolean(row.pagination_enabled),
+        paginationNextSelector: row.pagination_next_selector,
+        paginationMaxPages: row.pagination_max_pages,
+        paginationUrlPattern: row.pagination_url_pattern,
         fields: fields as any[],
         createdAt: row.created_at,
         updatedAt: row.updated_at
@@ -78,6 +82,10 @@ export class CrawlerManagementService {
       department: row.department,
       data_type: row.data_type,
       containerSelector: row.container_selector || '',
+      paginationEnabled: Boolean(row.pagination_enabled),
+      paginationNextSelector: row.pagination_next_selector,
+      paginationMaxPages: row.pagination_max_pages,
+      paginationUrlPattern: row.pagination_url_pattern,
       fields: fields as any[],
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -97,8 +105,8 @@ export class CrawlerManagementService {
       // 插入模板
       await connection.execute(
         `INSERT INTO crawler_templates 
-         (id, user_id, name, url, department, data_type, container_selector) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (id, user_id, name, url, department, data_type, container_selector, pagination_enabled, pagination_next_selector, pagination_max_pages, pagination_url_pattern) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           userId,
@@ -106,7 +114,11 @@ export class CrawlerManagementService {
           data.url,
           data.department || '',
           data.data_type || '',
-          data.selectors.container || null
+          data.selectors?.container || (data as any).containerSelector || null,
+          (data as any).paginationEnabled ? 1 : (data.selectors?.pagination?.enabled ? 1 : 0),
+          (data as any).paginationNextSelector || data.selectors?.pagination?.next_selector || null,
+          (data as any).paginationMaxPages || data.selectors?.pagination?.max_pages || 1,
+          (data as any).paginationUrlPattern || data.selectors?.pagination?.url_pattern || null
         ]
       );
 
@@ -167,6 +179,18 @@ export class CrawlerManagementService {
       if (data.selectors?.container !== undefined || data.containerSelector !== undefined) {
         updateFields.push('container_selector = ?');
         updateValues.push(data.selectors?.container || data.containerSelector);
+      }
+
+      // 分页相关字段
+      if (data.selectors?.pagination || (data as any).paginationEnabled !== undefined) {
+        updateFields.push('pagination_enabled = ?');
+        updateValues.push((data as any).paginationEnabled ? 1 : (data.selectors?.pagination?.enabled ? 1 : 0));
+        updateFields.push('pagination_next_selector = ?');
+        updateValues.push((data as any).paginationNextSelector || data.selectors?.pagination?.next_selector || null);
+        updateFields.push('pagination_max_pages = ?');
+        updateValues.push((data as any).paginationMaxPages || data.selectors?.pagination?.max_pages || 1);
+        updateFields.push('pagination_url_pattern = ?');
+        updateValues.push((data as any).paginationUrlPattern || data.selectors?.pagination?.url_pattern || null);
       }
 
       updateFields.push('updated_at = NOW()');
@@ -318,7 +342,9 @@ export class CrawlerManagementService {
     // 使用字符串拼接limit，因为MySQL的prepared statement不支持LIMIT参数
     const [rows] = await pool.query(
       `SELECT r.*, 
-              COALESCE(t.name, '未知模板') as template_name
+              COALESCE(t.name, '未知模板') as template_name,
+              t.department,
+              t.data_type
        FROM crawler_results r
        LEFT JOIN crawler_templates t ON r.template_id = t.id
        WHERE r.user_id = ?
@@ -331,7 +357,9 @@ export class CrawlerManagementService {
       id: row.id,
       userId: row.user_id,
       templateId: row.template_id,
-      templateName: row.template_name,
+      template_name: row.template_name,
+      department: row.department,
+      data_type: row.data_type,
       createdAt: row.created_at
     }));
   }
@@ -441,8 +469,9 @@ export class CrawlerManagementService {
    * 执行技能
    */
   async executeSkill(userId: string, request: ExecuteSkillRequest): Promise<any> {
-    // 这里调用agent/skills中的爬虫技能
-    const { crawlerSkills } = await import('../../../src/agent/skills/crawler/index');
+    console.log(`[CrawlerManagement] executeSkill called manually for: ${request.skill}`);
+    // 使用模块化路径加载爬虫技能
+    const { crawlerSkills } = await import('../../ai-crawler-assistant/backend/skills/index');
 
     // 查找对应的技能
     const skill = crawlerSkills.find(s => s.name === request.skill);
@@ -453,11 +482,26 @@ export class CrawlerManagementService {
     // 执行技能
     const context = {
       userId,
-      openai: undefined, // 需要从AI配置模块获取
+      openai: undefined,
       model: undefined
     };
 
-    return await skill.execute(request.params, context);
+    // 如果提供了 templateId，获取模板配置并注入到 params 中
+    let finalParams = { ...request.params };
+    if (finalParams.templateId) {
+      const template = await this.getTemplate(finalParams.templateId);
+      if (template) {
+        // 确保技能实现能拿到这些分页配置
+        (finalParams as any).paginationConfig = {
+          enabled: template.paginationEnabled,
+          next_selector: template.paginationNextSelector,
+          max_pages: template.paginationMaxPages,
+          url_pattern: template.paginationUrlPattern
+        };
+      }
+    }
+
+    return await skill.execute(finalParams, context);
   }
 
   /**
@@ -527,6 +571,114 @@ export class CrawlerManagementService {
 
     html += '</tbody></table>';
     return html;
+  }
+  /**
+   * 获取所有采集结果行（Flattened View）
+   */
+  async getResultItems(userId: string, params: {
+    page?: number;
+    pageSize?: number;
+    department?: string;
+    dataType?: string;
+    title?: string;
+  }): Promise<{ items: any[]; total: number }> {
+    const page = params.page || 1;
+    const pageSize = params.pageSize || 20;
+    const offset = (page - 1) * pageSize;
+
+    // 构建WHERE条件
+    let whereClause = 'r.result_id IN (SELECT id FROM crawler_results WHERE user_id = ?)';
+    const queryParams: any[] = [userId];
+
+    if (params.department) {
+      whereClause += ' AND t.department LIKE ?';
+      queryParams.push(`%${params.department}%`);
+    }
+
+    if (params.dataType) {
+      whereClause += ' AND t.data_type LIKE ?';
+      queryParams.push(`%${params.dataType}%`);
+    }
+
+    if (params.title) {
+      // 标题过滤需要关联items表，这里使用EXISTS子查询提高性能
+      whereClause += ` AND EXISTS (
+        SELECT 1 FROM crawler_result_items i 
+        WHERE i.row_id = r.id 
+        AND (i.field_name = '标题' OR i.field_name = 'title') 
+        AND i.field_value LIKE ?
+      )`;
+      queryParams.push(`%${params.title}%`);
+    }
+
+    // 查询总数
+    const countSql = `
+      SELECT COUNT(DISTINCT r.id) as total
+      FROM crawler_result_rows r
+      JOIN crawler_results res ON r.result_id = res.id
+      LEFT JOIN crawler_templates t ON res.template_id = t.id
+      WHERE ${whereClause}
+    `;
+
+    // 查询数据
+    // 同时获取标题和链接，以便列表展示
+    const dataSql = `
+      SELECT r.id, r.created_at, 
+             t.department, t.data_type,
+             t.name as template_name,
+             (SELECT field_value FROM crawler_result_items WHERE row_id = r.id AND (field_name = '标题' OR field_name = 'title') LIMIT 1) as title,
+             (SELECT field_value FROM crawler_result_items WHERE row_id = r.id AND (field_name = '发布日期' OR field_name = 'date' OR field_name = 'publish_date' OR field_name = 'time') LIMIT 1) as publish_date,
+             (SELECT field_value FROM crawler_result_items WHERE row_id = r.id AND (field_name = '链接' OR field_name = 'link' OR field_name = 'url') LIMIT 1) as link
+      FROM crawler_result_rows r
+      JOIN crawler_results res ON r.result_id = res.id
+      LEFT JOIN crawler_templates t ON res.template_id = t.id
+      WHERE ${whereClause}
+      ORDER BY publish_date DESC, r.created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `;
+
+    const [countRows] = await pool.execute(countSql, queryParams);
+    const total = (countRows as any[])[0]?.total || 0;
+
+    const [rows] = await pool.execute(dataSql, queryParams);
+
+    return {
+      items: (rows as any[]).map(row => ({
+        id: row.id,
+        department: row.department,
+        data_type: row.data_type,
+        template_name: row.template_name,
+        title: row.title,
+        publish_date: row.publish_date,
+        link: row.link,
+        created_at: row.created_at
+      })),
+      total
+    };
+  }
+  /**
+   * 获取筛选选项（部门和数据类型）
+   */
+  async getFilterOptions(userId: string): Promise<{ departments: string[]; dataTypes: string[] }> {
+    // 从模板表中获取唯一部门和数据类型
+    const [deptRows] = await pool.execute(
+      `SELECT DISTINCT department FROM crawler_templates WHERE department IS NOT NULL AND department != '' AND user_id = ?`,
+      [userId]
+    );
+
+    const [typeRows] = await pool.execute(
+      `SELECT DISTINCT data_type FROM crawler_templates WHERE data_type IS NOT NULL AND data_type != '' AND user_id = ?`,
+      [userId]
+    );
+
+    // 也从结果表中尝试获取（针对手动运行可能有记录的情况，虽然目前结构主要依赖模板）
+    // 目前手动运行没有department字段记录在Results表，只在Items里。
+    // 为了性能，暂时只查询模板表配置。
+
+    return {
+      departments: (deptRows as any[]).map(row => row.department),
+      dataTypes: (typeRows as any[]).map(row => row.data_type)
+    };
   }
 }
 

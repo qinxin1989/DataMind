@@ -13,6 +13,10 @@ export interface CrawlerTemplate {
   department?: string;
   data_type?: string;
   containerSelector?: string;
+  paginationEnabled?: boolean;
+  paginationNextSelector?: string;
+  paginationMaxPages?: number;
+  paginationUrlPattern?: string;
   fields: CrawlerTemplateField[];
   createdAt?: Date;
   updatedAt?: Date;
@@ -27,6 +31,12 @@ export interface SaveTemplateRequest {
   selectors: {
     container?: string;
     fields: Record<string, string>;
+    pagination?: {
+      enabled: boolean;
+      next_selector?: string;
+      max_pages?: number;
+      url_pattern?: string;
+    };
   };
 }
 
@@ -62,7 +72,9 @@ export interface CrawlerResult {
   id: string;
   userId: string;
   templateId: string;
-  templateName?: string;
+  template_name?: string;
+  department?: string;
+  data_type?: string;
   createdAt?: Date;
 }
 
@@ -76,18 +88,7 @@ export interface CrawlerResultRow {
   createdAt?: Date;
 }
 
-/**
- * 保存模板请求
- */
-export interface SaveTemplateRequest {
-  name: string;
-  description?: string;
-  url: string;
-  selectors: {
-    container?: string;
-    fields: Record<string, string>;
-  };
-}
+
 
 /**
  * 执行技能请求

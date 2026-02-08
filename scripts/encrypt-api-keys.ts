@@ -35,14 +35,14 @@ function decryptLegacyAES(encryptedText: string): string {
   const key = getAESKey();
   const parts = encryptedText.split(':');
   if (parts.length !== 3) return encryptedText;
-  
+
   const iv = Buffer.from(parts[0], 'hex');
   const authTag = Buffer.from(parts[1], 'hex');
   const encrypted = parts[2];
-  
+
   const decipher = crypto.createDecipheriv(AES_ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
-  
+
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
@@ -64,7 +64,7 @@ async function migrateToSM4() {
     port: parseInt(process.env.CONFIG_DB_PORT || '3306'),
     user: process.env.CONFIG_DB_USER || 'root',
     password: process.env.CONFIG_DB_PASSWORD || '',
-    database: process.env.CONFIG_DB_NAME || 'ai-data-platform',
+    database: process.env.CONFIG_DB_NAME || 'datamind',
   });
 
   const connection = await pool.getConnection();

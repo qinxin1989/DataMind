@@ -14,7 +14,7 @@ export const pool = mysql.createPool({
   port: parseInt(process.env.CONFIG_DB_PORT || '3306'),
   user: process.env.CONFIG_DB_USER || 'root',
   password: process.env.CONFIG_DB_PASSWORD || '',
-  database: process.env.CONFIG_DB_NAME || 'ai-data-platform',
+  database: process.env.CONFIG_DB_NAME || 'datamind',
   waitForConnections: true,
   connectionLimit: 20,
   queueLimit: 0,

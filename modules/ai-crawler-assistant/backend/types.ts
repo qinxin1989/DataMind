@@ -22,6 +22,12 @@ export interface AnalysisResult {
 export interface CrawlerSelectors {
   container?: string;
   fields: Record<string, string>;
+  pagination?: {
+    enabled: boolean;
+    next_selector?: string;
+    max_pages?: number;
+    url_pattern?: string;
+  };
 }
 
 // ==================== 对话处理 ====================
@@ -86,8 +92,12 @@ export interface CrawlerTemplate {
   name: string;
   url: string;
   department?: string;
-  data_type?: string;
+  dataType?: string;
   containerSelector?: string;
+  paginationEnabled?: boolean;
+  paginationNextSelector?: string;
+  paginationMaxPages?: number;
+  paginationUrlPattern?: string;
   fields: TemplateField[];
   createdAt: number;
   updatedAt: number;
@@ -104,6 +114,10 @@ export interface UpdateTemplateRequest {
   department?: string;
   data_type?: string;
   selectors?: CrawlerSelectors;
+  paginationEnabled?: boolean;
+  paginationNextSelector?: string;
+  paginationMaxPages?: number;
+  paginationUrlPattern?: string;
 }
 
 // ==================== 选择器验证 ====================

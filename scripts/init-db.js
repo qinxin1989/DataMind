@@ -15,7 +15,7 @@ async function init() {
 
     console.log('Connected to MySQL server.');
 
-    const dbName = process.env.CONFIG_DB_NAME || 'ai-data-platform';
+    const dbName = process.env.CONFIG_DB_NAME || 'datamind';
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
     console.log(`Database \`${dbName}\` created or already exists.`);
 

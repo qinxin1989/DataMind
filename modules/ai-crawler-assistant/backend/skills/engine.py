@@ -137,7 +137,7 @@ def get_field_data(element, attr=None, base_url=None, field_name=None, container
     # 启发式兜底逻辑
     if not element and container:
         # 1. 标题与链接兜底
-        if field_name and ('标题' in field_name or '链接' in field_name):
+        if field_name and any(k in field_name.lower() for k in ['标题', '链接', 'title', 'link', 'url', 'name']):
             # 优先找含有 href 的链接
             links = container.find_all('a', href=True)
             if not links:
@@ -161,7 +161,7 @@ def get_field_data(element, attr=None, base_url=None, field_name=None, container
                     return max(potential_titles, key=len)
         
         # 2. 日期兜底（增强版：优先搜索 span 等独立标签）
-        elif field_name and ('日期' in field_name or '时间' in field_name):
+        elif field_name and any(k in field_name.lower() for k in ['日期', '时间', 'date', 'time', 'publish']):
             # 第一优先级：如果找到了 element，尝试从中提取日期
             if element:
                 val = element.get_text(strip=True)
@@ -218,7 +218,7 @@ def get_field_data(element, attr=None, base_url=None, field_name=None, container
                 return extracted_date
 
         # 3. 类型兜底
-        elif field_name and ('类型' in field_name or '分类' in field_name):
+        elif field_name and any(k in field_name.lower() for k in ['类型', '分类', 'type', 'category']):
             text = container.get_text(separator=' ', strip=True)
             match = re.search(r'^([【\[\(].*?[】\]\)])|^([^|:：]*?)(?=\s*[|:：])', text)
             if match:
@@ -241,7 +241,7 @@ def get_field_data(element, attr=None, base_url=None, field_name=None, container
         val = element.get_text(separator=' ', strip=True)
 
     # 针对日期的二次清洗
-    if field_name and ('日期' in field_name or '时间' in field_name):
+    if field_name and any(k in field_name.lower() for k in ['日期', '时间', 'date', 'time', 'publish']):
         if not val or len(val) > 20:
             extracted_date = extract_date_from_text(val if val else element.get_text())
             if extracted_date:
@@ -309,6 +309,7 @@ def crawl(source, selectors, base_url=None, pagination_config=None):
     :param base_url: 用于解析相对链接的基础 URL (如果 source 是文件)
     :param pagination_config: 分页配置 {"enabled": bool, "next_selector": str, "max_pages": int}
     """
+    import sys
     try:
         html_content = ""
         actual_url = base_url if base_url else source
@@ -330,12 +331,20 @@ def crawl(source, selectors, base_url=None, pagination_config=None):
                 # 直接请求 URL
                 headers = {
                     'User-Agent': random.choice(USER_AGENTS),
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Cache-Control': 'max-age=0',
                     'Referer': actual_url
                 }
 
-                response = requests.get(current_url, headers=headers, timeout=15)
+                response = requests.get(current_url, headers=headers, timeout=20)
                 response.raise_for_status()
 
                 if response.encoding == 'ISO-8859-1':
@@ -407,11 +416,12 @@ def crawl(source, selectors, base_url=None, pagination_config=None):
             if not next_url or next_url == current_url:
                 break
 
-            print(f'[Pagination] Crawling page {page_count + 1}: {next_url}')
+            print(f'[Pagination] Crawling page {page_count + 1}: {next_url}', file=sys.stderr)
             current_url = next_url
 
         # 过滤无效行
-        all_results = [r for r in all_results if r.get('标题') or r.get('链接')]
+        # 只要任意字段有值即可保留
+        all_results = [r for r in all_results if any(v for v in r.values() if v and str(v).strip())]
 
         # 格式化日期字段为 YYYY-MM-DD
         for item in all_results:

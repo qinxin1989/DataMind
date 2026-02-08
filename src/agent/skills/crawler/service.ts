@@ -273,6 +273,7 @@ export class CrawlerService {
             await connection.beginTransaction();
 
             // 0. 去重：检查已存在的数据（基于标题和链接）
+            console.log(`[CrawlerService] saveResults: Start processing ${data.length} items for template ${templateId}`);
             const uniqueData: any[] = [];
             for (const rowData of data) {
                 const title = rowData['标题'] || rowData['title'] || '';
@@ -305,11 +306,17 @@ export class CrawlerService {
                 }
             }
 
-            console.log(`[CrawlerService] 去重后: ${uniqueData.length}/${data.length} 条新数据`);
+            console.log(`[CrawlerService] saveResults: After deduplication, ${uniqueData.length} new items found.`);
 
             if (uniqueData.length === 0) {
-                await connection.rollback();
-                return resultId; // 返回空结果ID
+                // 即使没有新数据，也记录一次采集历史，以便用户知道任务已执行
+                console.log(`[CrawlerService] saveResults: No new data, inserting empty result record.`);
+                await connection.execute(
+                    'INSERT INTO crawler_results (id, task_id, template_id, user_id) VALUES (?, ?, ?, ?)',
+                    [resultId, taskId || null, templateId, userId]
+                );
+                await connection.commit();
+                return resultId;
             }
 
             // 1. 创建批次记录
@@ -319,6 +326,7 @@ export class CrawlerService {
             );
 
             // 2. 批量插入行和明细（只插入去重后的数据）
+            console.log(`[CrawlerService] saveResults: Inserting ${uniqueData.length} rows into database.`);
             for (const rowData of uniqueData) {
                 const rowId = uuidv4();
                 await connection.execute(
@@ -333,6 +341,7 @@ export class CrawlerService {
                     );
                 }
             }
+            console.log(`[CrawlerService] saveResults: Data insertion completed successfully.`);
 
             await connection.commit();
             return resultId;

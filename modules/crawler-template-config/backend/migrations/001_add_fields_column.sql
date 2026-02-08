@@ -1,13 +1,13 @@
 -- 为crawler_templates表添加fields列以支持JSON存储
 -- 这样可以更方便地管理字段配置
 
-USE `ai-data-platform`;
+USE `datamind`;
 
 -- 检查是否已存在fields列
 SET @col_exists = (
   SELECT COUNT(*)
   FROM information_schema.COLUMNS
-  WHERE TABLE_SCHEMA = 'ai-data-platform'
+  WHERE TABLE_SCHEMA = 'datamind'
     AND TABLE_NAME = 'crawler_templates'
     AND COLUMN_NAME = 'fields'
 );

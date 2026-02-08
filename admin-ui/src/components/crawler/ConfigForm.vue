@@ -187,6 +187,7 @@ interface TemplateConfig {
   paginationEnabled?: boolean
   paginationNextSelector?: string
   paginationMaxPages?: number
+  paginationUrlPattern?: string
 }
 
 interface FieldConfig {
@@ -214,12 +215,14 @@ const paginationData = computed({
   get: () => ({
     enabled: formData.value.paginationEnabled || false,
     maxPages: formData.value.paginationMaxPages || 50,
-    nextPageSelector: formData.value.paginationNextSelector || ''
+    nextPageSelector: formData.value.paginationNextSelector || '',
+    urlPattern: formData.value.paginationUrlPattern || ''
   }),
   set: (value) => {
     formData.value.paginationEnabled = value.enabled
     formData.value.paginationMaxPages = value.maxPages
     formData.value.paginationNextSelector = value.nextPageSelector
+    formData.value.paginationUrlPattern = value.urlPattern
     handleChange()
   }
 })
@@ -238,6 +241,7 @@ function handlePaginationChange(value: any) {
   formData.value.paginationEnabled = value.enabled
   formData.value.paginationMaxPages = value.maxPages
   formData.value.paginationNextSelector = value.nextPageSelector
+  formData.value.paginationUrlPattern = value.urlPattern
   handleChange()
 }
 

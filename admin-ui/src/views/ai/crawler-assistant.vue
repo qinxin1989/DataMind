@@ -263,14 +263,14 @@
           />
         </a-form-item>
         
-        <a-form-item 
-          v-for="(_, key) in editedSelectors.fields" 
-          v-if="key !== 'title' && key !== 'link' && key !== 'date'"
-          :key="key"
-          :label="`${key} 选择器`"
-        >
-          <a-input v-model:value="editedSelectors.fields[key]" />
-        </a-form-item>
+        <template v-for="(_, fieldName) in editedSelectors.fields" :key="fieldName">
+          <a-form-item 
+            v-if="fieldName !== 'title' && fieldName !== 'link' && fieldName !== 'date'"
+            :label="`${fieldName} 选择器`"
+          >
+            <a-input v-model:value="editedSelectors.fields[fieldName]" />
+          </a-form-item>
+        </template>
       </a-form>
     </a-modal>
 

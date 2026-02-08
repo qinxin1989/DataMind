@@ -110,8 +110,11 @@
           size="small"
           :row-selection="rowSelection"
         >
-          <template #bodyCell="{ text }">
-            <template v-if="isLink(text)">
+          <template #bodyCell="{ text, column, index }">
+            <template v-if="column.key === 'index'">
+              {{ (detailPagination.current - 1) * detailPagination.pageSize + index + 1 }}
+            </template>
+            <template v-else-if="isLink(text)">
               <a :href="text" target="_blank" class="detail-link">{{ text }}</a>
             </template>
             <template v-else-if="isHtml(text)">
@@ -285,37 +288,63 @@ async function handleViewDetails(record: any) {
   try {
     const res = await aiApi.getCrawlerResultDetails(record.id)
     if (res.data && res.data.length > 0) {
-      // 注入归属部门
+      // 排序数据 (按日期倒序)
+      const dateKey = Object.keys(res.data[0]).find(k => ['发布日期', 'date', 'publish_date', 'time'].includes(k))
+      if (dateKey) {
+        res.data.sort((a, b) => {
+          const dateA = new Date(a[dateKey]).getTime()
+          const dateB = new Date(b[dateKey]).getTime()
+          return isNaN(dateA) || isNaN(dateB) ? 0 : dateB - dateA
+        })
+      }
+
+      // 注入归属部门和数据类型
       detailData.value = res.data.map(row => ({
         ...row,
-        _department: record.department || '-'
+        _department: row['归属部门'] || row['department'] || record.department || '-',
+        _dataType: row['数据类型'] || row['data_type'] || record.data_type || '-'
       }))
       
       // 更新分页总数
       detailPagination.value.total = res.data.length
       
-      // 动态生成列表头 - 添加序号列
-      const fields = Object.keys(res.data[0]).filter(k => k !== 'id' && k !== 'created_at')
-      dynamicColumns.value = [
+      // 自定义列顺序：序号 -> 标题 -> 发布日期 -> 链接 -> 数据类型 -> 归属部门 -> 其他
+      const allKeys = Object.keys(res.data[0]).filter(k => 
+         !['id', 'created_at', '归属部门', 'department', '数据类型', 'data_type'].includes(k)
+      )
+
+      const titleKey = allKeys.find(k => ['标题', 'title'].includes(k))
+      const publishDateKey = allKeys.find(k => ['发布日期', 'date', 'publish_date'].includes(k))
+      const linkKey = allKeys.find(k => ['链接', 'link', 'url'].includes(k))
+      
+      const specificKeys = [titleKey, publishDateKey, linkKey].filter(Boolean) as string[]
+      const otherKeys = allKeys.filter(k => !specificKeys.includes(k))
+
+      const cols: any[] = [
         { 
           title: '序号', 
           key: 'index', 
           width: 80, 
           fixed: 'left',
           customRender: ({ index }: any) => {
-            // 计算跨页序号：当前页码 * 每页条数 + 当前索引 + 1
             const pagination = detailPagination.value
             return (pagination.current - 1) * pagination.pageSize + index + 1
           }
-        },
-        { title: '归属部门', dataIndex: '_department', key: '_department', width: 150, fixed: 'left' },
-        ...fields.map(f => ({
-          title: f,
-          dataIndex: f,
-          key: f,
-          minWidth: 150
-        }))
+        }
       ]
+
+      if (titleKey) cols.push({ title: titleKey, dataIndex: titleKey, key: titleKey, minWidth: 300, ellipsis: true })
+      if (publishDateKey) cols.push({ title: publishDateKey, dataIndex: publishDateKey, key: publishDateKey, width: 150 })
+      if (linkKey) cols.push({ title: linkKey, dataIndex: linkKey, key: linkKey, width: 300, ellipsis: true })
+      
+      cols.push({ title: '数据类型', dataIndex: '_dataType', key: '_dataType', width: 120 })
+      cols.push({ title: '归属部门', dataIndex: '_department', key: '_department', width: 150 })
+      
+      otherKeys.forEach(k => {
+        cols.push({ title: k, dataIndex: k, key: k, minWidth: 150 })
+      })
+
+      dynamicColumns.value = cols
     } else {
       detailData.value = []
       dynamicColumns.value = []

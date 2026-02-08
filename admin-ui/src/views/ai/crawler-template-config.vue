@@ -49,7 +49,7 @@
         :data-source="filteredTemplates" 
         :loading="loading" 
         row-key="id"
-        :pagination="{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }"
+        :pagination="{ pageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条` }"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'url'">
@@ -61,12 +61,19 @@
             </a-tag>
           </template>
           <template v-else-if="column.key === 'pagination'">
-            <a-tag :color="record.pagination_enabled ? 'green' : 'default'">
-              {{ record.pagination_enabled ? `启用 (最多${record.pagination_max_pages || 50}页)` : '禁用' }}
-            </a-tag>
+            <a-space>
+              <a-switch 
+                :checked="record.paginationEnabled" 
+                size="small"
+                @change="handleTogglePagination(record)" 
+              />
+              <span :style="{ color: record.paginationEnabled ? '#52c41a' : '#bfbfbf' }">
+                {{ record.paginationEnabled ? `启用 (${record.paginationMaxPages || 50}页)` : '禁用' }}
+              </span>
+            </a-space>
           </template>
           <template v-else-if="column.key === 'createdAt'">
-            {{ formatDate(record.created_at) }}
+            {{ formatDate(record.createdAt) }}
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space>
@@ -139,15 +146,18 @@
       <!-- 左右分栏内容 -->
       <div class="split-layout">
         <!-- 左侧：配置表单 -->
-        <div class="left-panel" :class="{ collapsed: leftPanelCollapsed }">
+        <div class="left-panel" :class="{ 'collapsed': leftPanelCollapsed, 'expanded': rightPanelCollapsed }">
           <div class="panel-header">
-            <span class="panel-title">配置表单</span>
+            <span class="panel-title" v-show="!leftPanelCollapsed">配置表单</span>
             <a-button 
               type="text" 
               size="small" 
               @click="leftPanelCollapsed = !leftPanelCollapsed"
             >
-              {{ leftPanelCollapsed ? '展开' : '收起' }}
+              <template #icon>
+                <MenuFoldOutlined v-if="!leftPanelCollapsed" />
+                <MenuUnfoldOutlined v-else />
+              </template>
             </a-button>
           </div>
           <div v-show="!leftPanelCollapsed" class="panel-content">
@@ -160,15 +170,18 @@
         </div>
 
         <!-- 右侧：预览面板 -->
-        <div class="right-panel" :class="{ collapsed: rightPanelCollapsed }">
+        <div class="right-panel" :class="{ 'collapsed': rightPanelCollapsed, 'expanded': leftPanelCollapsed }">
           <div class="panel-header">
-            <span class="panel-title">预览面板</span>
+            <span class="panel-title" v-show="!rightPanelCollapsed">预览面板</span>
             <a-button 
               type="text" 
               size="small" 
               @click="rightPanelCollapsed = !rightPanelCollapsed"
             >
-              {{ rightPanelCollapsed ? '展开' : '收起' }}
+              <template #icon>
+                <MenuUnfoldOutlined v-if="!rightPanelCollapsed" />
+                <MenuFoldOutlined v-else />
+              </template>
             </a-button>
           </div>
           <div v-show="!rightPanelCollapsed" class="panel-content">
@@ -235,7 +248,9 @@ import {
   PlusOutlined,
   ArrowLeftOutlined,
   SaveOutlined,
-  ExperimentOutlined
+  ExperimentOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined
 } from '@ant-design/icons-vue'
 import { aiApi } from '@/api/ai'
 import dayjs from 'dayjs'
@@ -275,13 +290,14 @@ const formState = ref({
   ],
   paginationEnabled: true,
   paginationNextSelector: '',
-  paginationMaxPages: 50
+  paginationMaxPages: 50,
+  paginationUrlPattern: ''
 })
 
 const columns = [
   { title: '模板名称', dataIndex: 'name', key: 'name', width: 200 },
   { title: '归属部门', dataIndex: 'department', key: 'department', width: 120 },
-  { title: '数据类型', dataIndex: 'data_type', key: 'dataType', width: 120 },
+  { title: '数据类型', dataIndex: 'dataType', key: 'dataType', width: 120 },
   { title: '目标URL', dataIndex: 'url', key: 'url', ellipsis: true },
   { title: '字段', key: 'fields', width: 200 },
   { title: '分页', key: 'pagination', width: 150 },
@@ -389,7 +405,8 @@ function handleAdd() {
     ],
     paginationEnabled: true,
     paginationNextSelector: '',
-    paginationMaxPages: 50
+    paginationMaxPages: 50,
+    paginationUrlPattern: ''
   }
   editMode.value = true
   previewData.value = []
@@ -402,13 +419,14 @@ function handleEdit(record: any) {
     name: record.name,
     description: record.description || '',
     department: record.department || '',
-    dataType: record.data_type || '',
+    dataType: record.dataType || '',
     url: record.url,
-    containerSelector: record.containerSelector || record.container_selector,
+    containerSelector: record.containerSelector || '',
     fields: record.fields || [],
-    paginationEnabled: record.pagination_enabled || false,
-    paginationNextSelector: record.pagination_next_selector || '',
-    paginationMaxPages: record.pagination_max_pages || 50
+    paginationEnabled: !!record.paginationEnabled,
+    paginationNextSelector: record.paginationNextSelector || '',
+    paginationMaxPages: record.paginationMaxPages || 50,
+    paginationUrlPattern: record.paginationUrlPattern || ''
   }
   editMode.value = true
   previewData.value = []
@@ -423,6 +441,21 @@ function handleCancel() {
   editingTemplate.value = null
   previewData.value = []
   previewError.value = ''
+}
+
+async function handleTogglePagination(record: any) {
+  try {
+    const newStatus = !record.paginationEnabled
+    await aiApi.updateCrawlerTemplate(record.id, {
+      paginationEnabled: newStatus
+    })
+    record.paginationEnabled = newStatus
+    message.success(`分页已${newStatus ? '启用' : '禁用'}`)
+  } catch (error: any) {
+    message.error('切换失败: ' + (error.message || '未知错误'))
+    // 强制刷新列表以同步状态
+    fetchTemplates()
+  }
 }
 
 async function handleSaveConfig() {
@@ -455,7 +488,8 @@ async function handleSaveConfig() {
       },
       paginationEnabled: formState.value.paginationEnabled,
       paginationNextSelector: formState.value.paginationNextSelector,
-      paginationMaxPages: formState.value.paginationMaxPages
+      paginationMaxPages: formState.value.paginationMaxPages,
+      paginationUrlPattern: formState.value.paginationUrlPattern
     }
 
     if (editingTemplate.value) {
@@ -603,9 +637,9 @@ async function handleTest(record: any) {
     }
 
     const paginationConfig = {
-      enabled: record.pagination_enabled,
-      maxPages: record.pagination_max_pages,
-      nextPageSelector: record.pagination_next_selector
+      enabled: record.paginationEnabled || record.pagination_enabled,
+      maxPages: record.paginationMaxPages || record.pagination_max_pages,
+      nextPageSelector: record.paginationNextSelector || record.pagination_next_selector
     }
 
     const res = await aiApi.testCrawlerTemplate(record.url, selectors, paginationConfig)
@@ -732,41 +766,45 @@ function formatDate(date: any) {
 }
 
 .left-panel {
-  width: 40%;
+  width: 35%;
   overflow-y: auto;
   background: #fff;
   border-radius: 4px;
   display: flex;
   flex-direction: column;
-  transition: width 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid #f0f0f0;
 }
 
 .left-panel.collapsed {
-  width: 60px;
-  min-width: 60px;
+  width: 48px;
+  min-width: 48px;
+  overflow: hidden;
 }
 
 .right-panel {
-  width: 60%;
+  width: 65%;
   overflow-y: auto;
   background: #fff;
   border-radius: 4px;
   display: flex;
   flex-direction: column;
-  transition: width 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid #f0f0f0;
 }
 
 .right-panel.collapsed {
-  width: 60px;
-  min-width: 60px;
+  width: 48px;
+  min-width: 48px;
+  overflow: hidden;
 }
 
-.left-panel.collapsed ~ .right-panel:not(.collapsed) {
-  width: calc(100% - 76px);
+.left-panel.collapsed ~ .right-panel {
+  width: calc(100% - 64px);
 }
 
-.right-panel.collapsed ~ .left-panel:not(.collapsed) {
-  width: calc(100% - 76px);
+.right-panel.collapsed ~ .left-panel {
+  width: calc(100% - 64px);
 }
 
 .panel-header {

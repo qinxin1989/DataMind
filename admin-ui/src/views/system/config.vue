@@ -101,7 +101,7 @@
               />
             </a-form-item>
             <a-form-item label="数据库名">
-              <a-input v-model:value="dbConfig.database" placeholder="ai-data-platform" />
+              <a-input v-model:value="dbConfig.database" placeholder="datamind" />
             </a-form-item>
             <a-form-item :wrapper-col="{ offset: 4 }">
               <a-space>

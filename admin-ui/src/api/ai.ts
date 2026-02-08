@@ -91,6 +91,14 @@ export const aiApi = {
   getCrawlerResults: () =>
     get<any[]>('/skills/crawler/results'),
 
+  // 获取所有采集结果行（Flattened View）
+  getCrawlerItems: (params: { page?: number; pageSize?: number; department?: string; dataType?: string; title?: string }) =>
+    get<{ items: any[]; total: number }>('/skills/crawler/items', { params }),
+
+  // 获取筛选选项
+  getCrawlerOptions: () =>
+    get<{ departments: string[]; dataTypes: string[] }>('/skills/crawler/options'),
+
   // 获取具体结果明细
   getCrawlerResultDetails: (id: string) =>
     get<any[]>(`/skills/crawler/results/${id}`),
@@ -180,5 +188,18 @@ export const aiApi = {
 
   // AI智能分析网页（生成字段推荐）
   analyzeWebpage: (url: string, description?: string) =>
-    aiPost<{ fields: Array<{ name: string; selector: string; confidence: number; description?: string }> }>('/admin/ai/crawler/analyze', { url, description }),
+    aiPost<{
+      selectors: {
+        container?: string;
+        fields: Record<string, string>;
+        pagination?: {
+          enabled: boolean;
+          next_selector?: string;
+          max_pages?: number;
+          url_pattern?: string;
+        };
+      };
+      fields?: Array<{ name: string; selector: string; confidence: number; description?: string }>;
+      department?: string;
+    }>('/admin/ai/crawler/analyze', { url, description }),
 }

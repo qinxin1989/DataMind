@@ -9,7 +9,7 @@ const dbConfig = {
     host: 'localhost',
     user: 'root',
     password: 'qinxin',
-    database: 'ai-data-platform'
+    database: 'datamind'
 };
 
 async function diagnose() {
@@ -23,7 +23,7 @@ async function diagnose() {
         const [tables] = await connection.execute(`
             SELECT TABLE_NAME, TABLE_ROWS
             FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = 'ai-data-platform'
+            WHERE TABLE_SCHEMA = 'datamind'
             AND TABLE_NAME LIKE 'crawler%'
             ORDER BY TABLE_NAME
         `);
@@ -43,7 +43,7 @@ async function diagnose() {
         const [columns] = await connection.execute(`
             SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY
             FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = 'ai-data-platform'
+            WHERE TABLE_SCHEMA = 'datamind'
             AND TABLE_NAME = 'crawler_results'
             ORDER BY ORDINAL_POSITION
         `);
@@ -121,7 +121,7 @@ async function diagnose() {
                 const checkTaskId = await connection.execute(`
                     SELECT COLUMN_NAME
                     FROM information_schema.COLUMNS
-                    WHERE TABLE_SCHEMA = 'ai-data-platform'
+                    WHERE TABLE_SCHEMA = 'datamind'
                     AND TABLE_NAME = 'crawler_results'
                     AND COLUMN_NAME = 'task_id'
                 `);

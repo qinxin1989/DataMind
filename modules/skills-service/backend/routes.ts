@@ -119,6 +119,10 @@ router.get('/:name', async (req: Request, res: Response) => {
 router.post('/:name/execute', async (req: Request, res: Response) => {
   try {
     const { params, context } = req.body;
+    console.log(`\n\n[Route Debug] Skill Execution Request:`);
+    console.log(`[Route Debug] Skill Name: ${req.params.name}`);
+    console.log(`[Route Debug] Params:`, JSON.stringify(params, null, 2));
+
     const userId = (req as any).user?.id || 'system';
 
     const skillContext: SkillContext = {
@@ -130,6 +134,9 @@ router.post('/:name/execute', async (req: Request, res: Response) => {
     const startTime = Date.now();
     const result = await skillsService.executeSkill(req.params.name, params || {}, skillContext);
     const executionTime = Date.now() - startTime;
+
+    console.log(`[Route Debug] Execution Time: ${executionTime}ms`);
+    console.log(`[Route Debug] Result Success: ${result?.success}\n\n`);
 
     res.json({
       success: true,

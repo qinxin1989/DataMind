@@ -2,20 +2,20 @@
 -- 简化修复脚本 - 只处理必要部分
 -- ============================================
 
-USE `ai-data-platform`;
+USE `datamind`;
 
 -- ========== 第一步：检查现有表 ==========
 
 SELECT '========== 现有菜单表 ==========' as '';
 SELECT TABLE_NAME, TABLE_ROWS
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = 'ai-data-platform'
+WHERE TABLE_SCHEMA = 'datamind'
 AND TABLE_NAME LIKE '%menu%';
 
 SELECT '========== 现有用户表 ==========' as '';
 SELECT TABLE_NAME, TABLE_ROWS
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = 'ai-data-platform'
+WHERE TABLE_SCHEMA = 'datamind'
 AND TABLE_NAME LIKE '%user%';
 
 

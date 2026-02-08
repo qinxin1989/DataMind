@@ -30,7 +30,7 @@ export function registerAllSkills() {
   skillsRegistry.registerAll(reportSkills);
   console.log(`[Skills] Registered ${reportSkills.length} report skills`);
 
-  // 注册爬虫技能
+  // 注册爬虫技能 (使用已更新的本地实现)
   skillsRegistry.registerAll(crawlerSkills);
   console.log(`[Skills] Registered ${crawlerSkills.length} crawler skills`);
 

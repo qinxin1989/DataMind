@@ -27,7 +27,7 @@ const SENSITIVE_KEYS = [
  */
 function deriveKey(masterPassword: string): string {
   // 使用 PBKDF2 派生密钥
-  const salt = 'ai-data-platform-salt';
+  const salt = 'datamind-salt';
   const key = crypto.pbkdf2Sync(masterPassword, salt, 10000, 16, 'sha256');
   return key.toString('hex');
 }

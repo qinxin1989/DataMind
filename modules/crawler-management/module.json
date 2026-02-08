@@ -1,7 +1,7 @@
 {
   "name": "crawler-management",
   "displayName": "爬虫管理",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "管理网页抓取模板、定时任务及历史采集数据",
   "author": "System",
   "license": "MIT",
@@ -30,6 +30,15 @@
       "icon": "DatabaseOutlined",
       "parentId": "data-collection",
       "sortOrder": 3,
+      "permission": "crawler:view"
+    },
+    {
+      "id": "crawler-results-all",
+      "title": "采集结果库",
+      "path": "/ai/crawler-results",
+      "icon": "TableOutlined",
+      "parentId": "data-collection",
+      "sortOrder": 4,
       "permission": "crawler:view"
     }
   ],

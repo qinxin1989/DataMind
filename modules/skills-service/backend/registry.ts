@@ -143,6 +143,7 @@ export class SkillsRegistry {
 
     try {
       console.log(`[SkillsRegistry] Executing skill: ${skillName}`, params);
+      console.log(`[SkillsRegistry] Skill Implementation: ${skill.execute.toString().substring(0, 100)}...`);
       const result = await skill.execute(params, context);
       console.log(`[SkillsRegistry] Skill ${skillName} completed:`, result.success);
       return result;

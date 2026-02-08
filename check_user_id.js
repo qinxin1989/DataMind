@@ -8,7 +8,7 @@ async function checkUserId() {
         host: 'localhost',
         user: 'root',
         password: 'qinxin',
-        database: 'ai-data-platform'
+        database: 'datamind'
     });
 
     try {
