@@ -297,7 +297,7 @@ const formState = ref({
 const columns = [
   { title: '模板名称', dataIndex: 'name', key: 'name', width: 200 },
   { title: '归属部门', dataIndex: 'department', key: 'department', width: 120 },
-  { title: '数据类型', dataIndex: 'dataType', key: 'dataType', width: 120 },
+  { title: '数据类型', dataIndex: 'data_type', key: 'dataType', width: 120 },
   { title: '目标URL', dataIndex: 'url', key: 'url', ellipsis: true },
   { title: '字段', key: 'fields', width: 200 },
   { title: '分页', key: 'pagination', width: 150 },
@@ -419,7 +419,7 @@ function handleEdit(record: any) {
     name: record.name,
     description: record.description || '',
     department: record.department || '',
-    dataType: record.dataType || '',
+    dataType: record.dataType || record.data_type || '',
     url: record.url,
     containerSelector: record.containerSelector || '',
     fields: record.fields || [],
