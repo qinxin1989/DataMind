@@ -9,7 +9,7 @@ async function simulateGetUserMenus() {
         host: process.env.CONFIG_DB_HOST || 'localhost',
         port: parseInt(process.env.CONFIG_DB_PORT || '3306'),
         user: process.env.CONFIG_DB_USER || 'root',
-        password: process.env.CONFIG_DB_PASSWORD || 'qinxin',
+        password: process.env.CONFIG_DB_PASSWORD,
         database: process.env.CONFIG_DB_NAME || 'DataMind'
     };
 

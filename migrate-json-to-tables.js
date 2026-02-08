@@ -19,7 +19,7 @@ const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'qinxin',
+  password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'DataMind',
   charset: 'utf8mb4'
 };
@@ -157,7 +157,7 @@ async function migrateDatasourceConfigs() {
   for (const row of rows) {
     try {
       const config = JSON.parse(row.config);
-      
+
       // 将JSON对象的每个键值对插入到分表中
       for (const [key, value] of Object.entries(config)) {
         let configType = 'string';
@@ -210,10 +210,10 @@ async function migrateSchemaAnalysis() {
       // 迁移表信息
       if (row.tables) {
         const tables = JSON.parse(row.tables);
-        
+
         for (const table of tables) {
           const tableId = uuidv4();
-          
+
           // 插入表信息
           await connection.execute(
             `INSERT INTO schema_tables (id, analysis_id, table_name, table_name_cn, table_comment, row_count) 
@@ -254,7 +254,7 @@ async function migrateSchemaAnalysis() {
       // 迁移推荐问题
       if (row.suggested_questions) {
         const questions = JSON.parse(row.suggested_questions);
-        
+
         if (Array.isArray(questions)) {
           for (let i = 0; i < questions.length; i++) {
             await connection.execute(
@@ -291,7 +291,7 @@ async function migrateAuditLogDetails() {
   for (const row of rows) {
     try {
       const details = JSON.parse(row.details);
-      
+
       // 将JSON对象的每个键值对插入到分表中
       for (const [key, value] of Object.entries(details)) {
         let detailType = 'string';
@@ -342,11 +342,11 @@ async function migrateChatMessages() {
   for (const row of rows) {
     try {
       const messages = JSON.parse(row.messages);
-      
+
       if (Array.isArray(messages)) {
         for (let i = 0; i < messages.length; i++) {
           const message = messages[i];
-          
+
           await connection.execute(
             `INSERT INTO chat_messages (id, chat_id, role, content, message_order) 
              VALUES (?, ?, ?, ?, ?)`,

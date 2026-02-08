@@ -18,7 +18,7 @@ const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'qinxin',
+  password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'DataMind',
   charset: 'utf8mb4'
 };
@@ -39,9 +39,9 @@ function log(message, color = 'reset') {
 // 1. 移除test-menu模块
 async function removeTestMenuModule() {
   log('\n🗑️ 移除test-menu模块...', 'blue');
-  
+
   const testMenuPath = path.join(process.cwd(), 'modules', 'test-menu');
-  
+
   if (fs.existsSync(testMenuPath)) {
     try {
       fs.rmSync(testMenuPath, { recursive: true, force: true });
@@ -56,10 +56,10 @@ async function removeTestMenuModule() {
   // 从数据库中删除相关记录
   try {
     const connection = await mysql.createConnection(dbConfig);
-    
+
     await connection.execute("DELETE FROM sys_modules WHERE name = 'test-menu'");
     await connection.execute("DELETE FROM sys_menus WHERE title LIKE '%test%' AND is_system = FALSE");
-    
+
     await connection.end();
     log('  ✅ 数据库中的test-menu相关记录已清理', 'green');
   } catch (error) {
@@ -76,7 +76,7 @@ async function createMissingRoutes() {
   if (!fs.existsSync(path.dirname(ocrRoutesPath))) {
     fs.mkdirSync(path.dirname(ocrRoutesPath), { recursive: true });
   }
-  
+
   const ocrRoutes = `/**
  * OCR服务路由
  */
@@ -135,7 +135,7 @@ export default router;`;
   if (!fs.existsSync(path.dirname(skillsRoutesPath))) {
     fs.mkdirSync(path.dirname(skillsRoutesPath), { recursive: true });
   }
-  
+
   const skillsRoutes = `/**
  * 技能服务路由
  */
@@ -211,7 +211,7 @@ export default router;`;
   if (!fs.existsSync(path.dirname(ragRoutesPath))) {
     fs.mkdirSync(path.dirname(ragRoutesPath), { recursive: true });
   }
-  
+
   const ragRoutes = `/**
  * RAG知识库路由
  */
@@ -286,9 +286,9 @@ export default router;`;
 // 3. 更新admin路由注册
 async function updateAdminRouter() {
   log('\n🔄 更新admin路由注册...', 'blue');
-  
+
   const adminIndexPath = path.join(process.cwd(), 'src', 'admin', 'index.ts');
-  
+
   const updatedAdminRouter = `/**
  * 模块化后台管理框架 - 主入口
  * 整合所有模块路由到 Express
@@ -417,12 +417,12 @@ export default createAdminRouter;`;
 // 4. 更新主服务器路由注册
 async function updateMainServerRoutes() {
   log('\n🔄 更新主服务器路由注册...', 'blue');
-  
+
   const indexPath = path.join(process.cwd(), 'src', 'index.ts');
-  
+
   // 读取现有文件
   let content = fs.readFileSync(indexPath, 'utf8');
-  
+
   // 在适当位置添加新的路由注册
   const routeRegistration = `
 // ========== 新增模块路由 ==========
@@ -533,7 +533,7 @@ async function createModuleConfigs() {
   for (const module of modules) {
     const modulePath = path.join(process.cwd(), 'modules', module.name);
     const configPath = path.join(modulePath, 'module.json');
-    
+
     if (!fs.existsSync(modulePath)) {
       fs.mkdirSync(modulePath, { recursive: true });
     }
@@ -570,13 +570,13 @@ async function createModuleConfigs() {
 // 6. 更新测试脚本
 async function updateTestScript() {
   log('\n🧪 更新测试脚本...', 'blue');
-  
+
   const testScriptPath = path.join(process.cwd(), 'test-all-modules.js');
   let content = fs.readFileSync(testScriptPath, 'utf8');
-  
+
   // 修复仪表板路径
   content = content.replace('/api/admin/dashboard/stats', '/api/admin/dashboard/stats');
-  
+
   // 添加新的测试函数
   const newTests = `
 // 16. 测试Agent能力模块
@@ -592,7 +592,7 @@ async function testAgentModule() {
     `await testDashboardModule();
   await testAgentModule();`
   );
-  
+
   // 在testDashboardModule函数后添加新函数
   content = content.replace(
     'async function testDashboardModule() {',

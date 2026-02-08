@@ -67,7 +67,7 @@ export class NormalizedConfigStore {
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '3306'),
       user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || 'qinxin',
+      password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME || 'DataMind',
       charset: 'utf8mb4',
       waitForConnections: true,
@@ -83,7 +83,7 @@ export class NormalizedConfigStore {
    */
   async saveDatasourceConfig(datasourceId: string, config: Record<string, any>): Promise<void> {
     const connection = await this.pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
@@ -179,7 +179,7 @@ export class NormalizedConfigStore {
     isUserEdited: boolean;
   }, userId: string): Promise<void> {
     const connection = await this.pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
@@ -192,7 +192,7 @@ export class NormalizedConfigStore {
 
       if (existing.length > 0) {
         analysisId = existing[0].id;
-        
+
         // 更新主记录
         await connection.execute(
           `UPDATE schema_analysis 
@@ -206,7 +206,7 @@ export class NormalizedConfigStore {
         await connection.execute('DELETE FROM schema_questions WHERE analysis_id = ?', [analysisId]);
       } else {
         analysisId = uuidv4();
-        
+
         // 创建主记录（保留原JSON字段为空，使用分表）
         await connection.execute(
           `INSERT INTO schema_analysis (id, user_id, datasource_id, tables, suggested_questions, analyzed_at, updated_at, is_user_edited) 
@@ -218,7 +218,7 @@ export class NormalizedConfigStore {
       // 保存表信息
       for (const table of analysis.tables) {
         const tableId = uuidv4();
-        
+
         await connection.execute(
           `INSERT INTO schema_tables (id, analysis_id, table_name, table_name_cn, table_comment, row_count) 
            VALUES (?, ?, ?, ?, ?, ?)`,
@@ -363,7 +363,7 @@ export class NormalizedConfigStore {
    */
   async saveChatMessages(chatId: string, messages: Array<{ role: string; content: string }>): Promise<void> {
     const connection = await this.pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
@@ -416,7 +416,7 @@ export class NormalizedConfigStore {
    */
   async saveAuditLogDetails(auditLogId: string, details: Record<string, any>): Promise<void> {
     const connection = await this.pool.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 

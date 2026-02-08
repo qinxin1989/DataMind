@@ -13,7 +13,7 @@ export const pool = mysql.createPool({
   host: process.env.CONFIG_DB_HOST || 'localhost',
   port: parseInt(process.env.CONFIG_DB_PORT || '3306'),
   user: process.env.CONFIG_DB_USER || 'root',
-  password: process.env.CONFIG_DB_PASSWORD || '',
+  password: process.env.CONFIG_DB_PASSWORD,
   database: process.env.CONFIG_DB_NAME || 'datamind',
   waitForConnections: true,
   connectionLimit: 20,
