@@ -34,23 +34,50 @@ let ocrRoutes: any = null;
 let skillsRoutes: any = null;
 let ragRoutes: any = null;
 
-try {
-  ocrRoutes = require('../../modules/ocr-service/backend/routes').default;
-} catch (error) {
-  console.warn('OCR模块路由加载失败:', error);
+// 辅助函数：尝试加载模块路由
+function loadModuleRoutes(moduleName: string, relativePath: string) {
+  try {
+    // 优先尝试标准开发路径
+    return require(relativePath).default;
+  } catch (err1) {
+    try {
+      // 尝试生产环境路径 (假设在 dist 中)
+      // 如果当前在 dist/admin/index.js, 那么 ../../Modules/xx 对应 dist/modules/xx
+      // 但实际上 ts 编译后 path 可能并没有变，问题是文件是否存在
+      // 这里增加更健壮的路径检测
+
+      // 尝试使用 path.resolve 动态构建路径
+      const path = require('path');
+      const fs = require('fs');
+
+      // 检测是否在 dist 目录运行
+      const isDist = __dirname.includes('dist');
+      const rootDir = isDist ? path.resolve(__dirname, '../../..') : path.resolve(__dirname, '../..');
+
+      // 尝试构建可能的路径
+      const possiblePaths = [
+        path.join(rootDir, 'modules', moduleName, 'backend', 'routes.js'),
+        path.join(rootDir, 'dist', 'modules', moduleName, 'backend', 'routes.js'),
+        path.join(rootDir, 'modules', moduleName, 'backend', 'routes.ts'), // ts-node 环境
+      ];
+
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          return require(p).default;
+        }
+      }
+
+      throw err1; // 如果都找不到，抛出原始错误
+    } catch (err2) {
+      console.warn(`${moduleName} 模块路由加载失败:`, (err2 as any).message);
+      return null;
+    }
+  }
 }
 
-try {
-  skillsRoutes = require('../../modules/skills-service/backend/routes').default;
-} catch (error) {
-  console.warn('Skills模块路由加载失败:', error);
-}
-
-try {
-  ragRoutes = require('../../modules/rag-service/backend/routes').default;
-} catch (error) {
-  console.warn('RAG模块路由加载失败:', error);
-}
+ocrRoutes = loadModuleRoutes('ocr-service', '../../modules/ocr-service/backend/routes');
+skillsRoutes = loadModuleRoutes('skills-service', '../../modules/skills-service/backend/routes');
+ragRoutes = loadModuleRoutes('rag-service', '../../modules/rag-service/backend/routes');
 
 // 导入核心服务
 export { moduleRegistry } from './core/moduleRegistry';
@@ -86,13 +113,13 @@ export function createAdminRouter(pool?: any): Router {
   router.use('/datasources', datasourceRoutes);
   router.use('/ai-qa', aiQARoutes);
   router.use('/dashboards', createDashboardRoutes(dashboardService));
-  
+
   // 注册业务模块路由
   if (crawlerRoutes) {
     router.use('/crawler', crawlerRoutes);
   }
   router.use('/tools/file', createFileToolsRoutes(fileToolsService));
-  
+
   // 注册新增模块路由
   if (ocrRoutes) {
     router.use('/ocr', ocrRoutes);
@@ -113,7 +140,7 @@ export function createAdminRouter(pool?: any): Router {
         timestamp: Date.now(),
         version: '1.0.0',
         modules: [
-          'users', 'roles', 'menus', 'audit', 'ai', 'system', 
+          'users', 'roles', 'menus', 'audit', 'ai', 'system',
           'notifications', 'datasources', 'ai-qa', 'dashboard',
           'crawler', 'file-tools', 'ocr', 'skills', 'rag'
         ]
