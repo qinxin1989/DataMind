@@ -7,10 +7,10 @@ import * as path from 'path';
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const pool = createPool({
-    host: process.env.CONFIG_DB_HOST || 'localhost',
-    user: process.env.CONFIG_DB_USER || 'root',
-    password: process.env.CONFIG_DB_PASSWORD || 'qinxin',
-    database: process.env.CONFIG_DB_NAME || 'datamind',
+    host: process.env.CONFIG_DB_HOST,
+    user: process.env.CONFIG_DB_USER,
+    password: process.env.CONFIG_DB_PASSWORD,
+    database: process.env.CONFIG_DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
