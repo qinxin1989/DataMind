@@ -146,6 +146,7 @@ export async function initAdminTables(): Promise<void> {
         external_url VARCHAR(500),
         open_mode VARCHAR(20) DEFAULT 'current',
         module_code VARCHAR(50),
+        module_name VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_parent (parent_id),
@@ -345,8 +346,10 @@ export async function initAdminTables(): Promise<void> {
         code VARCHAR(100) NOT NULL UNIQUE,
         name VARCHAR(100) NOT NULL,
         description VARCHAR(255),
+        category VARCHAR(50),
         module_name VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_code (code),
         INDEX idx_module (module_name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
@@ -394,6 +397,10 @@ export async function initAdminTables(): Promise<void> {
         department VARCHAR(100),
         data_type VARCHAR(100),
         container_selector VARCHAR(255),
+        pagination_enabled BOOLEAN DEFAULT FALSE,
+        pagination_next_selector VARCHAR(255),
+        pagination_max_pages INT DEFAULT 1,
+        pagination_url_pattern VARCHAR(500),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_user (user_id),
@@ -407,6 +414,12 @@ export async function initAdminTables(): Promise<void> {
     } catch (e) { }
     try {
       await connection.execute(`ALTER TABLE crawler_templates ADD COLUMN data_type VARCHAR(100) AFTER department`);
+    } catch (e) { }
+    try {
+      await connection.execute(`ALTER TABLE crawler_templates ADD COLUMN pagination_enabled BOOLEAN DEFAULT FALSE`);
+      await connection.execute(`ALTER TABLE crawler_templates ADD COLUMN pagination_next_selector VARCHAR(255)`);
+      await connection.execute(`ALTER TABLE crawler_templates ADD COLUMN pagination_max_pages INT DEFAULT 1`);
+      await connection.execute(`ALTER TABLE crawler_templates ADD COLUMN pagination_url_pattern VARCHAR(500)`);
     } catch (e) { }
 
     // 爬虫模板字段表
