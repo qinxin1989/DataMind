@@ -154,15 +154,20 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'datasource',
-        name: 'DatasourceManagement',
-        component: () => import('@/views/datasource/index.vue'),
         meta: { title: '数据源管理', icon: 'DatabaseOutlined' },
-      },
-      {
-        path: 'datasource/approval',
-        name: 'DatasourceApproval',
-        component: () => import('@/views/datasource/approval.vue'),
-        meta: { title: '数据源审核', icon: 'AuditOutlined', permission: 'datasource:approve' },
+        children: [
+          {
+            path: '',
+            name: 'DatasourceManagement',
+            component: () => import('@/views/datasource/index.vue'),
+          },
+          {
+            path: 'approval',
+            name: 'DatasourceApproval',
+            component: () => import('@/views/datasource/approval.vue'),
+            meta: { title: '数据源审核', icon: 'AuditOutlined', permission: 'datasource:approve' },
+          },
+        ]
       },
       {
         path: 'system',
@@ -198,6 +203,12 @@ const routes: RouteRecordRaw[] = [
             name: 'SystemStatus',
             component: () => import('@/views/system/status.vue'),
             meta: { title: '系统状态', permission: 'system:status:view' },
+          },
+          {
+            path: '/system/monitoring',
+            name: 'SystemMonitoring',
+            component: () => import('@/views/system/monitoring.vue'),
+            meta: { title: '系统监控', permission: 'system:view' },
           },
           {
             path: '/system/audit',

@@ -15,6 +15,7 @@ import datasourceRoutes from '../../modules/datasource-management/backend/routes
 import aiStatsRoutes from '../../modules/ai-stats/backend/routes';
 import aiCrawlerRoutes from '../../modules/ai-crawler-assistant/backend/routes';
 import monitoringRoutes from '../../modules/monitoring/backend/routes';
+import approvalRoutes from '../../modules/approval/backend/routes';
 
 // 导入模块路由 — 工厂模式
 import { initRoutes as initAuditRoutes } from '../../modules/audit-log/backend/routes';
@@ -140,6 +141,8 @@ export function createAdminRouter(pool?: any): Router {
   router.use('/datasources', datasourceRoutes);
   router.use('/ai-qa', createAiQARoutes(aiQAServiceInstance));
   router.use('/dashboards', createDashboardRoutes(dashboardService));
+  router.use('/monitoring', monitoringRoutes);
+  router.use('/approvals', approvalRoutes);
 
   // 注册业务模块路由
   if (crawlerRoutes) {

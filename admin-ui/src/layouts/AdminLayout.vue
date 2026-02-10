@@ -253,9 +253,9 @@ const breadcrumbs = computed(() => {
     }))
 })
 
-// 监听路由变化
+// 监听路由和菜单变化
 watch(
-  () => route.path,
+  [() => route.path, () => menus.value],
   () => {
     updateMenuSelection()
     // 路由切换时滚动到顶部
@@ -266,7 +266,7 @@ watch(
       }
     })
   },
-  { immediate: true }
+  { immediate: true, deep: true }
 )
 
 function updateMenuSelection() {
