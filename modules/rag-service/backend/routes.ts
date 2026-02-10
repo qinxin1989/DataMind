@@ -5,7 +5,8 @@
 
 import { Router, Request, Response } from 'express';
 import { pool } from '../../../src/admin/core/database';
-import { aiConfigService } from '../../../src/admin/modules/ai/aiConfigService';
+import { AIConfigService } from '../../ai-config/backend/service';
+const aiConfigService = new AIConfigService(pool);
 import { RagService } from './service';
 
 const router = Router();

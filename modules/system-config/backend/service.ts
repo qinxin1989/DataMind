@@ -57,7 +57,8 @@ export class SystemConfigService {
 
     query += ' ORDER BY config_group, config_key';
 
-    const rows = await this.db.all(query, values);
+    const queryParams = values.map(v => v === undefined ? null : v);
+    const [rows]: any = await this.db.execute(query, queryParams);
     return rows.map((row: any) => this.mapRowToConfig(row));
   }
 
@@ -66,8 +67,8 @@ export class SystemConfigService {
    */
   async getConfig(key: string): Promise<SystemConfig | null> {
     const query = 'SELECT * FROM system_configs WHERE config_key = ?';
-    const row = await this.db.get(query, [key]);
-    return row ? this.mapRowToConfig(row) : null;
+    const [rows]: any = await this.db.execute(query, [key]);
+    return rows.length > 0 ? this.mapRowToConfig(rows[0]) : null;
   }
 
   /**
@@ -102,16 +103,16 @@ export class SystemConfigService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    await this.db.run(query, [
+    await this.db.execute(query, [
       id,
       request.key,
       request.value,
       request.type,
-      request.description,
-      request.group,
+      request.description ?? null,
+      request.group ?? null,
       request.editable !== false ? 1 : 0,
-      now,
-      now
+      new Date(now),
+      new Date(now)
     ]);
 
     const config = await this.getConfig(request.key);
@@ -140,7 +141,7 @@ export class SystemConfigService {
 
     const now = Date.now();
     const query = 'UPDATE system_configs SET config_value = ?, updated_at = ? WHERE config_key = ?';
-    await this.db.run(query, [request.value, now, key]);
+    await this.db.execute(query, [request.value, new Date(now), key]);
 
     const updated = await this.getConfig(key);
     if (!updated) {
@@ -164,7 +165,7 @@ export class SystemConfigService {
     }
 
     const query = 'DELETE FROM system_configs WHERE config_key = ?';
-    await this.db.run(query, [key]);
+    await this.db.execute(query, [key]);
   }
 
   /**
@@ -172,7 +173,7 @@ export class SystemConfigService {
    */
   async getConfigGroups(): Promise<string[]> {
     const query = 'SELECT DISTINCT config_group FROM system_configs ORDER BY config_group';
-    const rows = await this.db.all(query);
+    const [rows]: any = await this.db.execute(query);
     return rows.map((row: any) => row.config_group);
   }
 
@@ -238,7 +239,7 @@ export class SystemConfigService {
   async updateDbConfig(request: UpdateDbConfigRequest): Promise<DbConfig> {
     // 注意：这里只是返回更新后的配置，实际的环境变量更新需要重启服务
     const current = await this.getDbConfig();
-    
+
     const updated: DbConfig = {
       host: request.host || current.host,
       port: request.port || current.port,
@@ -258,7 +259,7 @@ export class SystemConfigService {
    */
   async testDbConnection(config: DbConfig): Promise<DbConnectionTestResult> {
     const startTime = Date.now();
-    
+
     try {
       const connection = await mysql.createConnection({
         host: config.host,

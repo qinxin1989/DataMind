@@ -5,6 +5,8 @@
 
 import { Router, Request, Response } from 'express';
 import { skillsService } from './service';
+import { requirePermission } from '../../../src/admin/middleware/permission';
+import { success, error } from '../../../src/admin/utils/response';
 import type { SkillCategory, SkillContext } from './types';
 
 const router = Router();
@@ -16,10 +18,9 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const category = req.query.category as SkillCategory | undefined;
     const result = skillsService.getSkillList(category);
-    res.json({ success: true, data: result });
-  } catch (error: any) {
-    console.error('[Skills] Get skills error:', error);
-    res.status(500).json({ error: error.message });
+    res.json(success(result));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
@@ -29,10 +30,9 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/categories', async (req: Request, res: Response) => {
   try {
     const categories = skillsService.getRegistry().getCategories();
-    res.json({ success: true, data: categories });
-  } catch (error: any) {
-    console.error('[Skills] Get categories error:', error);
-    res.status(500).json({ error: error.message });
+    res.json(success(categories));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
@@ -42,10 +42,9 @@ router.get('/categories', async (req: Request, res: Response) => {
 router.get('/capabilities', async (req: Request, res: Response) => {
   try {
     const capabilities = skillsService.getCapabilities();
-    res.json({ success: true, data: capabilities });
-  } catch (error: any) {
-    console.error('[Skills] Get capabilities error:', error);
-    res.status(500).json({ error: error.message });
+    res.json(success(capabilities));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
@@ -55,10 +54,9 @@ router.get('/capabilities', async (req: Request, res: Response) => {
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const stats = skillsService.getStats();
-    res.json({ success: true, data: stats });
-  } catch (error: any) {
-    console.error('[Skills] Get stats error:', error);
-    res.status(500).json({ error: error.message });
+    res.json(success(stats));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
@@ -68,10 +66,9 @@ router.get('/stats', async (req: Request, res: Response) => {
 router.get('/descriptions', async (req: Request, res: Response) => {
   try {
     const descriptions = skillsService.getSkillDescriptions();
-    res.json({ success: true, data: descriptions });
-  } catch (error: any) {
-    console.error('[Skills] Get descriptions error:', error);
-    res.status(500).json({ error: error.message });
+    res.json(success(descriptions));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
@@ -81,10 +78,9 @@ router.get('/descriptions', async (req: Request, res: Response) => {
 router.get('/mcp-tools', async (req: Request, res: Response) => {
   try {
     const tools = skillsService.getMCPTools();
-    res.json({ success: true, data: tools });
-  } catch (error: any) {
-    console.error('[Skills] Get MCP tools error:', error);
-    res.status(500).json({ error: error.message });
+    res.json(success(tools));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
@@ -95,34 +91,26 @@ router.get('/:name', async (req: Request, res: Response) => {
   try {
     const skill = skillsService.getSkill(req.params.name);
     if (!skill) {
-      return res.status(404).json({ error: '技能不存在' });
+      return res.status(404).json(error('RES_NOT_FOUND', '技能不存在'));
     }
-    res.json({
-      success: true,
-      data: {
-        name: skill.name,
-        displayName: skill.displayName,
-        description: skill.description,
-        category: skill.category,
-        parameters: skill.parameters
-      }
-    });
-  } catch (error: any) {
-    console.error('[Skills] Get skill error:', error);
-    res.status(500).json({ error: error.message });
+    res.json(success({
+      name: skill.name,
+      displayName: skill.displayName,
+      description: skill.description,
+      category: skill.category,
+      parameters: skill.parameters
+    }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 /**
  * POST /:name/execute - 执行技能
  */
-router.post('/:name/execute', async (req: Request, res: Response) => {
+router.post('/:name/execute', requirePermission('ai:view'), async (req: Request, res: Response) => {
   try {
     const { params, context } = req.body;
-    console.log(`\n\n[Route Debug] Skill Execution Request:`);
-    console.log(`[Route Debug] Skill Name: ${req.params.name}`);
-    console.log(`[Route Debug] Params:`, JSON.stringify(params, null, 2));
-
     const userId = (req as any).user?.id || 'system';
 
     const skillContext: SkillContext = {
@@ -135,19 +123,62 @@ router.post('/:name/execute', async (req: Request, res: Response) => {
     const result = await skillsService.executeSkill(req.params.name, params || {}, skillContext);
     const executionTime = Date.now() - startTime;
 
-    console.log(`[Route Debug] Execution Time: ${executionTime}ms`);
-    console.log(`[Route Debug] Result Success: ${result?.success}\n\n`);
+    res.json(success({ result, executionTime }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
 
-    res.json({
-      success: true,
-      data: {
-        result,
-        executionTime
-      }
-    });
-  } catch (error: any) {
-    console.error('[Skills] Execute skill error:', error);
-    res.status(500).json({ error: error.message });
+/**
+ * POST /execute - 执行技能（兼容旧路由，技能名在 body 中）
+ */
+router.post('/execute', requirePermission('ai:view'), async (req: Request, res: Response) => {
+  try {
+    const { skill, params } = req.body;
+    if (!skill) {
+      return res.status(400).json(error('VALID_PARAM_MISSING', '请指定技能名称'));
+    }
+
+    const userId = (req as any).user?.id || 'system';
+    const skillContext: SkillContext = {
+      userId,
+      workDir: process.cwd()
+    };
+
+    const result = await skillsService.executeSkill(skill, params || {}, skillContext);
+    res.json(success(result));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
+
+/**
+ * POST /batch - 批量执行技能
+ */
+router.post('/batch', requirePermission('ai:view'), async (req: Request, res: Response) => {
+  try {
+    const { tasks } = req.body;
+    if (!tasks || !Array.isArray(tasks)) {
+      return res.status(400).json(error('VALID_PARAM_MISSING', '请提供任务列表'));
+    }
+
+    const userId = (req as any).user?.id || 'system';
+    const results: any[] = [];
+
+    for (const task of tasks) {
+      const { skill, params } = task;
+      const skillContext: SkillContext = { userId, workDir: process.cwd() };
+      const result = await skillsService.executeSkill(skill, params || {}, skillContext);
+      results.push({ skill, ...result });
+    }
+
+    res.json(success({
+      results,
+      total: results.length,
+      succeeded: results.filter((r: any) => r.success).length
+    }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 

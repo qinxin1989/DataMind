@@ -4,259 +4,205 @@
 
 import { Router, Request, Response } from 'express';
 import { notificationService } from './service';
+import { requirePermission } from '../../../src/admin/middleware/permission';
+import { success, error } from '../../../src/admin/utils/response';
 import type { NotificationQueryParams, CreateNotificationDto, BroadcastNotificationDto } from './types';
 
 const router = Router();
 
+// 从请求中获取当前用户 ID
+function getCurrentUserId(req: Request): string {
+  return (req as any).user?.id || 'anonymous';
+}
+
 // ==================== 通知查询 ====================
 
 /**
- * 获取通知列表
- * GET /api/notifications
+ * GET / - 获取当前用户通知列表
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePermission('notification:view'), async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id || req.query.userId as string;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
+    const userId = getCurrentUserId(req);
     const params: NotificationQueryParams = {
       userId,
       type: req.query.type as any,
-      read: req.query.read === 'true' ? true : req.query.read === 'false' ? false : undefined,
+      read: req.query.read !== undefined ? req.query.read === 'true' : undefined,
       page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 10,
+      pageSize: parseInt(req.query.pageSize as string) || 20,
     };
 
     const result = await notificationService.getNotifications(params);
-    res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.json(success(result));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 /**
- * 获取通知详情
- * GET /api/notifications/:id
+ * GET /unread-count - 获取未读数量
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/unread-count', requirePermission('notification:view'), async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id || req.query.userId as string;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
+    const userId = getCurrentUserId(req);
+    const count = await notificationService.getUnreadCount(userId);
+    res.json(success({ count }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
 
+/**
+ * GET /unread-count-by-type - 获取按类型分组的未读数量
+ */
+router.get('/unread-count-by-type', requirePermission('notification:view'), async (req: Request, res: Response) => {
+  try {
+    const userId = getCurrentUserId(req);
+    const counts = await notificationService.getUnreadCountByType(userId);
+    res.json(success(counts));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
+
+/**
+ * GET /:id - 获取单个通知
+ */
+router.get('/:id', requirePermission('notification:view'), async (req: Request, res: Response) => {
+  try {
+    const userId = getCurrentUserId(req);
     const notification = await notificationService.getNotificationById(userId, req.params.id);
     if (!notification) {
-      return res.status(404).json({ error: '通知不存在' });
+      return res.status(404).json(error('RES_NOT_FOUND', '通知不存在'));
     }
-
-    res.json(notification);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * 获取未读数量
- * GET /api/notifications/unread-count
- */
-router.get('/stats/unread-count', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user?.id || req.query.userId as string;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
-    const count = await notificationService.getUnreadCount(userId);
-    res.json({ count });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * 获取按类型分组的未读数量
- * GET /api/notifications/unread-count-by-type
- */
-router.get('/stats/unread-count-by-type', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user?.id || req.query.userId as string;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
-    const counts = await notificationService.getUnreadCountByType(userId);
-    res.json(counts);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.json(success(notification));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 // ==================== 通知创建 ====================
 
 /**
- * 创建通知
- * POST /api/notifications
+ * POST / - 创建通知（管理员）
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requirePermission('notification:create'), async (req: Request, res: Response) => {
   try {
-    const data: CreateNotificationDto = req.body;
-    
-    if (!data.userId || !data.type || !data.title || !data.content) {
-      return res.status(400).json({ error: '缺少必需字段' });
+    const { userId, type, title, content, link } = req.body;
+
+    if (!userId || !type || !title || !content) {
+      return res.status(400).json(error('VALID_PARAM_MISSING', '缺少必要参数'));
     }
 
-    const notification = await notificationService.createNotification(data);
-    res.status(201).json(notification);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const notification = await notificationService.createNotification({
+      userId,
+      type,
+      title,
+      content,
+      link,
+    });
+
+    res.status(201).json(success(notification));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 /**
- * 批量发送通知
- * POST /api/notifications/broadcast
+ * POST /broadcast - 广播通知（管理员）
  */
-router.post('/broadcast', async (req: Request, res: Response) => {
+router.post('/broadcast', requirePermission('notification:create'), async (req: Request, res: Response) => {
   try {
-    const data: BroadcastNotificationDto = req.body;
-    
-    if (!data.userIds || !Array.isArray(data.userIds) || data.userIds.length === 0) {
-      return res.status(400).json({ error: '用户ID列表不能为空' });
-    }
-    if (!data.type || !data.title || !data.content) {
-      return res.status(400).json({ error: '缺少必需字段' });
+    const { userIds, type, title, content, link } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || !type || !title || !content) {
+      return res.status(400).json(error('VALID_PARAM_MISSING', '缺少必要参数'));
     }
 
-    const notifications = await notificationService.createBroadcast(data);
-    res.status(201).json({ count: notifications.length, notifications });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const notifications = await notificationService.createBroadcast({ userIds, type, title, content, link });
+    res.status(201).json(success({ count: notifications.length }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 // ==================== 已读状态管理 ====================
 
 /**
- * 标记为已读
- * POST /api/notifications/:id/read
+ * PUT /:id/read - 标记为已读
  */
-router.post('/:id/read', async (req: Request, res: Response) => {
+router.put('/:id/read', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id || req.body.userId;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
+    const userId = getCurrentUserId(req);
     const notification = await notificationService.markAsRead(userId, req.params.id);
-    res.json(notification);
-  } catch (error: any) {
-    if (error.message === '通知不存在') {
-      return res.status(404).json({ error: error.message });
+    res.json(success(notification));
+  } catch (err: any) {
+    if (err.message.includes('不存在')) {
+      return res.status(404).json(error('RES_NOT_FOUND', err.message));
     }
-    res.status(500).json({ error: error.message });
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 /**
- * 全部标记为已读
- * POST /api/notifications/read-all
+ * PUT /read-all - 全部标记为已读
  */
-router.post('/actions/read-all', async (req: Request, res: Response) => {
+router.put('/read-all', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id || req.body.userId;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
+    const userId = getCurrentUserId(req);
     const count = await notificationService.markAllAsRead(userId);
-    res.json({ count });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.json(success({ count }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 /**
- * 批量标记为已读
- * POST /api/notifications/read-multiple
+ * PUT /read-multiple - 批量标记为已读
  */
-router.post('/actions/read-multiple', async (req: Request, res: Response) => {
+router.put('/read-multiple', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id || req.body.userId;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
+    const userId = getCurrentUserId(req);
     const { ids } = req.body;
+
     if (!ids || !Array.isArray(ids)) {
-      return res.status(400).json({ error: 'ids必须是数组' });
+      return res.status(400).json(error('VALID_PARAM_MISSING', '缺少 ids 参数'));
     }
 
     const count = await notificationService.markMultipleAsRead(userId, ids);
-    res.json({ count });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.json(success({ count }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 // ==================== 通知删除 ====================
 
 /**
- * 删除通知
- * DELETE /api/notifications/:id
+ * DELETE /:id - 删除通知
  */
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id || req.query.userId as string;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
+    const userId = getCurrentUserId(req);
     await notificationService.deleteNotification(userId, req.params.id);
-    res.status(204).send();
-  } catch (error: any) {
-    if (error.message === '通知不存在') {
-      return res.status(404).json({ error: error.message });
+    res.json(success({ message: '删除成功' }));
+  } catch (err: any) {
+    if (err.message.includes('不存在')) {
+      return res.status(404).json(error('RES_NOT_FOUND', err.message));
     }
-    res.status(500).json({ error: error.message });
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 
 /**
- * 删除所有已读通知
- * DELETE /api/notifications/read
+ * DELETE /read - 删除所有已读通知
  */
-router.delete('/actions/delete-read', async (req: Request, res: Response) => {
+router.delete('/read', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id || req.query.userId as string;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
+    const userId = getCurrentUserId(req);
     const count = await notificationService.deleteAllRead(userId);
-    res.json({ count });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * 删除所有通知
- * DELETE /api/notifications/all
- */
-router.delete('/actions/delete-all', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user?.id || req.query.userId as string;
-    if (!userId) {
-      return res.status(401).json({ error: '未授权' });
-    }
-
-    const count = await notificationService.deleteAll(userId);
-    res.json({ count });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.json(success({ count }));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
 

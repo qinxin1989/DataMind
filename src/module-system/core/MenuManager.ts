@@ -47,8 +47,7 @@ export class MenuManager {
           );
 
           if (existing.length === 0) {
-            // 仅在菜单不存在时插入新菜单
-            // 如果菜单已存在，保留用户的自定义配置，不进行更新
+            // 菜单不存在，插入新菜单
             await query(
               `INSERT INTO sys_menus 
                (id, title, path, icon, parent_id, sort_order, permission_code, 
@@ -66,8 +65,26 @@ export class MenuManager {
               ],
               conn
             );
+          } else {
+            // 菜单已存在，同步结构性字段（parent_id, sort_order, path, icon）
+            // 确保菜单层级和导航始终与 module.json 定义一致
+            await query(
+              `UPDATE sys_menus 
+               SET parent_id = ?, sort_order = ?, path = ?, icon = ?, 
+                   permission_code = ?, module_name = ?, updated_at = NOW()
+               WHERE id = ?`,
+              [
+                menu.parentId || null,
+                menu.sortOrder,
+                menu.path,
+                menu.icon || null,
+                menu.permission || null,
+                moduleName,
+                menu.id
+              ],
+              conn
+            );
           }
-          // 如果菜单已存在，跳过更新，保留现有配置
         }
       });
 

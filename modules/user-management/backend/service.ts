@@ -21,8 +21,17 @@ export class UserService {
 
   validatePassword(password: string): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
-    if (password.length < 6) {
-      errors.push('密码长度至少 6 位');
+    if (password.length < 8) {
+      errors.push('密码长度至少 8 位');
+    }
+    if (!/[A-Z]/.test(password)) {
+      errors.push('密码必须包含至少一个大写字母');
+    }
+    if (!/[a-z]/.test(password)) {
+      errors.push('密码必须包含至少一个小写字母');
+    }
+    if (!/[0-9]/.test(password)) {
+      errors.push('密码必须包含至少一个数字');
     }
     return { valid: errors.length === 0, errors };
   }
@@ -226,6 +235,23 @@ export class UserService {
       'UPDATE sys_users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?',
       [ip, id]
     );
+  }
+
+  // ==================== 统计信息 ====================
+
+  async getStats(): Promise<any> {
+    const [totalRows] = await pool.execute('SELECT COUNT(*) as total FROM sys_users');
+    const [activeRows] = await pool.execute('SELECT COUNT(*) as active FROM sys_users WHERE status = "active"');
+    const [inactiveRows] = await pool.execute('SELECT COUNT(*) as inactive FROM sys_users WHERE status = "inactive"');
+    const [pendingRows] = await pool.execute('SELECT COUNT(*) as pending FROM sys_users WHERE status = "pending"');
+    
+    return {
+      total: (totalRows as any)[0].total,
+      active: (activeRows as any)[0].active,
+      inactive: (inactiveRows as any)[0].inactive,
+      pending: (pendingRows as any)[0].pending,
+      lastUpdated: new Date().toISOString()
+    };
   }
 
   // ==================== 测试辅助 ====================

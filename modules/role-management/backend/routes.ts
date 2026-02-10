@@ -4,31 +4,18 @@
 
 import { Router, Request, Response } from 'express';
 import { roleService } from './service';
+import { requirePermission } from '../../../src/admin/middleware/permission';
+import { success, error } from '../../../src/admin/utils/response';
 
 const router = Router();
-
-interface ApiResponse<T = any> {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string };
-  timestamp: number;
-}
-
-function success<T>(data: T): ApiResponse<T> {
-  return { success: true, data, timestamp: Date.now() };
-}
-
-function error(code: string, message: string): ApiResponse {
-  return { success: false, error: { code, message }, timestamp: Date.now() };
-}
 
 /**
  * GET /roles - 获取角色列表
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePermission('role:view'), async (req: Request, res: Response) => {
   try {
     const { keyword, status, page, pageSize } = req.query;
-    
+
     // 如果有分页参数，使用分页查询
     if (page || pageSize) {
       const result = await roleService.queryRoles({
@@ -39,7 +26,7 @@ router.get('/', async (req: Request, res: Response) => {
       });
       return res.json(success(result));
     }
-    
+
     // 否则返回所有角色
     const roles = await roleService.getAllRoles();
     res.json(success(roles));
@@ -51,7 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
 /**
  * GET /roles/:id - 获取角色详情
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePermission('role:view'), async (req: Request, res: Response) => {
   try {
     const role = await roleService.getRoleById(req.params.id);
     if (!role) {
@@ -66,14 +53,14 @@ router.get('/:id', async (req: Request, res: Response) => {
 /**
  * POST /roles - 创建角色
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requirePermission('role:create'), async (req: Request, res: Response) => {
   try {
     const { name, code, description, permissionCodes, menuIds, status } = req.body;
-    
+
     if (!name || !code) {
       return res.status(400).json(error('VALID_PARAM_MISSING', '角色名称和编码不能为空'));
     }
-    
+
     const role = await roleService.createRole({
       name,
       code,
@@ -82,7 +69,7 @@ router.post('/', async (req: Request, res: Response) => {
       menuIds: menuIds || [],
       status: status || 'active',
     });
-    
+
     res.status(201).json(success(role));
   } catch (err: any) {
     if (err.message.includes('已存在')) {
@@ -95,10 +82,10 @@ router.post('/', async (req: Request, res: Response) => {
 /**
  * PUT /roles/:id - 更新角色
  */
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', requirePermission('role:update'), async (req: Request, res: Response) => {
   try {
     const { name, description, permissionCodes, menuIds, status } = req.body;
-    
+
     const role = await roleService.updateRole(req.params.id, {
       name,
       description,
@@ -106,7 +93,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       menuIds,
       status,
     });
-    
+
     res.json(success(role));
   } catch (err: any) {
     if (err.message.includes('不存在')) {
@@ -122,7 +109,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 /**
  * DELETE /roles/:id - 删除角色
  */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requirePermission('role:delete'), async (req: Request, res: Response) => {
   try {
     await roleService.deleteRole(req.params.id);
     res.json(success({ message: '删除成功' }));
@@ -143,14 +130,14 @@ router.delete('/:id', async (req: Request, res: Response) => {
 /**
  * POST /roles/batch/delete - 批量删除角色
  */
-router.post('/batch/delete', async (req: Request, res: Response) => {
+router.post('/batch/delete', requirePermission('role:delete'), async (req: Request, res: Response) => {
   try {
     const { ids } = req.body;
-    
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json(error('VALID_PARAM_MISSING', '请选择要删除的角色'));
     }
-    
+
     await roleService.batchDeleteRoles(ids);
     res.json(success({ message: `成功删除 ${ids.length} 个角色` }));
   } catch (err: any) {

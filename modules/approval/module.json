@@ -1,0 +1,32 @@
+{
+    "name": "approval",
+    "displayName": "审批管理",
+    "version": "1.0.0",
+    "description": "管理系统内的各类流程审批申请",
+    "icon": "AuditOutlined",
+    "order": 80,
+    "status": "enabled",
+    "backend": {
+        "entry": "backend/index.ts",
+        "prefix": "/approval"
+    },
+    "permissions": [
+        {
+            "code": "datasource:approve",
+            "name": "数据源审批",
+            "description": "允许审核数据源注册申请",
+            "type": "menu"
+        }
+    ],
+    "menus": [
+        {
+            "id": "approval",
+            "title": "审批管理",
+            "icon": "AuditOutlined",
+            "path": "/datasource/approval",
+            "permission": "datasource:approve",
+            "parentId": "ops-management",
+            "sortOrder": 1
+        }
+    ]
+}

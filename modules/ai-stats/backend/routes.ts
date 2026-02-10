@@ -5,19 +5,9 @@
 import { Router, Request, Response } from 'express';
 import { aiStatsService } from './service';
 import { requirePermission } from '../../../src/admin/middleware/permission';
-import type { ApiResponse } from '../../../src/admin/types';
+import { success, error } from '../../../src/admin/utils/response';
 
 const router = Router();
-
-/** 成功响应 */
-function success<T>(data: T): ApiResponse<T> {
-  return { success: true, data, timestamp: Date.now() };
-}
-
-/** 错误响应 */
-function error(code: string, message: string): ApiResponse {
-  return { success: false, error: { code, message }, timestamp: Date.now() };
-}
 
 // ==================== AI 使用统计 ====================
 

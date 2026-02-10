@@ -154,6 +154,7 @@ export interface PaginationParams {
 // 分页响应
 export interface PaginatedResponse<T> {
   list: T[]
+  items?: T[]
   total: number
   page: number
   pageSize: number

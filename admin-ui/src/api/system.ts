@@ -1,4 +1,4 @@
-import { get, post, put } from './request'
+import { get, post, put, del } from './request'
 import type { SystemConfig, AuditLog, PaginatedResponse } from '@/types'
 
 export interface SystemStatus {
@@ -59,14 +59,22 @@ export const systemApi = {
     get<string>('/admin/audit/export', { params }),
 
   // 创建备份
-  createBackup: () =>
-    post<{ filename: string }>('/admin/system/backup'),
+  createBackup: (data?: { name: string; description?: string }) =>
+    post<{ id: string; name: string }>('/admin/system/backups', data || { name: `Backup-${new Date().toISOString()}` }),
 
   // 获取备份列表
   getBackups: () =>
-    get<{ filename: string; size: number; createdAt: number }[]>('/admin/system/backups'),
+    get<{ items: any[]; total: number }>('/admin/system/backups'),
 
   // 恢复备份
-  restoreBackup: (filename: string) =>
-    post('/admin/system/restore', { filename }),
+  restoreBackup: (id: string) =>
+    post<{ success: boolean }>(`/admin/system/backups/${id}/restore`),
+
+  // 下载备份
+  downloadBackup: (id: string) =>
+    get<Blob>(`/admin/system/backups/${id}/download`, { responseType: 'blob' }),
+
+  // 删除备份
+  deleteBackup: (id: string) =>
+    del<void>(`/admin/system/backups/${id}`),
 }

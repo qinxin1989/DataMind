@@ -7,9 +7,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { PoolConnection } from 'mysql2/promise';
 import { createDataSource, BaseDataSource } from '../../../src/datasource';
 import { AIAgent, skillsRegistry, mcpRegistry, AgentResponse } from '../../../src/agent';
-import { RAGEngine } from '../../../src/rag';
+import { RAGEngine } from '../../rag-service/backend/ragEngine';
 import { ConfigStore, ChatSession, ChatMessage, SchemaAnalysis } from '../../../src/store/configStore';
 import { dataMasking } from '../../../src/services/dataMasking';
+import { dataSourceManager } from '../../datasource-management/backend/manager';
+import { ragManager } from '../../rag-service/backend/manager';
 import type {
   DataSourceConfig,
   TableSchema,
@@ -35,17 +37,15 @@ interface DataSourceInstance {
 }
 
 export class AIQAService {
-  private dataSources: Map<string, DataSourceInstance> = new Map();
-  private ragEngines: Map<string, RAGEngine> = new Map();
+  private configStore: ConfigStore;
+  private aiAgent: AIAgent | null = null;
   private tasks: Map<string, ArticleTask> = new Map();
   private activeTaskCount = 0;
   private waitingQueue: string[] = [];
   private readonly MAX_CONCURRENT_TASKS = 2;
   private readonly MAX_STORED_TASKS = 50;
-  private configStore: ConfigStore;
-  private aiAgent: AIAgent | null = null;
 
-  constructor(private db: PoolConnection) {
+  constructor(private db: any) {
     this.configStore = new ConfigStore();
   }
 
@@ -56,11 +56,8 @@ export class AIQAService {
     await this.configStore.init();
     await this.configStore.initChatTable();
     await this.configStore.initSchemaAnalysisTable();
-    await this.initKnowledgeCategoriesTable();
-    await this.initKnowledgeDocumentsTable();
     await this.initKnowledgeChunksTable();
     await this.initAIAgent();
-    await this.loadDataSources();
   }
 
   // ==================== 数据库表初始化 ====================
@@ -156,24 +153,36 @@ export class AIQAService {
 
   private async initAIAgent(): Promise<void> {
     try {
-      const { aiConfigService } = await import('../../ai-config/backend/service');
-      const defaultProvider = await aiConfigService.getDefaultConfig();
-      if (defaultProvider) {
-        this.aiAgent = new AIAgent(
-          defaultProvider.apiKey,
-          defaultProvider.baseUrl,
-          defaultProvider.model
-        );
-        return;
-      }
-    } catch (error) {
-      // ai-config module not available, use env vars
+      const { AIConfigService } = await import('../../ai-config/backend/service');
+      const aiConfigService = new AIConfigService(this.db);
+
+      this.aiAgent = new AIAgent();
+      this.aiAgent.setConfigGetter(async () => {
+        try {
+          const configs = await aiConfigService.getActiveConfigsByPriority();
+          if (!configs || configs.length === 0) {
+            console.warn('[AIQAService] 没有可用的激活 AI 配置');
+            return [];
+          }
+          return configs.map(c => ({
+            apiKey: c.apiKey,
+            baseURL: c.baseUrl,
+            model: c.model,
+            name: c.name
+          }));
+        } catch (err: any) {
+          console.error('[AIQAService] 获取 AI 配置失败:', err.message);
+          return [];
+        }
+      });
+      console.log('[AIQAService] AIAgent 已配置为动态获取配置模式');
+    } catch (error: any) {
+      console.warn('[AIQAService] AIConfigService 不可用，降级到环境变量:', error.message);
+      const apiKey = process.env.SILICONFLOW_API_KEY || process.env.QWEN_API_KEY || process.env.OPENAI_API_KEY || '';
+      const baseURL = process.env.SILICONFLOW_BASE_URL || process.env.QWEN_BASE_URL || process.env.OPENAI_BASE_URL;
+      const model = process.env.SILICONFLOW_API_KEY ? 'Qwen/Qwen3-32B' : process.env.QWEN_API_KEY ? 'qwen-plus' : 'gpt-4o';
+      this.aiAgent = new AIAgent(apiKey, baseURL, model);
     }
-    
-    const apiKey = process.env.SILICONFLOW_API_KEY || process.env.QWEN_API_KEY || process.env.OPENAI_API_KEY || '';
-    const baseURL = process.env.SILICONFLOW_BASE_URL || process.env.QWEN_BASE_URL || process.env.OPENAI_BASE_URL;
-    const model = process.env.SILICONFLOW_API_KEY ? 'Qwen/Qwen3-32B' : process.env.QWEN_API_KEY ? 'qwen-plus' : 'gpt-4o';
-    this.aiAgent = new AIAgent(apiKey, baseURL, model);
   }
 
   async reloadAIAgent(): Promise<void> {
@@ -186,33 +195,23 @@ export class AIQAService {
 
   async reloadRAGEngine(userId?: string): Promise<void> {
     if (userId) {
-      this.ragEngines.delete(userId);
+      ragManager.remove(userId);
       await this.getRAGEngine(userId);
     } else {
-      this.ragEngines.clear();
-    }
-  }
-
-  private async loadDataSources(): Promise<void> {
-    const configs = await this.configStore.getAll();
-    for (const config of configs) {
-      try {
-        const instance = createDataSource(config);
-        this.dataSources.set(config.id, { config, instance, name: config.name });
-      } catch (e: any) {
-        console.error(`Failed to load datasource ${config.name}:`, e.message);
-      }
+      ragManager.clear();
     }
   }
 
   getAIAgent(): AIAgent {
     if (!this.aiAgent) {
-      throw new Error('AI Agent not initialized');
+      // 这里的兜底是为了防止 getAIAgent 在 init 完成前被调用
+      this.aiAgent = new AIAgent();
+      this.initAIAgent().catch(err => console.error('[AIQAService] 异步初始化 AIAgent 失败:', err));
     }
     return this.aiAgent;
   }
 
-  private canAccessDataSource(ds: DataSourceInstance, userId: string): boolean {
+  private canAccessDataSource(ds: { config: DataSourceConfig }, userId: string): boolean {
     if (ds.config.userId === userId) return true;
     if (ds.config.visibility === 'public' && ds.config.approvalStatus === 'approved') return true;
     if (!ds.config.userId) return true;
@@ -230,7 +229,7 @@ export class AIQAService {
       const categories = await Promise.all(rows.map(async (cat: any) => {
         let documentCount = 0;
         try {
-          const ragEngine = this.ragEngines.get(userId);
+          const ragEngine = ragManager.get(userId);
           if (ragEngine) {
             const knowledgeBase = ragEngine.getKnowledgeBase();
             const documents = knowledgeBase.getAllDocuments();
@@ -327,7 +326,7 @@ export class AIQAService {
     categoryId?: string;
     visibility?: string;
   }>> {
-    return Array.from(this.dataSources.entries())
+    return Array.from(dataSourceManager.entries())
       .filter(([, { config }]) => {
         if (config.userId === userId) return true;
         if (config.visibility === 'public' && config.approvalStatus === 'approved') return true;
@@ -345,7 +344,7 @@ export class AIQAService {
   }
 
   async getDataSourceDetail(id: string, userId: string): Promise<DataSourceConfig | null> {
-    const ds = this.dataSources.get(id);
+    const ds = dataSourceManager.get(id);
     if (!ds) return null;
     if (!this.canAccessDataSource(ds, userId)) return null;
     return ds.config;
@@ -353,37 +352,31 @@ export class AIQAService {
 
   async createDataSource(config: Omit<DataSourceConfig, 'id'>, userId: string): Promise<DataSourceConfig> {
     const fullConfig: DataSourceConfig = { ...config, id: uuidv4(), userId };
-    const instance = createDataSource(fullConfig);
-    await instance.testConnection();
+    await dataSourceManager.register(fullConfig);
     await this.configStore.save(fullConfig);
-    this.dataSources.set(fullConfig.id, { config: fullConfig, instance, name: fullConfig.name });
     return fullConfig;
   }
 
   async updateDataSource(id: string, updates: Partial<DataSourceConfig>, userId: string): Promise<DataSourceConfig> {
-    const ds = this.dataSources.get(id);
+    const ds = dataSourceManager.get(id);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
     const newConfig: DataSourceConfig = { ...ds.config, ...updates, id, userId: ds.config.userId || userId };
-    const instance = createDataSource(newConfig);
-    await instance.testConnection();
-    await ds.instance.disconnect();
+    await dataSourceManager.register(newConfig as any);
     await this.configStore.save(newConfig);
-    this.dataSources.set(id, { config: newConfig, instance, name: newConfig.name });
     return newConfig;
   }
 
   async deleteDataSource(id: string, userId: string): Promise<void> {
-    const ds = this.dataSources.get(id);
+    const ds = dataSourceManager.get(id);
     if (ds && !this.canAccessDataSource(ds, userId)) {
       throw new Error('Access denied');
     }
     if (ds) {
-      await ds.instance.disconnect();
+      await dataSourceManager.remove(id);
       await this.configStore.delete(id);
       await this.configStore.deleteSchemaAnalysis(id, userId);
-      this.dataSources.delete(id);
     }
   }
 
@@ -399,7 +392,7 @@ export class AIQAService {
   }
 
   async testExistingConnection(id: string, userId: string): Promise<{ success: boolean; error?: string }> {
-    const ds = this.dataSources.get(id);
+    const ds = dataSourceManager.get(id);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       return { success: false, error: 'Datasource not found or access denied' };
     }
@@ -414,7 +407,7 @@ export class AIQAService {
   // ==================== Schema 分析 ====================
 
   async getSchema(id: string, userId: string): Promise<TableSchema[]> {
-    const ds = this.dataSources.get(id);
+    const ds = dataSourceManager.get(id);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('数据源不存在或无权访问');
     }
@@ -436,7 +429,7 @@ export class AIQAService {
   }
 
   async analyzeSchema(id: string, userId: string, forceRefresh = false): Promise<SchemaAnalysis & { cached: boolean }> {
-    const ds = this.dataSources.get(id);
+    const ds = dataSourceManager.get(id);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -459,7 +452,7 @@ export class AIQAService {
   }
 
   async updateTableAnalysis(datasourceId: string, tableName: string, updates: { tableNameCn?: string; description?: string }, userId: string): Promise<boolean> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -467,7 +460,7 @@ export class AIQAService {
   }
 
   async updateColumnAnalysis(datasourceId: string, tableName: string, columnName: string, updates: { nameCn?: string; description?: string }, userId: string): Promise<boolean> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -475,7 +468,7 @@ export class AIQAService {
   }
 
   async updateSuggestedQuestions(datasourceId: string, questions: string[], userId: string): Promise<boolean> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -485,7 +478,7 @@ export class AIQAService {
   // ==================== AI 问答 ====================
 
   async ask(datasourceId: string, question: string, sessionId: string | undefined, userId: string): Promise<AskResponse> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -510,9 +503,9 @@ export class AIQAService {
     }
 
     // 查询 RAG 知识库获取相关上下文
+    const ragEngine = await this.getRAGEngine(userId);
     let ragContext: { used: boolean; sources?: string[]; context?: string } = { used: false };
     try {
-      const ragEngine = this.ragEngines.get(userId);
       if (ragEngine) {
         const ragResult = await ragEngine.retrieve(question, 3);
         if (ragResult.chunks.length > 0) {
@@ -579,7 +572,7 @@ export class AIQAService {
   }
 
   async executeQuery(datasourceId: string, sql: string, userId: string): Promise<QueryResult> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -597,7 +590,7 @@ export class AIQAService {
   // ==================== 会话管理 ====================
 
   async getChatSessions(datasourceId: string, userId: string): Promise<Array<{ id: string; preview: string; messageCount: number; createdAt: number }>> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -627,12 +620,12 @@ export class AIQAService {
   async executeSkill(skillName: string, datasourceId: string, params: Record<string, any>, userId: string): Promise<any> {
     const skill = skillsRegistry.get(skillName);
     if (!skill) throw new Error('Skill not found');
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
     const schemas = await ds.instance.getSchema();
-    return skill.execute(params, { dataSource: ds.instance, schemas, dbType: ds.config.type });
+    return skill.execute(params, { dataSource: ds.instance, schemas, dbType: ds.config.type as any });
   }
 
   getMCPTools(): MCPTool[] {
@@ -656,90 +649,73 @@ export class AIQAService {
   // ==================== 自动分析 ====================
 
   async autoAnalyze(datasourceId: string, topic: string, userId: string, onProgress?: (step: any) => void): Promise<any> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
-    return this.getAIAgent().autoAnalyze(topic, ds.instance, ds.config.type, onProgress);
+    return this.getAIAgent().autoAnalyze(topic, ds.instance, ds.config.type as any, onProgress);
   }
 
   async generateDashboard(datasourceId: string, topic: string, theme: 'light' | 'dark' | 'tech', userId: string): Promise<any> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
-    return this.getAIAgent().generateDashboard(topic, ds.instance, ds.config.type, theme);
+    return this.getAIAgent().generateDashboard(topic, ds.instance, ds.config.type as any, theme);
   }
 
   async inspectQuality(datasourceId: string, userId: string, tableNameCn?: string): Promise<{ reports: any[]; markdown: string }> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
-    return this.getAIAgent().inspectQuality(ds.instance, ds.config.type, tableNameCn);
+    return this.getAIAgent().inspectQuality(ds.instance, ds.config.type as any, tableNameCn);
   }
 
   // ==================== RAG 知识库 ====================
 
   private async getRAGEngine(userId: string): Promise<RAGEngine> {
-    if (!this.ragEngines.has(userId)) {
+    const engine = ragManager.get(userId);
+    if (!engine) {
       let activeConfigs: any[] = [];
       try {
-        const { aiConfigService } = await import('../../ai-config/backend/service');
+        const { AIConfigService } = await import('../../ai-config/backend/service');
+        const aiConfigService = new AIConfigService(this.db);
         activeConfigs = await aiConfigService.getActiveConfigsByPriority();
       } catch (error) {
         // ai-config module not available
       }
-      
-      let embeddingConfigs: { apiKey: string; baseURL?: string; model: string; provider?: string }[];
-      let apiKey: string;
-      let baseURL: string | undefined;
-      let model: string;
 
-      if (activeConfigs && activeConfigs.length > 0) {
-        const embeddingModels = activeConfigs.map(config => {
-          let embeddingModel = config.embeddingModel || 'text-embedding-ada-002';
-          if (!config.embeddingModel) {
-            if (config.provider === 'qwen' || config.name?.toLowerCase().includes('qwen') || config.model?.toLowerCase().includes('qwen')) {
-              embeddingModel = 'text-embedding-v2';
-            } else if (config.provider === 'siliconflow') {
-              embeddingModel = 'BAAI/bge-large-zh-v1.5';
-            }
-          }
-          return {
-            apiKey: config.apiKey || '',
-            baseURL: config.baseUrl,
-            model: embeddingModel,
-            provider: config.provider
-          };
-        });
-        embeddingConfigs = embeddingModels;
-        const firstConfig = activeConfigs[0];
-        apiKey = firstConfig.apiKey || '';
-        baseURL = firstConfig.baseUrl;
-        model = firstConfig.model;
-      } else {
-        apiKey = process.env.SILICONFLOW_API_KEY || process.env.QWEN_API_KEY || process.env.OPENAI_API_KEY || '';
-        baseURL = process.env.SILICONFLOW_BASE_URL || process.env.QWEN_BASE_URL || process.env.OPENAI_BASE_URL;
-        model = process.env.SILICONFLOW_API_KEY ? 'Qwen/Qwen3-32B' : process.env.QWEN_API_KEY ? 'qwen-plus' : 'gpt-4o';
-        embeddingConfigs = [{
-          apiKey,
-          baseURL,
-          model: process.env.QWEN_API_KEY ? 'text-embedding-v2' : 'text-embedding-ada-002',
-          provider: 'env'
-        }];
+      const ragEngine = await ragManager.getOrCreate(userId, activeConfigs, this.db);
+      if (!ragEngine) {
+        throw new Error('无法初始化 RAG 引擎：缺少配置');
       }
-
-      const ragEngine = new RAGEngine(embeddingConfigs, baseURL, model, undefined, userId, this.db as any);
-      await ragEngine.loadFromDatabase();
-      this.ragEngines.set(userId, ragEngine);
+      return ragEngine;
     }
-    return this.ragEngines.get(userId)!;
+    return engine;
+  }
+
+  async searchKnowledge(query: string, userId: string): Promise<KnowledgeDocument[]> {
+    const ragEngine = await this.getRAGEngine(userId);
+    const results = await ragEngine.retrieve(query, 5);
+    return results.chunks.map(c => ({
+      id: c.chunk.id,
+      title: (c.chunk.metadata as any)?.title || '知识片段',
+      type: 'chunk',
+      content: c.chunk.content,
+      chunks: 0
+    }));
   }
 
   async getRAGStats(userId: string): Promise<RAGStats> {
     const ragEngine = await this.getRAGEngine(userId);
-    return ragEngine.getStats();
+    const stats = ragEngine.getStats();
+    return {
+      totalDocuments: stats.documents,
+      totalChunks: stats.chunks,
+      totalTokens: 0,
+      categories: []
+    } as any;
   }
 
   async getRAGDocuments(userId: string, page: number = 1, pageSize: number = 10, categoryId?: string, keyword?: string): Promise<{ items: RAGDocument[], total: number }> {
@@ -763,12 +739,12 @@ export class AIQAService {
       title: d.title,
       type: d.type,
       chunks: d.chunks?.length || 0,
-      createdAt: d.metadata?.createdAt,
-      updatedAt: d.metadata?.updatedAt,
-      tags: d.metadata?.tags,
-      categoryId: d.metadata?.categoryId,
-      datasourceId: d.metadata?.datasourceId,
-      datasourceName: d.metadata?.datasourceId ? this.dataSources.get(d.metadata.datasourceId)?.name : undefined
+      createdAt: (d.metadata as any)?.createdAt,
+      updatedAt: (d.metadata as any)?.updatedAt,
+      tags: (d.metadata as any)?.tags,
+      categoryId: (d.metadata as any)?.categoryId,
+      datasourceId: (d.metadata as any)?.datasourceId,
+      datasourceName: (d.metadata as any)?.datasourceId ? dataSourceManager.get((d.metadata as any).datasourceId)?.config.name : undefined
     }));
 
     return { items, total };
@@ -797,7 +773,10 @@ export class AIQAService {
     try {
       const ragEngine = await this.getRAGEngine(userId);
       const result = await ragEngine.addDocument(content, title, type as any, userId, { tags, categoryId, datasourceId });
-      return result;
+      return {
+        ...result,
+        chunks: result.chunks?.length || 0
+      };
     } catch (error: any) {
       throw new Error(`添加文档到知识库失败: ${error.message}`);
     }
@@ -812,7 +791,7 @@ export class AIQAService {
     const ragEngine = await this.getRAGEngine(userId);
     let dataContext;
     if (datasourceId) {
-      const ds = this.dataSources.get(datasourceId);
+      const ds = dataSourceManager.get(datasourceId);
       if (ds && this.canAccessDataSource(ds, userId)) {
         try {
           const response = await this.getAIAgent().answer(question, ds.instance, ds.config.type, []);
@@ -821,10 +800,17 @@ export class AIQAService {
       }
     }
     const result = await ragEngine.hybridAnswer(question, dataContext, categoryId, documentId);
+    const sources = result.sources.map(s => ({
+      id: (s as any).id,
+      title: s.title,
+      type: s.type,
+      relevance: (s as any).relevance || 1.0,
+      content: (s as any).content || ''
+    }));
     return {
       answer: result.answer,
       confidence: result.confidence,
-      sources: result.sources,
+      sources,
       dataContext: dataContext ? { sql: dataContext.sql, rowCount: dataContext.data?.length || 0 } : undefined,
     };
   }
@@ -841,12 +827,31 @@ export class AIQAService {
 
   async getKnowledgeGraph(userId: string): Promise<KnowledgeGraph> {
     const ragEngine = await this.getRAGEngine(userId);
-    const graph = ragEngine.getKnowledgeGraph();
-    const data = graph.export();
+    const graph = await ragEngine.getKnowledgeGraph() as any;
+
+    // 假设 graph.entities 和 graph.relations 是 Map 或 Array
+    const entities = graph.entities instanceof Map ? Array.from(graph.entities.values()) : graph.entities;
+    const relations = graph.relations instanceof Map ? Array.from(graph.relations.values()) : graph.relations;
+
     return {
-      entities: data.entities.map((e: any) => ({ id: e.id, name: e.name, nameCn: e.nameCn, type: e.type, description: e.description })),
-      relations: data.relations.map((r: any) => ({ id: r.id, source: r.sourceId, target: r.targetId, type: r.type, weight: r.weight })),
-      stats: graph.getStats(),
+      entities: (entities || []).map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        nameCn: e.nameCn,
+        type: e.type,
+        description: e.description
+      })),
+      relations: (relations || []).map((r: any) => ({
+        id: r.id,
+        source: r.sourceId || r.source,
+        target: r.targetId || r.target,
+        type: r.type,
+        weight: r.weight
+      })),
+      stats: {
+        entityCount: entities instanceof Map ? entities.size : (entities?.length || 0),
+        relationCount: relations instanceof Map ? relations.size : (relations?.length || 0)
+      }
     };
   }
 
@@ -866,7 +871,7 @@ export class AIQAService {
   }
 
   async importSchemaToRAG(datasourceId: string, userId: string): Promise<{ docId: string; chunksCount: number; datasourceName: string }> {
-    const ds = this.dataSources.get(datasourceId);
+    const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
     }
@@ -973,12 +978,16 @@ export class AIQAService {
 
   // ==================== 测试辅助 ====================
 
-  async clearAll(): Promise<void> {
+  async resetDatabase(): Promise<void> {
     await this.db.execute('DELETE FROM knowledge_categories');
     await this.db.execute('DELETE FROM knowledge_documents');
     await this.db.execute('DELETE FROM knowledge_chunks');
-    this.dataSources.clear();
-    this.ragEngines.clear();
+    ragManager.clear();
+    this.tasks.clear();
+  }
+
+  async cleanup() {
+    ragManager.clear();
     this.tasks.clear();
   }
 }

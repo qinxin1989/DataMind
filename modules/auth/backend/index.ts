@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import type { Pool } from 'mysql2/promise';
-import { AuthService } from './authService';
+import { AuthService } from '../../../src/services/authService';
 import { createAuthMiddleware, requireAdmin } from './middleware';
 
 export interface AuthModuleOptions {
@@ -146,5 +146,5 @@ export function initAuthModule(options: AuthModuleOptions) {
 
 // 导出所有类型和服务
 export * from './types';
-export { AuthService } from './authService';
+export { AuthService } from '../../../src/services/authService';
 export { createAuthMiddleware, requireAdmin } from './middleware';

@@ -3,18 +3,31 @@
  * 整合所有模块路由到 Express
  */
 
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
+import { pool } from './core/database';
 
-// 导入模块路由
-import userRoutes from './modules/user/routes';
-import roleRoutes from './modules/role/routes';
-import menuRoutes from './modules/menu/routes';
-import auditRoutes from './modules/audit/routes';
-import aiRoutes from './modules/ai/routes';
-import systemRoutes from './modules/system/routes';
-import notificationRoutes from './modules/notification/routes';
-import datasourceRoutes from './modules/datasource/routes';
-import aiQARoutes from './modules/ai-qa/routes';
+// 导入模块路由 — 静态 router
+import userRoutes from '../../modules/user-management/backend/routes';
+import roleRoutes from '../../modules/role-management/backend/routes';
+import menuRoutes from '../../modules/menu-management/backend/routes';
+import notificationRoutes from '../../modules/notification/backend/routes';
+import datasourceRoutes from '../../modules/datasource-management/backend/routes';
+import aiStatsRoutes from '../../modules/ai-stats/backend/routes';
+import aiCrawlerRoutes from '../../modules/ai-crawler-assistant/backend/routes';
+import monitoringRoutes from '../../modules/monitoring/backend/routes';
+
+// 导入模块路由 — 工厂模式
+import { initRoutes as initAuditRoutes } from '../../modules/audit-log/backend/routes';
+import { initRoutes as initAiConfigRoutes } from '../../modules/ai-config/backend/routes';
+import { initRoutes as initSystemConfigRoutes } from '../../modules/system-config/backend/routes';
+import { initRoutes as initSystemBackupRoutes } from '../../modules/system-backup/backend/routes';
+import { createRoutes as createAiQARoutes } from '../../modules/ai-qa/backend/routes';
+
+// 导入服务类
+import { AIConfigService } from '../../modules/ai-config/backend/service';
+import { AIQAService } from '../../modules/ai-qa/backend/service';
+
+// Dashboard 和文件工具
 import { createDashboardRoutes } from '../../modules/dashboard/backend/routes';
 import { DashboardService } from '../../modules/dashboard/backend/service';
 import { createFileToolsRoutes } from '../../modules/file-tools/backend/routes';
@@ -79,12 +92,18 @@ ocrRoutes = loadModuleRoutes('ocr-service', '../../modules/ocr-service/backend/r
 skillsRoutes = loadModuleRoutes('skills-service', '../../modules/skills-service/backend/routes');
 ragRoutes = loadModuleRoutes('rag-service', '../../modules/rag-service/backend/routes');
 
+// 创建服务单例
+const aiConfigServiceInstance = new AIConfigService(pool);
+const aiQAServiceInstance = new AIQAService(pool);
+
 // 导入核心服务
 export { moduleRegistry } from './core/moduleRegistry';
 export { permissionService } from './services/permissionService';
-export { aiQAService } from './modules/ai-qa/aiQAService';
+export const aiQAService = aiQAServiceInstance;
+export const aiConfigService = aiConfigServiceInstance;
 
 // 导入中间件
+import { requirePermission as _requirePermission } from './middleware/permission';
 export { requirePermission, requireAnyPermission, requireAllPermissions } from './middleware/permission';
 export { auditMiddleware } from './middleware/audit';
 
@@ -106,12 +125,20 @@ export function createAdminRouter(pool?: any): Router {
   router.use('/users', userRoutes);
   router.use('/roles', roleRoutes);
   router.use('/menus', menuRoutes);
-  router.use('/audit', auditRoutes);
-  router.use('/ai', aiRoutes);
-  router.use('/system', systemRoutes);
+  router.use('/audit', initAuditRoutes(pool));
+
+  // AI 路由（组合 ai-config + ai-stats + ai-crawler-assistant）
+  router.use('/ai', initAiConfigRoutes(aiConfigServiceInstance, _requirePermission));
+  router.use('/ai', aiStatsRoutes);
+  router.use('/ai', aiCrawlerRoutes);
+
+  // 系统路由（组合 system-config + system-backup）
+  router.use('/system', initSystemConfigRoutes(pool));
+  router.use('/system', initSystemBackupRoutes(pool));
+
   router.use('/notifications', notificationRoutes);
   router.use('/datasources', datasourceRoutes);
-  router.use('/ai-qa', aiQARoutes);
+  router.use('/ai-qa', createAiQARoutes(aiQAServiceInstance));
   router.use('/dashboards', createDashboardRoutes(dashboardService));
 
   // 注册业务模块路由

@@ -44,7 +44,13 @@
                 title="确定要恢复此备份吗？当前数据将被覆盖！"
                 @confirm="handleRestore(record)"
               >
-                <a-button type="link" size="small" danger>恢复</a-button>
+                <a-button type="link" size="small" style="color: #ff4d4f">恢复</a-button>
+              </a-popconfirm>
+              <a-popconfirm
+                title="确定要删除此备份吗？此操作不可逆！"
+                @confirm="handleDelete(record)"
+              >
+                <a-button type="link" size="small" danger>删除</a-button>
               </a-popconfirm>
             </a-space>
           </template>
@@ -61,9 +67,10 @@ import { CloudUploadOutlined } from '@ant-design/icons-vue'
 import { systemApi } from '@/api/system'
 
 interface BackupItem {
-  filename: string
-  size: number
-  createdAt: number
+  id: string
+  name: string
+  backupSize: number
+  createdAt: string
 }
 
 const loading = ref(false)
@@ -71,13 +78,14 @@ const creating = ref(false)
 const backups = ref<BackupItem[]>([])
 
 const columns = [
-  { title: '文件名', dataIndex: 'filename', key: 'filename' },
-  { title: '大小', key: 'size' },
+  { title: '文件名', dataIndex: 'name', key: 'name' },
+  { title: '大小', key: 'backupSize' },
   { title: '创建时间', key: 'createdAt' },
   { title: '操作', key: 'action', width: 150 },
 ]
 
 onMounted(() => {
+  console.log('Backup component mounted v2')
   fetchBackups()
 })
 
@@ -86,14 +94,12 @@ async function fetchBackups() {
   try {
     const res = await systemApi.getBackups()
     if (res.success && res.data) {
-      backups.value = res.data
+      // 后端返回分页结构 { items: [], total: ... }
+      backups.value = res.data.items || []
     }
   } catch (error) {
-    // 使用模拟数据
-    backups.value = [
-      { filename: 'backup-2026-01-13-120000.zip', size: 1048576, createdAt: Date.now() - 86400000 },
-      { filename: 'backup-2026-01-12-120000.zip', size: 1024000, createdAt: Date.now() - 172800000 },
-    ]
+    // 使用模拟数据 (Updated to match new structure)
+    backups.value = []
   } finally {
     loading.value = false
   }
@@ -104,7 +110,7 @@ async function handleCreateBackup() {
   try {
     const res = await systemApi.createBackup()
     if (res.success && res.data) {
-      message.success(`备份创建成功: ${res.data.filename}`)
+      message.success(`备份创建成功: ${res.data.name}`)
       fetchBackups()
     }
   } catch (error) {
@@ -116,27 +122,52 @@ async function handleCreateBackup() {
 
 async function handleRestore(record: BackupItem) {
   try {
-    await systemApi.restoreBackup(record.filename)
+    await systemApi.restoreBackup(record.id)
     message.success('恢复成功，请刷新页面')
   } catch (error) {
     message.error('恢复失败')
   }
 }
 
-function handleDownload(record: BackupItem) {
-  // 实际项目中应该调用下载API
-  message.info(`下载: ${record.filename}`)
+async function handleDelete(record: BackupItem) {
+  try {
+    await systemApi.deleteBackup(record.id)
+    message.success('删除成功')
+    fetchBackups()
+  } catch (error) {
+    message.error('删除失败')
+  }
+}
+
+async function handleDownload(record: BackupItem) {
+  try {
+    const blob = await systemApi.downloadBackup(record.id);
+    // 创建临时链接
+    const url = window.URL.createObjectURL(new Blob([blob as any]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', record.name); // 使用记录中的文件名
+    document.body.appendChild(link);
+    link.click();
+    
+    // 清理
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Download error:', error);
+    message.error('下载失败');
+  }
 }
 
 function formatBytes(bytes: number) {
-  if (bytes === 0) return '0 B'
+  if (!bytes || bytes === 0) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-function formatDate(timestamp: number) {
+function formatDate(timestamp: string | number) {
   return new Date(timestamp).toLocaleString()
 }
 </script>

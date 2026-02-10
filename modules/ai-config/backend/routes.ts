@@ -4,26 +4,16 @@
 
 import { Router, Request, Response } from 'express';
 import type { AIConfigService } from './service';
-import type { ApiResponse } from '../../../src/admin/types';
-
-const router = Router();
-
-/** 成功响应 */
-function success<T>(data: T): ApiResponse<T> {
-  return { success: true, data, timestamp: Date.now() };
-}
-
-/** 错误响应 */
-function error(code: string, message: string): ApiResponse {
-  return { success: false, error: { code, message }, timestamp: Date.now() };
-}
+import { success, error } from '../../../src/admin/utils/response';
 
 /**
  * 初始化路由
  */
 export function initRoutes(service: AIConfigService, requirePermission: any) {
+  const router = Router();
+
   /**
-   * GET /ai/configs - 获取所有 AI 配置
+   * GET /configs - 获取所有 AI 配置
    */
   router.get('/configs', requirePermission('ai:view'), async (req: Request, res: Response) => {
     try {
@@ -200,5 +190,3 @@ export function initRoutes(service: AIConfigService, requirePermission: any) {
 
   return router;
 }
-
-export default router;

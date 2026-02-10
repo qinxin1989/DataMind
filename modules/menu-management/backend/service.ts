@@ -4,6 +4,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../../../src/admin/core/database';
+import { permissionService } from '../../../src/admin/services/permissionService';
 import type { Menu, CreateMenuRequest, UpdateMenuRequest } from './types';
 
 export class MenuService {
@@ -34,10 +35,57 @@ export class MenuService {
    * 获取用户菜单树
    */
   async getUserMenuTree(userId: string): Promise<Menu[]> {
-    // 这里需要集成权限服务,暂时返回所有可见菜单
+    // 获取用户有权限的菜单ID
+    let allowedMenuIds = await permissionService.getUserMenuIds(userId);
+
+    // 检查用户是否是管理员（拥有所有权限）
+    const userPermissions = await permissionService.getUserPermissions(userId);
+    const isAdmin = userPermissions.includes('*');
+
     const menus = await this.getAllMenus();
-    const visibleMenus = menus.filter(m => m.visible);
-    return this.buildTree(visibleMenus);
+
+    // 如果是管理员，返回所有可见菜单
+    if (isAdmin) {
+      const visibleMenus = menus.filter(m => m.visible);
+      return this.buildTree(visibleMenus);
+    }
+
+    // 如果用户没有任何菜单权限，尝试获取"普通用户"角色的默认菜单
+    if (allowedMenuIds.length === 0) {
+      const defaultRoleMenus = await permissionService.getRoleMenus('00000000-0000-0000-0000-000000000003');
+      if (defaultRoleMenus.length > 0) {
+        allowedMenuIds = defaultRoleMenus;
+      }
+    }
+
+    // 如果还是没有菜单，返回基础菜单（仪表盘和AI服务）
+    if (allowedMenuIds.length === 0) {
+      const basicMenus = menus.filter(m =>
+        m.visible && (
+          m.path === '/workbench' ||
+          m.path?.startsWith('/ai/') ||
+          m.title === '工作台'
+        )
+      );
+      return this.buildTree(basicMenus);
+    }
+
+    // 普通用户只返回有权限的菜单
+    // 同时需要包含父菜单（即使父菜单不在权限列表中，也需要显示以保持树结构）
+    const menuMap = new Map(menus.map(m => [m.id, m]));
+    const visibleMenuIds = new Set<string>();
+
+    for (const menuId of allowedMenuIds) {
+      visibleMenuIds.add(menuId);
+      let currentMenu = menuMap.get(menuId);
+      while (currentMenu?.parentId) {
+        visibleMenuIds.add(currentMenu.parentId);
+        currentMenu = menuMap.get(currentMenu.parentId);
+      }
+    }
+
+    const filteredMenus = menus.filter(m => m.visible && visibleMenuIds.has(m.id));
+    return this.buildTree(filteredMenus);
   }
 
   /**
@@ -63,9 +111,39 @@ export class MenuService {
   }
 
   /**
+   * 获取菜单的层级深度
+   */
+  private async getMenuDepth(menuId: string): Promise<number> {
+    let depth = 0;
+    let currentId: string | undefined = menuId;
+
+    while (currentId) {
+      const menu = await this.getMenuById(currentId);
+      if (!menu) break;
+      depth++;
+      currentId = menu.parentId;
+
+      // 防止无限循环
+      if (depth > 10) {
+        throw new Error('菜单层级异常，可能存在循环引用');
+      }
+    }
+
+    return depth;
+  }
+
+  /**
    * 创建菜单
    */
   async createMenu(data: CreateMenuRequest): Promise<Menu> {
+    // 检查层级限制（最多3层）
+    if (data.parentId) {
+      const parentDepth = await this.getMenuDepth(data.parentId);
+      if (parentDepth >= 3) {
+        throw new Error('菜单层级不能超过3层');
+      }
+    }
+
     const id = uuidv4();
 
     await pool.execute(
@@ -135,8 +213,16 @@ export class MenuService {
       throw new Error('系统菜单不能删除');
     }
 
-    // 删除子菜单
-    await pool.execute('DELETE FROM sys_menus WHERE parent_id = ?', [id]);
+    // 检查是否有子菜单
+    const [childRows] = await pool.execute(
+      'SELECT COUNT(*) as count FROM sys_menus WHERE parent_id = ?',
+      [id]
+    );
+    const childCount = (childRows as any)[0].count;
+    if (childCount > 0) {
+      throw new Error('不能删除有子菜单的菜单，请先删除子菜单');
+    }
+
     await pool.execute('DELETE FROM sys_menus WHERE id = ?', [id]);
   }
 
@@ -214,7 +300,7 @@ export class MenuService {
       menuType,
       externalUrl: row.external_url,
       openMode,
-      moduleCode: row.module_code,
+      moduleCode: row.module_code || row.module_name,
       external: menuType !== 'internal',
       target: openMode === 'blank' ? '_blank' : '_self',
       createdAt: new Date(row.created_at).getTime(),

@@ -213,7 +213,7 @@ export class OfficialDocService {
     content += `日期：${date}\n\n`;
     content += `一、核心进展\n\n${points}\n\n`;
     content += `二、存在问题及建议\n\n`;
-    
+
     if (style === 'formal') {
       content += `针对上述工作进展，经分析研究，现提出以下建议：\n`;
       content += `1. 加强跨部门协作，提升工作效率\n`;
@@ -238,7 +238,7 @@ export class OfficialDocService {
     let content = `通知公告\n\n`;
     content += `各部门：\n\n`;
     content += `    关于${points}的通知要求如下：\n\n`;
-    
+
     if (style === 'formal') {
       content += `    一、请各部门高度重视，认真组织落实。\n`;
       content += `    二、严格按照要求执行，确保工作质量。\n`;
@@ -266,7 +266,7 @@ export class OfficialDocService {
     content += `主要内容：\n\n`;
     content += `${points}\n\n`;
     content += `会议共识：\n\n`;
-    
+
     if (style === 'formal') {
       content += `1. 明确了工作目标和任务分工\n`;
       content += `2. 确定了时间节点和责任主体\n`;
@@ -291,7 +291,7 @@ export class OfficialDocService {
     content += `制定日期：${date}\n\n`;
     content += `一、工作目标\n\n${points}\n\n`;
     content += `二、实施步骤\n\n`;
-    
+
     if (style === 'formal') {
       content += `（一）准备阶段\n`;
       content += `    完成前期调研和方案设计工作。\n\n`;
@@ -348,7 +348,7 @@ export class OfficialDocService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    await this.db.run(query, [
+    await this.db.execute(query, [
       newTemplate.id,
       newTemplate.userId || null,
       newTemplate.name,
@@ -358,8 +358,8 @@ export class OfficialDocService {
       newTemplate.isSystem ? 1 : 0,
       newTemplate.isPublic ? 1 : 0,
       newTemplate.description || null,
-      newTemplate.createdAt,
-      newTemplate.updatedAt
+      new Date(newTemplate.createdAt),
+      new Date(newTemplate.updatedAt)
     ]);
 
     return newTemplate;
@@ -395,7 +395,7 @@ export class OfficialDocService {
     values.push(id);
 
     const query = `UPDATE official_doc_templates SET ${fields.join(', ')} WHERE id = ?`;
-    await this.db.run(query, values);
+    await this.db.execute(query, values);
   }
 
   /**
@@ -403,7 +403,7 @@ export class OfficialDocService {
    */
   async deleteTemplate(id: string): Promise<void> {
     const query = 'DELETE FROM official_doc_templates WHERE id = ? AND is_system = 0';
-    await this.db.run(query, [id]);
+    await this.db.execute(query, [id]);
   }
 
   /**
@@ -411,11 +411,9 @@ export class OfficialDocService {
    */
   async getTemplate(id: string): Promise<OfficialDocTemplate | null> {
     const query = 'SELECT * FROM official_doc_templates WHERE id = ?';
-    const row = await this.db.get(query, [id]);
-
-    if (!row) return null;
-
-    return this.mapTemplateRow(row);
+    const [rows]: any = await this.db.execute(query, [id]);
+    if (!rows || rows.length === 0) return null;
+    return this.mapTemplateRow(rows[0]);
   }
 
   /**
@@ -450,8 +448,8 @@ export class OfficialDocService {
 
     // 获取总数
     const countQuery = `SELECT COUNT(*) as total FROM official_doc_templates ${whereClause}`;
-    const countResult = await this.db.get(countQuery, queryParams);
-    const total = countResult.total;
+    const [countRows]: any = await this.db.execute(countQuery, queryParams);
+    const total = countRows[0].total;
 
     // 获取数据
     const offset = (page - 1) * pageSize;
@@ -461,7 +459,7 @@ export class OfficialDocService {
       ORDER BY is_system DESC, created_at DESC
       LIMIT ? OFFSET ?
     `;
-    const rows = await this.db.all(dataQuery, [...queryParams, pageSize, offset]);
+    const [rows]: any = await this.db.execute(dataQuery, [...queryParams, pageSize, offset]);
 
     const items = rows.map((row: any) => this.mapTemplateRow(row));
 
@@ -483,7 +481,7 @@ export class OfficialDocService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    await this.db.run(query, [
+    await this.db.execute(query, [
       history.id,
       history.userId,
       history.templateId || null,
@@ -493,7 +491,7 @@ export class OfficialDocService {
       history.result,
       history.status,
       history.errorMessage || null,
-      history.createdAt
+      new Date(history.createdAt)
     ]);
   }
 
@@ -521,7 +519,7 @@ export class OfficialDocService {
 
     values.push(id);
     const query = `UPDATE official_doc_history SET ${fields.join(', ')} WHERE id = ?`;
-    await this.db.run(query, values);
+    await this.db.execute(query, values);
   }
 
   /**
@@ -552,8 +550,8 @@ export class OfficialDocService {
 
     // 获取总数
     const countQuery = `SELECT COUNT(*) as total FROM official_doc_history ${whereClause}`;
-    const countResult = await this.db.get(countQuery, queryParams);
-    const total = countResult.total;
+    const [countRows]: any = await this.db.execute(countQuery, queryParams);
+    const total = countRows[0].total;
 
     // 获取数据
     const offset = (page - 1) * pageSize;
@@ -563,7 +561,7 @@ export class OfficialDocService {
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
     `;
-    const rows = await this.db.all(dataQuery, [...queryParams, pageSize, offset]);
+    const [rows]: any = await this.db.execute(dataQuery, [...queryParams, pageSize, offset]);
 
     const items = rows.map((row: any) => this.mapHistoryRow(row));
 
@@ -588,13 +586,13 @@ export class OfficialDocService {
    */
   async cleanupExpiredHistory(): Promise<number> {
     const expiryTime = Date.now() - (this.config.maxHistoryDays * 24 * 60 * 60 * 1000);
-    
+
     const countQuery = 'SELECT COUNT(*) as total FROM official_doc_history WHERE created_at < ?';
-    const countResult = await this.db.get(countQuery, [expiryTime]);
-    const count = countResult.total;
+    const [countRows]: any = await this.db.execute(countQuery, [new Date(expiryTime)]);
+    const count = countRows[0].total;
 
     const deleteQuery = 'DELETE FROM official_doc_history WHERE created_at < ?';
-    await this.db.run(deleteQuery, [expiryTime]);
+    await this.db.execute(deleteQuery, [new Date(expiryTime)]);
 
     return count;
   }

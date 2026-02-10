@@ -223,13 +223,49 @@ async function fetchMenuTree() {
   try {
     const res = await menuApi.getFullMenuTree()
     if (res.success && res.data) {
-      menuTree.value = res.data
+      // 尝试在前端构建树，以防后端返回平铺数据
+      menuTree.value = buildTree(res.data)
     }
   } catch (error) {
     menuTree.value = []
   } finally {
     loading.value = false
   }
+}
+
+function buildTree(data: MenuItem[]) {
+  // 如果数据已经是树形结构（有children且不为空），直接返回
+  if (data.some(item => item.children && item.children.length > 0)) {
+    return data
+  }
+
+  const map = new Map<string, MenuItem>()
+  // 深拷贝数据
+  const items = JSON.parse(JSON.stringify(data))
+
+  items.forEach((item: any) => {
+    // 初始化children
+    if (!item.children) item.children = []
+    map.set(item.id, item)
+  })
+
+  const tree: MenuItem[] = []
+
+  items.forEach((item: any) => {
+    if (item.parentId && map.has(item.parentId)) {
+      const parent = map.get(item.parentId)!
+      parent.children!.push(item)
+    } else {
+      tree.push(item)
+    }
+  })
+
+  // 如果构建完全是空的（可能是所有节点都有无效的parentId），回退到原始数据
+  if (tree.length === 0 && items.length > 0) {
+    return data
+  }
+
+  return tree
 }
 
 function getIcon(iconName: string) {

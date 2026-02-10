@@ -47,7 +47,11 @@ export interface ModuleManifest {
   menus?: MenuConfig[];
 
   // 权限配置
-  permissions?: PermissionConfig[];
+  permissions?: PermissionConfig[] & {
+    level?: string;
+    allowedDomains?: string[];
+    allowedPaths?: string[];
+  };
 
   // 配置管理
   config?: {
@@ -123,6 +127,14 @@ export interface ApiEndpoint {
  */
 export type ModuleStatus = 'installed' | 'enabled' | 'disabled' | 'error';
 
+export interface FrontendRouteConfig {
+  path: string;
+  name?: string;
+  component?: any;
+  meta?: any;
+  children?: FrontendRouteConfig[];
+}
+
 /**
  * 模块信息
  */
@@ -183,17 +195,30 @@ export interface ModuleRecord {
 }
 
 /**
+ * 模块上下文接口
+ */
+export interface ModuleContext {
+  id: string;
+  name: string;
+  version: string;
+  db: any; // 数据库连接或连接池
+  logger: any; // 日志对象
+  config?: any; // 模块配置
+  [key: string]: any;
+}
+
+/**
  * 模块钩子函数
  */
 export interface ModuleHooks {
-  beforeInstall?: () => Promise<void>;
-  afterInstall?: () => Promise<void>;
-  beforeUninstall?: () => Promise<void>;
-  afterUninstall?: () => Promise<void>;
-  beforeEnable?: () => Promise<void>;
-  afterEnable?: () => Promise<void>;
-  beforeDisable?: () => Promise<void>;
-  afterDisable?: () => Promise<void>;
+  beforeInstall?: (context: ModuleContext) => Promise<void>;
+  afterInstall?: (context: ModuleContext) => Promise<void>;
+  beforeUninstall?: (context: ModuleContext) => Promise<void>;
+  afterUninstall?: (context: ModuleContext) => Promise<void>;
+  beforeEnable?: (context: ModuleContext) => Promise<void>;
+  afterEnable?: (context: ModuleContext) => Promise<void>;
+  beforeDisable?: (context: ModuleContext) => Promise<void>;
+  afterDisable?: (context: ModuleContext) => Promise<void>;
 }
 
 /**

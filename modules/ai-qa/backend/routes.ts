@@ -7,6 +7,8 @@ import { AIQAService } from './service';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { requirePermission } from '../../../src/admin/middleware/permission';
+import { success, error } from '../../../src/admin/utils/response';
 
 const router = Router();
 
@@ -40,22 +42,10 @@ const getUserId = (req: Request): string => {
   return user?.id || '';
 };
 
-// 认证检查中间件
-const checkAuth = (req: Request, res: Response, next: NextFunction) => {
-  if (!req.user) {
-    return res.status(401).json({ success: false, error: { code: 'AUTH_REQUIRED', message: '未认证' } });
-  }
-  const userId = (req.user as { id: string })?.id;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: { code: 'AUTH_REQUIRED', message: '用户ID无效' } });
-  }
-  next();
-};
-
 export function createRoutes(service: AIQAService): Router {
   // ==================== 知识库分类管理 ====================
 
-  router.get('/categories', checkAuth, async (req: Request, res: Response) => {
+  router.get('/categories', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const categories = await service.getCategories(getUserId(req));
       res.json({ success: true, data: categories });
@@ -64,7 +54,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/categories', checkAuth, async (req: Request, res: Response) => {
+  router.post('/categories', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { name, description } = req.body;
       if (!name) {
@@ -81,7 +71,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.put('/categories/:id', checkAuth, async (req: Request, res: Response) => {
+  router.put('/categories/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { name, description } = req.body;
       const success = await service.updateCategory(req.params.id, { name, description }, getUserId(req));
@@ -95,7 +85,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.delete('/categories/:id', checkAuth, async (req: Request, res: Response) => {
+  router.delete('/categories/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const success = await service.deleteCategory(req.params.id, getUserId(req));
       if (success) {
@@ -110,16 +100,16 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== 数据源管理 ====================
 
-  router.get('/datasources', checkAuth, async (req: Request, res: Response) => {
+  router.get('/datasources', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const list = await service.getUserDataSources(getUserId(req));
-      res.json({ success: true, data: list });
+      res.json(success(list));
     } catch (error: any) {
       res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
     }
   });
 
-  router.get('/datasources/:id', checkAuth, async (req: Request, res: Response) => {
+  router.get('/datasources/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const detail = await service.getDataSourceDetail(req.params.id, getUserId(req));
       if (!detail) {
@@ -131,7 +121,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/datasources', checkAuth, async (req: Request, res: Response) => {
+  router.post('/datasources', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const config = await service.createDataSource(req.body, getUserId(req));
       res.json({ success: true, data: config, message: '数据源创建成功' });
@@ -140,7 +130,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.put('/datasources/:id', checkAuth, async (req: Request, res: Response) => {
+  router.put('/datasources/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const config = await service.updateDataSource(req.params.id, req.body, getUserId(req));
       res.json({ success: true, data: config, message: '数据源更新成功' });
@@ -149,7 +139,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.delete('/datasources/:id', checkAuth, async (req: Request, res: Response) => {
+  router.delete('/datasources/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       await service.deleteDataSource(req.params.id, getUserId(req));
       res.json({ success: true, message: '数据源已删除' });
@@ -158,7 +148,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/datasources/test', checkAuth, async (req: Request, res: Response) => {
+  router.post('/datasources/test', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const result = await service.testDataSourceConnection(req.body, getUserId(req));
       res.json({ success: true, data: result });
@@ -167,7 +157,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/datasources/:id/test', checkAuth, async (req: Request, res: Response) => {
+  router.get('/datasources/:id/test', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const result = await service.testExistingConnection(req.params.id, getUserId(req));
       res.json({ success: true, data: result });
@@ -178,7 +168,7 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== Schema 分析 ====================
 
-  router.get('/datasources/:id/schema', checkAuth, async (req: Request, res: Response) => {
+  router.get('/datasources/:id/schema', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const schema = await service.getSchema(req.params.id, getUserId(req));
       res.json({ success: true, data: schema });
@@ -187,7 +177,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/datasources/:id/schema/analyze', checkAuth, async (req: Request, res: Response) => {
+  router.get('/datasources/:id/schema/analyze', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const forceRefresh = req.query.refresh === 'true';
       const analysis = await service.analyzeSchema(req.params.id, getUserId(req), forceRefresh);
@@ -197,7 +187,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.put('/datasources/:id/schema/table/:tableName', checkAuth, async (req: Request, res: Response) => {
+  router.put('/datasources/:id/schema/table/:tableName', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const success = await service.updateTableAnalysis(req.params.id, req.params.tableName, req.body, getUserId(req));
       if (!success) {
@@ -209,7 +199,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.put('/datasources/:id/schema/table/:tableName/column/:columnName', checkAuth, async (req: Request, res: Response) => {
+  router.put('/datasources/:id/schema/table/:tableName/column/:columnName', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const success = await service.updateColumnAnalysis(req.params.id, req.params.tableName, req.params.columnName, req.body, getUserId(req));
       if (!success) {
@@ -221,7 +211,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.put('/datasources/:id/schema/questions', checkAuth, async (req: Request, res: Response) => {
+  router.put('/datasources/:id/schema/questions', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { questions } = req.body;
       if (!Array.isArray(questions)) {
@@ -239,7 +229,7 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== AI 问答 ====================
 
-  router.post('/ask', checkAuth, async (req: Request, res: Response) => {
+  router.post('/ask', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId, question, sessionId } = req.body;
       if (!question) {
@@ -265,7 +255,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/query', checkAuth, async (req: Request, res: Response) => {
+  router.post('/query', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId, sql } = req.body;
       if (!datasourceId || !sql) {
@@ -280,7 +270,7 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== 会话管理 ====================
 
-  router.get('/chat/sessions/:datasourceId', checkAuth, async (req: Request, res: Response) => {
+  router.get('/chat/sessions/:datasourceId', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const sessions = await service.getChatSessions(req.params.datasourceId, getUserId(req));
       res.json({ success: true, data: sessions });
@@ -289,7 +279,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/chat/session/:id', checkAuth, async (req: Request, res: Response) => {
+  router.get('/chat/session/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const session = await service.getChatSession(req.params.id, getUserId(req));
       if (!session) {
@@ -301,7 +291,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.delete('/chat/session/:id', checkAuth, async (req: Request, res: Response) => {
+  router.delete('/chat/session/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       await service.deleteChatSession(req.params.id, getUserId(req));
       res.json({ success: true, message: '会话已删除' });
@@ -310,7 +300,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/chat/session/:sessionId/message/:messageIndex/config', checkAuth, async (req: Request, res: Response) => {
+  router.get('/chat/session/:sessionId/message/:messageIndex/config', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { sessionId, messageIndex } = req.params;
       const idx = parseInt(messageIndex);
@@ -336,7 +326,7 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== 消息配置 ====================
 
-  router.get('/chat/session/:sessionId/message/:messageIndex/config', checkAuth, async (req: Request, res: Response) => {
+  router.get('/chat/session/:sessionId/message/:messageIndex/config', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { sessionId, messageIndex } = req.params;
       const idx = parseInt(messageIndex, 10);
@@ -362,12 +352,12 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== Agent 技能和工具 ====================
 
-  router.get('/agent/skills', checkAuth, (_req: Request, res: Response) => {
+  router.get('/agent/skills', requirePermission('ai:query'), (_req: Request, res: Response) => {
     const skills = service.getSkills();
     res.json({ success: true, data: skills });
   });
 
-  router.post('/agent/skills/:name/execute', checkAuth, async (req: Request, res: Response) => {
+  router.post('/agent/skills/:name/execute', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId, params } = req.body;
       const result = await service.executeSkill(req.params.name, datasourceId, params, getUserId(req));
@@ -377,12 +367,12 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/agent/mcp/tools', checkAuth, (_req: Request, res: Response) => {
+  router.get('/agent/mcp/tools', requirePermission('ai:query'), (_req: Request, res: Response) => {
     const tools = service.getMCPTools();
     res.json({ success: true, data: tools });
   });
 
-  router.post('/agent/mcp/:server/:tool', checkAuth, async (req: Request, res: Response) => {
+  router.post('/agent/mcp/:server/:tool', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const result = await service.callMCPTool(req.params.server, req.params.tool, req.body);
       res.json({ success: true, data: result });
@@ -391,14 +381,14 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/agent/capabilities', checkAuth, (_req: Request, res: Response) => {
+  router.get('/agent/capabilities', requirePermission('ai:query'), (_req: Request, res: Response) => {
     const capabilities = service.getCapabilities();
     res.json({ success: true, data: capabilities });
   });
 
   // ==================== 自动分析 ====================
 
-  router.post('/agent/analyze', checkAuth, async (req: Request, res: Response) => {
+  router.post('/agent/analyze', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId, topic } = req.body;
       if (!topic) {
@@ -411,7 +401,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/agent/analyze/stream', checkAuth, async (req: Request, res: Response) => {
+  router.get('/agent/analyze/stream', requirePermission('ai:query'), async (req: Request, res: Response) => {
     const { datasourceId, topic } = req.query;
     if (!topic || typeof topic !== 'string') {
       return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供分析主题' } });
@@ -431,7 +421,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/agent/dashboard', checkAuth, async (req: Request, res: Response) => {
+  router.post('/agent/dashboard', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId, topic, theme = 'dark' } = req.body;
       if (!topic) {
@@ -444,7 +434,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/agent/dashboard/preview', checkAuth, async (req: Request, res: Response) => {
+  router.get('/agent/dashboard/preview', requirePermission('ai:query'), async (req: Request, res: Response) => {
     const { datasourceId, topic, theme = 'dark' } = req.query;
     if (!topic || typeof topic !== 'string') {
       return res.status(400).send('请提供大屏主题');
@@ -458,7 +448,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/agent/quality', checkAuth, async (req: Request, res: Response) => {
+  router.post('/agent/quality', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId, tableNameCn } = req.body;
       const result = await service.inspectQuality(datasourceId, getUserId(req), tableNameCn);
@@ -470,12 +460,12 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== RAG 知识库 ====================
 
-  router.get('/rag/stats', checkAuth, async (req: Request, res: Response) => {
+  router.get('/rag/stats', requirePermission('ai:query'), async (req: Request, res: Response) => {
     const stats = await service.getRAGStats(getUserId(req));
     res.json({ success: true, data: stats });
   });
 
-  router.get('/rag/search', checkAuth, async (req: Request, res: Response) => {
+  router.get('/rag/search', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { q, limit } = req.query;
       if (!q || typeof q !== 'string') {
@@ -488,7 +478,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/rag/documents', checkAuth, async (req: Request, res: Response) => {
+  router.get('/rag/documents', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const pageSize = parseInt(req.query.pageSize as string) || 10;
@@ -501,7 +491,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/rag/documents/:id', checkAuth, async (req: Request, res: Response) => {
+  router.get('/rag/documents/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const doc = await service.getRAGDocument(getUserId(req), req.params.id);
       res.json({ success: true, data: doc });
@@ -510,7 +500,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/rag/documents', checkAuth, async (req: Request, res: Response) => {
+  router.post('/rag/documents', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { title, content, type = 'note', tags, categoryId, datasourceId } = req.body;
       if (!title || !content) {
@@ -531,7 +521,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.delete('/rag/documents/:id', checkAuth, async (req: Request, res: Response) => {
+  router.delete('/rag/documents/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const success = await service.deleteRAGDocument(req.params.id, getUserId(req));
       if (success) {
@@ -544,7 +534,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/rag/upload', checkAuth, ragUpload.single('file'), async (req: Request, res: Response) => {
+  router.post('/rag/upload', requirePermission('ai:query'), ragUpload.single('file'), async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
       if (!userId) {
@@ -603,7 +593,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/rag/ask', checkAuth, async (req: Request, res: Response) => {
+  router.post('/rag/ask', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { question, datasourceId, categoryId, documentId } = req.body;
       if (!question) {
@@ -616,7 +606,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/rag/outline', checkAuth, async (req: Request, res: Response) => {
+  router.post('/rag/outline', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { topic, categoryId } = req.body;
       if (!topic) {
@@ -629,7 +619,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/rag/section', checkAuth, async (req: Request, res: Response) => {
+  router.post('/rag/section', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { topic, sectionTitle, sectionDesc, categoryId } = req.body;
       if (!topic || !sectionTitle) {
@@ -642,7 +632,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.post('/rag/tasks/submit', checkAuth, async (req: Request, res: Response) => {
+  router.post('/rag/tasks/submit', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { topic, outline, categoryId } = req.body;
       if (!topic || !outline) {
@@ -655,7 +645,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/rag/tasks/:id', checkAuth, (req: Request, res: Response) => {
+  router.get('/rag/tasks/:id', requirePermission('ai:query'), (req: Request, res: Response) => {
     const task = service.getArticleTask(req.params.id);
     if (!task) {
       return res.status(404).json({ success: false, error: { message: '任务不存在' } });
@@ -666,12 +656,12 @@ export function createRoutes(service: AIQAService): Router {
     res.json({ success: true, data: task });
   });
 
-  router.get('/rag/graph', checkAuth, async (req: Request, res: Response) => {
+  router.get('/rag/graph', requirePermission('ai:query'), async (req: Request, res: Response) => {
     const graph = await service.getKnowledgeGraph(getUserId(req));
     res.json({ success: true, data: graph });
   });
 
-  router.post('/rag/graph/query', checkAuth, async (req: Request, res: Response) => {
+  router.post('/rag/graph/query', requirePermission('ai:query'), async (req: Request, res: Response) => {
     const { keywords, maxEntities = 20 } = req.body;
     if (!keywords || !Array.isArray(keywords)) {
       return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供关键词数组' } });
@@ -680,7 +670,7 @@ export function createRoutes(service: AIQAService): Router {
     res.json({ success: true, data: result });
   });
 
-  router.post('/rag/import-schema', checkAuth, async (req: Request, res: Response) => {
+  router.post('/rag/import-schema', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId } = req.body;
       if (!datasourceId) {
@@ -699,5 +689,3 @@ export function createRoutes(service: AIQAService): Router {
 
   return router;
 }
-
-export default router;

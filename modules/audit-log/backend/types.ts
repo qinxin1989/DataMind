@@ -105,3 +105,34 @@ export interface AuditLogModuleConfig {
   enableAutoCleanup: boolean;
   autoCleanupInterval: number;
 }
+
+/**
+ * 对话历史记录
+ */
+export interface ChatHistoryRecord {
+  id: string;
+  userId: string;
+  username: string;
+  datasourceId: string;
+  datasourceName: string;
+  question: string;
+  answer: string;
+  sqlQuery?: string;
+  tokensUsed: number;
+  responseTime: number;
+  status: 'success' | 'error';
+  createdAt: number;
+}
+
+/**
+ * 对话历史查询参数
+ */
+export interface ChatHistoryQueryParams {
+  userId?: string;
+  datasourceId?: string;
+  keyword?: string;
+  startTime?: number;
+  endTime?: number;
+  page: number;
+  pageSize: number;
+}

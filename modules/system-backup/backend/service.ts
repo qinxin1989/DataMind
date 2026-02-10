@@ -84,6 +84,24 @@ export class SystemBackupService {
         }
       }
 
+      // 导出关键数据库表
+      const tablesToExport = ['sys_users', 'sys_audit_logs', 'sys_chat_history', 'system_configs'];
+      for (const tableName of tablesToExport) {
+        try {
+          const [rows] = await this.db.query(`SELECT * FROM ${tableName}`);
+          if (Array.isArray(rows)) { // 即使为空也导出结构
+            const destPath = path.join(backupPath, `${tableName}.json`);
+            fs.writeFileSync(destPath, JSON.stringify(rows, null, 2));
+            const stats = fs.statSync(destPath);
+            totalSize += stats.size;
+            fileCount++;
+          }
+        } catch (err: any) {
+          console.warn(`[Backup] Failed to export table ${tableName}: ${err.message}`);
+          // 继续执行，不中断备份
+        }
+      }
+
       // 创建备份记录
       const query = `
         INSERT INTO system_backups 
@@ -91,7 +109,7 @@ export class SystemBackupService {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
-      await this.db.run(query, [
+      await this.db.execute(query, [
         id,
         request.name,
         request.description || null,
@@ -99,9 +117,9 @@ export class SystemBackupService {
         fileCount,
         backupPath,
         'completed',
-        request.createdBy,
-        now,
-        now
+        request.createdBy || 'system',
+        new Date(now),
+        new Date(now)
       ]);
 
       const backup = await this.getBackup(id);
@@ -131,17 +149,17 @@ export class SystemBackupService {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
-      await this.db.run(failQuery, [
+      await this.db.execute(failQuery, [
         id,
         request.name,
-        request.description || null,
+        request.description ?? null,
         0,
         0,
         backupPath,
         'failed',
-        request.createdBy,
-        now,
-        error.message
+        request.createdBy ?? null,
+        new Date(now),
+        error.message ?? 'Unknown error'
       ]);
 
       throw error;
@@ -153,8 +171,8 @@ export class SystemBackupService {
    */
   async getBackup(id: string): Promise<SystemBackup | null> {
     const query = 'SELECT * FROM system_backups WHERE id = ?';
-    const row = await this.db.get(query, [id]);
-    return row ? this.mapRowToBackup(row) : null;
+    const [rows]: any = await this.db.execute(query, [id]);
+    return rows.length > 0 ? this.mapRowToBackup(rows[0]) : null;
   }
 
   /**
@@ -198,18 +216,22 @@ export class SystemBackupService {
 
     // 获取总数
     const countQuery = `SELECT COUNT(*) as total FROM system_backups ${whereClause}`;
-    const countResult = await this.db.get(countQuery, values);
-    const total = countResult.total;
+    const params1 = values.map(v => v === undefined ? null : v);
+    console.log('[SystemBackup] Count Query:', countQuery, 'Params:', params1);
+    const [countRows]: any = await this.db.execute(countQuery, params1);
+    const total = countRows[0].total;
 
-    // 获取数据
-    const offset = (page - 1) * pageSize;
+    // 获取数据 - LIMIT/OFFSET 不使用参数绑定，因可能导致Incorrect arguments错误
+    const offset = (Number(page) - 1) * Number(pageSize);
     const dataQuery = `
       SELECT * FROM system_backups 
       ${whereClause}
       ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT ${Number(pageSize)} OFFSET ${offset}
     `;
-    const rows = await this.db.all(dataQuery, [...values, pageSize, offset]);
+    // 移除最后两个参数
+    console.log('[SystemBackup] Data Query:', dataQuery, 'Params:', params1);
+    const [rows]: any = await this.db.execute(dataQuery, params1);
 
     return {
       total,
@@ -243,7 +265,7 @@ export class SystemBackupService {
 
     // 删除记录
     const query = 'DELETE FROM system_backups WHERE id = ?';
-    await this.db.run(query, [id]);
+    await this.db.execute(query, [id]);
   }
 
   // ==================== 恢复功能 ====================
@@ -270,7 +292,7 @@ export class SystemBackupService {
 
     try {
       const files = fs.readdirSync(backup.backupPath);
-      
+
       for (const file of files) {
         const srcPath = path.join(backup.backupPath, file);
         const destPath = path.join(DATA_DIR, file);
@@ -326,14 +348,14 @@ export class SystemBackupService {
 
     try {
       const files = fs.readdirSync(backup.backupPath);
-      
+
       for (const file of files) {
         if (!file.endsWith('.json')) {
           continue;
         }
 
         const filePath = path.join(backup.backupPath, file);
-        
+
         // 检查文件是否存在
         if (!fs.existsSync(filePath)) {
           errors.push(`文件缺失: ${file}`);
@@ -411,9 +433,9 @@ export class SystemBackupService {
    */
   async cleanupOldBackups(): Promise<number> {
     const beforeDate = Date.now() - (this.config.retentionDays * 24 * 60 * 60 * 1000);
-    
+
     const query = 'SELECT id FROM system_backups WHERE created_at < ? AND status = ?';
-    const rows = await this.db.all(query, [beforeDate, 'completed']);
+    const [rows]: any = await this.db.execute(query, [new Date(beforeDate), 'completed']);
 
     let count = 0;
     for (const row of rows) {

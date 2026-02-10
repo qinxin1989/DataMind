@@ -2,7 +2,7 @@
 -- 检查 AI 配置表
 -- ============================================
 
-USE `ai-data-platform`;
+USE `datamind`;
 
 -- 1. 查看AI配置表名
 SHOW TABLES LIKE '%ai_config%';

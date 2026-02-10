@@ -1,25 +1,28 @@
 /**
  * 审计日志服务
+ * 适配 MySQL 数据库与 sys_audit_logs 表
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { pool } from '../../../src/admin/core/database';
 import type {
   AuditLog,
-  CreateLogRequest,
   LogQueryParams,
   LogQueryResult,
   LogStats,
   ExportOptions,
   CleanupOptions,
-  AuditLogModuleConfig
+  AuditLogModuleConfig,
+  ChatHistoryRecord,
+  ChatHistoryQueryParams
 } from './types';
 
 export class AuditLogService {
   private db: any;
   private config: AuditLogModuleConfig;
 
-  constructor(db: any, config?: Partial<AuditLogModuleConfig>) {
-    this.db = db;
+  constructor(db?: any, config?: Partial<AuditLogModuleConfig>) {
+    this.db = db || pool;
     this.config = {
       retentionDays: 90,
       maxLogsPerQuery: 1000,
@@ -32,31 +35,71 @@ export class AuditLogService {
   // ==================== 日志记录 ====================
 
   /**
-   * 创建审计日志
+   * 创建审计日志 (兼容旧版 log 方法)
    */
-  async createLog(request: CreateLogRequest): Promise<AuditLog> {
+  async log(data: any): Promise<void> {
     const id = uuidv4();
-    const now = Date.now();
+    const {
+      userId,
+      username,
+      action,
+      resourceType,
+      resourceId,
+      newValue,
+      oldValue,
+      ip,
+      userAgent,
+      module = 'admin'
+    } = data;
+
+    const details = {
+      old: oldValue,
+      new: newValue
+    };
 
     const query = `
-      INSERT INTO audit_logs 
-      (id, user_id, username, action, resource_type, resource_id, details, ip_address, user_agent, status, error_message, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sys_audit_logs 
+      (id, user_id, username, action, module, target_type, target_id, details, ip_address, user_agent, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
-    await this.db.run(query, [
+    await this.db.execute(query, [
+      id,
+      userId,
+      username,
+      action,
+      module,
+      resourceType || null,
+      resourceId || null,
+      JSON.stringify(details),
+      ip || null,
+      userAgent || null
+    ]);
+  }
+
+  /**
+   * 创建审计日志 (兼容 CreateLogRequest)
+   */
+  async createLog(request: any): Promise<AuditLog> {
+    const id = uuidv4();
+
+    const query = `
+      INSERT INTO sys_audit_logs 
+      (id, user_id, username, action, module, target_type, target_id, details, ip_address, user_agent, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
+
+    await this.db.execute(query, [
       id,
       request.userId,
       request.username,
       request.action,
+      request.module || 'admin',
       request.resourceType || null,
       request.resourceId || null,
-      request.details || null,
-      request.ipAddress || null,
-      request.userAgent || null,
-      request.status,
-      request.errorMessage || null,
-      now
+      request.details ? (typeof request.details === 'string' ? request.details : JSON.stringify(request.details)) : null,
+      request.ipAddress || request.ip || null,
+      request.userAgent || null
     ]);
 
     const log = await this.getLog(id);
@@ -71,9 +114,9 @@ export class AuditLogService {
    * 获取单个日志
    */
   async getLog(id: string): Promise<AuditLog | null> {
-    const query = 'SELECT * FROM audit_logs WHERE id = ?';
-    const row = await this.db.get(query, [id]);
-    return row ? this.mapRowToLog(row) : null;
+    const query = 'SELECT * FROM sys_audit_logs WHERE id = ?';
+    const [rows]: any = await this.db.execute(query, [id]);
+    return rows[0] ? this.mapRowToLog(rows[0]) : null;
   }
 
   /**
@@ -84,7 +127,7 @@ export class AuditLogService {
       userId,
       action,
       resourceType,
-      status,
+      status, // sys_audit_logs 没有 status 字段，暂忽略或映射到 details
       startDate,
       endDate,
       page = 1,
@@ -92,7 +135,7 @@ export class AuditLogService {
     } = params;
 
     // 构建查询条件
-    const conditions: string[] = [];
+    const conditions: string[] = ['1=1'];
     const values: any[] = [];
 
     if (userId) {
@@ -106,41 +149,40 @@ export class AuditLogService {
     }
 
     if (resourceType) {
-      conditions.push('resource_type = ?');
+      conditions.push('target_type = ?');
       values.push(resourceType);
     }
 
-    if (status) {
-      conditions.push('status = ?');
-      values.push(status);
-    }
-
     if (startDate) {
-      conditions.push('created_at >= ?');
+      conditions.push('created_at >= FROM_UNIXTIME(? / 1000)');
       values.push(startDate);
     }
 
     if (endDate) {
-      conditions.push('created_at <= ?');
+      conditions.push('created_at <= FROM_UNIXTIME(? / 1000)');
       values.push(endDate);
     }
 
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const params1 = values.map(v => v === undefined ? null : v);
 
     // 获取总数
-    const countQuery = `SELECT COUNT(*) as total FROM audit_logs ${whereClause}`;
-    const countResult = await this.db.get(countQuery, values);
-    const total = countResult.total;
+    const countQuery = `SELECT COUNT(*) as total FROM sys_audit_logs ${whereClause}`;
+    console.log('[AuditLog] Count Query:', countQuery, 'Params:', params1);
+    const [countRows]: any = await this.db.execute(countQuery, params1);
+    const total = countRows[0].total;
 
-    // 获取数据
-    const offset = (page - 1) * pageSize;
+    // 获取数据 - LIMIT/OFFSET 不使用参数绑定，因可能导致Incorrect arguments错误
+    const offset = (Number(page) - 1) * Number(pageSize);
     const dataQuery = `
-      SELECT * FROM audit_logs 
+      SELECT * FROM sys_audit_logs 
       ${whereClause}
       ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT ${Number(pageSize)} OFFSET ${offset}
     `;
-    const rows = await this.db.all(dataQuery, [...values, pageSize, offset]);
+    // 移除最后两个参数
+    console.log('[AuditLog] Data Query:', dataQuery, 'Params:', params1);
+    const [rows]: any = await this.db.execute(dataQuery, params1);
 
     return {
       total,
@@ -154,8 +196,8 @@ export class AuditLogService {
    * 删除日志
    */
   async deleteLog(id: string): Promise<void> {
-    const query = 'DELETE FROM audit_logs WHERE id = ?';
-    await this.db.run(query, [id]);
+    const query = 'DELETE FROM sys_audit_logs WHERE id = ?';
+    await this.db.execute(query, [id]);
   }
 
   // ==================== 日志统计 ====================
@@ -164,70 +206,61 @@ export class AuditLogService {
    * 获取日志统计
    */
   async getStats(startDate?: number, endDate?: number): Promise<LogStats> {
-    const conditions: string[] = [];
+    const conditions: string[] = ['1=1'];
     const values: any[] = [];
 
     if (startDate) {
-      conditions.push('created_at >= ?');
+      conditions.push('created_at >= FROM_UNIXTIME(? / 1000)');
       values.push(startDate);
     }
 
     if (endDate) {
-      conditions.push('created_at <= ?');
+      conditions.push('created_at <= FROM_UNIXTIME(? / 1000)');
       values.push(endDate);
     }
 
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const whereClause = conditions.join(' AND ');
 
     // 总日志数
-    const totalQuery = `SELECT COUNT(*) as total FROM audit_logs ${whereClause}`;
-    const totalResult = await this.db.get(totalQuery, values);
-    const totalLogs = totalResult.total;
-
-    // 成功日志数
-    const successQuery = `SELECT COUNT(*) as count FROM audit_logs ${whereClause} ${whereClause ? 'AND' : 'WHERE'} status = 'success'`;
-    const successResult = await this.db.get(successQuery, values);
-    const successLogs = successResult.count;
-
-    // 失败日志数
-    const failedLogs = totalLogs - successLogs;
+    const [totalRows]: any = await this.db.execute(`SELECT COUNT(*) as total FROM sys_audit_logs WHERE ${whereClause}`, values.map(v => v ?? null));
+    const totalLogs = totalRows[0].total;
 
     // 热门操作
     const topActionsQuery = `
       SELECT action, COUNT(*) as count 
-      FROM audit_logs ${whereClause}
+      FROM sys_audit_logs WHERE ${whereClause}
       GROUP BY action 
       ORDER BY count DESC 
       LIMIT 10
     `;
-    const topActions = await this.db.all(topActionsQuery, values);
+    const [topActions]: any = await this.db.execute(topActionsQuery, values.map(v => v ?? null));
 
     // 热门用户
     const topUsersQuery = `
       SELECT user_id, username, COUNT(*) as count 
-      FROM audit_logs ${whereClause}
+      FROM sys_audit_logs WHERE ${whereClause}
       GROUP BY user_id, username 
       ORDER BY count DESC 
       LIMIT 10
     `;
-    const topUsers = await this.db.all(topUsersQuery, values);
+    const [topUsers]: any = await this.db.execute(topUsersQuery, values.map(v => v ?? null));
 
     // 按日期统计
     const logsByDateQuery = `
       SELECT 
-        DATE(created_at / 1000, 'unixepoch') as date,
+        DATE(created_at) as date,
         COUNT(*) as count 
-      FROM audit_logs ${whereClause}
+      FROM sys_audit_logs WHERE ${whereClause}
       GROUP BY date 
       ORDER BY date DESC 
       LIMIT 30
     `;
-    const logsByDate = await this.db.all(logsByDateQuery, values);
+    const [logsByDate]: any = await this.db.execute(logsByDateQuery, values.map(v => v ?? null));
 
     return {
       totalLogs,
-      successLogs,
-      failedLogs,
+      successLogs: totalLogs, // 暂不区分成功失败
+      failedLogs: 0,
       topActions: topActions.map((row: any) => ({
         action: row.action,
         count: row.count
@@ -290,8 +323,6 @@ export class AuditLogService {
       '详情',
       'IP地址',
       '用户代理',
-      '状态',
-      '错误信息',
       '创建时间'
     ];
 
@@ -306,8 +337,6 @@ export class AuditLogService {
       log.details || '',
       log.ipAddress || '',
       log.userAgent || '',
-      log.status,
-      log.errorMessage || '',
       new Date(log.createdAt).toISOString()
     ]);
 
@@ -326,18 +355,11 @@ export class AuditLogService {
    * 清理过期日志
    */
   async cleanupLogs(options: CleanupOptions): Promise<number> {
-    const { beforeDate, status } = options;
+    const { beforeDate } = options;
 
-    let query = 'DELETE FROM audit_logs WHERE created_at < ?';
-    const values: any[] = [beforeDate];
-
-    if (status) {
-      query += ' AND status = ?';
-      values.push(status);
-    }
-
-    const result = await this.db.run(query, values);
-    return result.changes || 0;
+    const query = 'DELETE FROM sys_audit_logs WHERE created_at < FROM_UNIXTIME(? / 1000)';
+    const [result]: any = await this.db.execute(query, [beforeDate]);
+    return result.affectedRows || 0;
   }
 
   /**
@@ -354,19 +376,163 @@ export class AuditLogService {
    * 映射数据库行到日志对象
    */
   private mapRowToLog(row: any): AuditLog {
+    const timestamp = row.created_at ? new Date(row.created_at).getTime() : Date.now();
     return {
       id: row.id,
       userId: row.user_id,
       username: row.username,
       action: row.action,
-      resourceType: row.resource_type,
-      resourceId: row.resource_id,
-      details: row.details,
+      module: row.module,
+      resourceType: row.target_type,
+      resourceId: row.target_id,
+      details: typeof row.details === 'string' ? row.details : JSON.stringify(row.details),
       ipAddress: row.ip_address,
       userAgent: row.user_agent,
-      status: row.status,
-      errorMessage: row.error_message,
-      createdAt: row.created_at
+      status: 'success',
+      createdAt: timestamp,
+      // Compatibility fields for frontend
+      ip: row.ip_address,
+      timestamp: timestamp
+    } as any;
+  }
+
+  // ==================== 用户操作轨迹 ====================
+
+  async getUserTrail(userId: string, startTime: number, endTime: number): Promise<LogQueryResult> {
+    return this.queryLogs({
+      userId,
+      startDate: startTime,
+      endDate: endTime,
+      page: 1,
+      pageSize: 1000,
+    });
+  }
+
+  // ==================== 对话历史管理 ====================
+
+  async logChat(record: Omit<ChatHistoryRecord, 'id' | 'createdAt'>): Promise<ChatHistoryRecord> {
+    const id = uuidv4();
+    const createdAt = Date.now();
+
+    await this.db.execute(
+      `INSERT INTO sys_chat_history
+       (id, user_id, username, datasource_id, datasource_name, question, answer, sql_query, tokens_used, response_time, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [id, record.userId, record.username, record.datasourceId, record.datasourceName,
+        record.question, record.answer, record.sqlQuery || null, record.tokensUsed, record.responseTime, record.status]
+    );
+
+    return { ...record, id, createdAt };
+  }
+
+  async queryChatHistory(params: ChatHistoryQueryParams): Promise<{ list: ChatHistoryRecord[]; total: number; page: number; pageSize: number }> {
+    const { userId, datasourceId, keyword, startTime, endTime, page, pageSize } = params;
+
+    let whereClause = '1=1';
+    const queryParams: any[] = [];
+
+    if (userId) {
+      whereClause += ' AND ch.user_id = ?';
+      queryParams.push(userId);
+    }
+    if (datasourceId) {
+      whereClause += ' AND ch.datasource_id = ?';
+      queryParams.push(datasourceId);
+    }
+    if (keyword) {
+      whereClause += ' AND (ch.question LIKE ? OR ch.answer LIKE ?)';
+      queryParams.push(`%${keyword}%`, `%${keyword}%`);
+    }
+    if (startTime) {
+      whereClause += ' AND ch.created_at >= FROM_UNIXTIME(? / 1000)';
+      queryParams.push(startTime);
+    }
+    if (endTime) {
+      whereClause += ' AND ch.created_at <= FROM_UNIXTIME(? / 1000)';
+      queryParams.push(endTime);
+    }
+
+    const [totalRows]: any = await this.db.query(
+      `SELECT COUNT(*) as total FROM sys_chat_history ch WHERE ${whereClause}`,
+      queryParams
+    );
+    const total = totalRows[0].total;
+
+    const offset = (page - 1) * pageSize;
+    const [rows]: any = await this.db.query(
+      `SELECT ch.* FROM sys_chat_history ch
+       WHERE ${whereClause}
+       ORDER BY ch.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...queryParams, pageSize, offset]
+    );
+
+    const list = (rows as any[]).map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      username: row.username || '未知用户',
+      datasourceId: row.datasource_id,
+      datasourceName: row.datasource_name || '未知数据源',
+      question: row.question,
+      answer: row.answer,
+      sqlQuery: row.sql_query,
+      tokensUsed: row.tokens_used || 0,
+      responseTime: row.response_time || 0,
+      status: row.status as 'success' | 'error',
+      createdAt: new Date(row.created_at).getTime(),
+    }));
+
+    return { list, total, page, pageSize };
+  }
+
+  async getChatStats(startTime?: number, endTime?: number): Promise<any> {
+    let whereClause = '1=1';
+    const queryParams: any[] = [];
+
+    if (startTime) {
+      whereClause += ' AND created_at >= FROM_UNIXTIME(? / 1000)';
+      queryParams.push(startTime);
+    }
+    if (endTime) {
+      whereClause += ' AND created_at <= FROM_UNIXTIME(? / 1000)';
+      queryParams.push(endTime);
+    }
+
+    const [statsRows]: any = await this.db.execute(
+      `SELECT
+        COUNT(*) as total_chats,
+        COALESCE(SUM(tokens_used), 0) as total_tokens,
+        COALESCE(AVG(response_time), 0) as avg_response_time,
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count
+       FROM sys_chat_history WHERE ${whereClause}`,
+      queryParams
+    );
+    const stats = statsRows[0];
+
+    return {
+      totalChats: stats.total_chats || 0,
+      totalTokens: stats.total_tokens || 0,
+      avgResponseTime: Math.round(stats.avg_response_time || 0),
+      successRate: stats.total_chats > 0 ? (stats.success_count / stats.total_chats * 100) : 100,
     };
   }
+
+  async deleteChatHistory(id: string): Promise<void> {
+    await this.db.execute('DELETE FROM sys_chat_history WHERE id = ?', [id]);
+  }
+
+  // ==================== 便捷方法 ====================
+
+  async logLogin(userId: string, username: string, ip: string, userAgent: string): Promise<void> {
+    await this.log({
+      userId,
+      username,
+      action: 'login',
+      resourceType: 'auth',
+      ip,
+      userAgent
+    });
+  }
 }
+
+export const auditService = new AuditLogService();

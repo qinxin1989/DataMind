@@ -1,0 +1,32 @@
+{
+    "name": "monitoring",
+    "displayName": "系统监控",
+    "version": "1.0.0",
+    "description": "监控服务器状态、资源使用率及日志",
+    "icon": "DashboardOutlined",
+    "order": 100,
+    "status": "enabled",
+    "backend": {
+        "entry": "backend/index.ts",
+        "prefix": "/monitoring"
+    },
+    "permissions": [
+        {
+            "code": "system:status:view",
+            "name": "查看监控",
+            "description": "允许查看系统运行状态和监控数据",
+            "type": "menu"
+        }
+    ],
+    "menus": [
+        {
+            "id": "monitoring",
+            "title": "系统监控",
+            "icon": "DashboardOutlined",
+            "path": "/system/status",
+            "permission": "system:status:view",
+            "parentId": "ops-management",
+            "sortOrder": 2
+        }
+    ]
+}

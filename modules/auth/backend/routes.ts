@@ -7,6 +7,8 @@ import { AuthService } from '../../../src/services/authService';
 import { createAuthMiddleware, requireAdmin } from '../../../src/middleware/auth';
 import { pool } from '../../../src/admin/core/database';
 
+import { auditService } from '../../audit-log/backend/service';
+
 const router = Router();
 
 // 创建认证服务实例
@@ -39,6 +41,15 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     const { user, token } = await authService.login(username, password);
+
+    // 记录审计日志
+    auditService.logLogin(
+      user.id,
+      user.username,
+      req.ip || (req.socket.remoteAddress as string) || 'unknown',
+      req.headers['user-agent'] || 'unknown'
+    ).catch(e => console.error('Audit log failed:', e));
+
     res.json({ user, token });
   } catch (error: any) {
     res.status(400).json({ error: error.message });

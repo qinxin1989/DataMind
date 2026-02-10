@@ -4,24 +4,28 @@
 
 import { Router, Request, Response } from 'express';
 import { userService } from './service';
+import { requirePermission, requireAnyPermission } from '../../../src/admin/middleware/permission';
+import { success, error } from '../../../src/admin/utils/response';
 import type { UserQueryParams, CreateUserRequest, UpdateUserRequest } from './types';
 
 const router = Router();
 
-/** 成功响应 */
-function success<T>(data: T) {
-  return { success: true, data, timestamp: Date.now() };
-}
-
-/** 错误响应 */
-function error(code: string, message: string) {
-  return { success: false, error: { code, message }, timestamp: Date.now() };
-}
+/**
+ * GET /stats - 获取用户统计
+ */
+router.get('/stats', requirePermission('user:view'), async (req: Request, res: Response) => {
+  try {
+    const stats = await userService.getStats();
+    res.json(success(stats));
+  } catch (err: any) {
+    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
+  }
+});
 
 /**
  * GET /users - 获取用户列表
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePermission('user:view'), async (req: Request, res: Response) => {
   try {
     const params: UserQueryParams = {
       keyword: req.query.keyword as string,
@@ -44,7 +48,7 @@ router.get('/', async (req: Request, res: Response) => {
 /**
  * GET /users/:id - 获取用户详情
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePermission('user:view'), async (req: Request, res: Response) => {
   try {
     const user = await userService.getUserById(req.params.id);
     if (!user) {
@@ -59,7 +63,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 /**
  * POST /users - 创建用户
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requirePermission('user:create'), async (req: Request, res: Response) => {
   try {
     const data: CreateUserRequest = req.body;
 
@@ -83,7 +87,7 @@ router.post('/', async (req: Request, res: Response) => {
 /**
  * PUT /users/:id - 更新用户
  */
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', requirePermission('user:update'), async (req: Request, res: Response) => {
   try {
     const data: UpdateUserRequest = req.body;
     const user = await userService.updateUser(req.params.id, data);
@@ -99,7 +103,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 /**
  * DELETE /users/:id - 删除用户
  */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requirePermission('user:delete'), async (req: Request, res: Response) => {
   try {
     await userService.deleteUser(req.params.id);
     res.json(success({ message: '删除成功' }));
@@ -114,7 +118,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 /**
  * PUT /users/:id/status - 更新用户状态
  */
-router.put('/:id/status', async (req: Request, res: Response) => {
+router.put('/:id/status', requirePermission('user:update'), async (req: Request, res: Response) => {
   try {
     const { status } = req.body;
     if (!status) {
@@ -130,7 +134,7 @@ router.put('/:id/status', async (req: Request, res: Response) => {
 /**
  * POST /users/batch/status - 批量更新状态
  */
-router.post('/batch/status', async (req: Request, res: Response) => {
+router.post('/batch/status', requirePermission('user:update'), async (req: Request, res: Response) => {
   try {
     const { ids, status } = req.body;
     if (!ids || !Array.isArray(ids) || !status) {
@@ -146,7 +150,7 @@ router.post('/batch/status', async (req: Request, res: Response) => {
 /**
  * POST /users/batch/delete - 批量删除
  */
-router.post('/batch/delete', async (req: Request, res: Response) => {
+router.post('/batch/delete', requirePermission('user:delete'), async (req: Request, res: Response) => {
   try {
     const { ids } = req.body;
     if (!ids || !Array.isArray(ids)) {
@@ -162,7 +166,7 @@ router.post('/batch/delete', async (req: Request, res: Response) => {
 /**
  * POST /users/:id/reset-password - 重置密码
  */
-router.post('/:id/reset-password', async (req: Request, res: Response) => {
+router.post('/:id/reset-password', requirePermission('user:update'), async (req: Request, res: Response) => {
   try {
     const newPassword = await userService.resetPassword(req.params.id);
     res.json(success({ newPassword }));

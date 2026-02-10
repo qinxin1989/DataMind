@@ -41,6 +41,9 @@
         <template v-if="column.key === 'action'">
           <a-tag :color="getActionColor(record.action)">{{ getActionText(record.action) }}</a-tag>
         </template>
+        <template v-else-if="column.key === 'resourceType'">
+          {{ getResourceText(record.resourceType) }}
+        </template>
         <template v-else-if="column.key === 'timestamp'">
           {{ formatDate(record.timestamp) }}
         </template>
@@ -125,7 +128,7 @@ async function fetchLogs() {
     
     const res = await systemApi.getAuditLogs(params)
     if (res.success && res.data) {
-      logs.value = res.data.list
+      logs.value = res.data.items || []
       pagination.total = res.data.total
     }
   } catch (error) {
@@ -203,7 +206,25 @@ function getActionText(action: string) {
   return texts[action] || action
 }
 
+function getResourceText(type: string) {
+  const texts: Record<string, string> = {
+    auth: '用户认证',
+    system_backup: '系统备份',
+    session: '会话管理',
+    table: '数据表',
+    system: '系统管理',
+    backup: '备份文件',
+    file: '文件管理',
+    user: '用户管理',
+    role: '角色管理',
+    menu: '菜单管理',
+    monitoring: '系统监控'
+  }
+  return texts[type] || type
+}
+
 function formatDate(timestamp: number) {
+  if (!timestamp || isNaN(timestamp)) return '-'
   return new Date(timestamp).toLocaleString()
 }
 

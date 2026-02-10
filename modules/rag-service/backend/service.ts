@@ -18,15 +18,14 @@ import type {
     RetrieveMode
 } from './types';
 
-// 从原 RAG 引擎导入核心功能
-import { RAGEngine } from './ragEngine';
+import { ragManager } from './manager';
+import type { RAGEngine } from './ragEngine';
 import { AgenticRetriever } from './agenticRetriever';
 
 export class RagService {
     private db: Pool;
-    private ragEngine: RAGEngine | null = null;
-    private agenticRetriever: AgenticRetriever | null = null;
     private userId: string;
+    private agenticRetriever: AgenticRetriever | null = null;
 
     constructor(db: Pool, userId: string = 'system') {
         this.db = db;
@@ -38,21 +37,16 @@ export class RagService {
      */
     async initialize(aiConfigs: any[]): Promise<void> {
         if (aiConfigs.length > 0) {
-            const config = aiConfigs[0];
-            this.ragEngine = new RAGEngine(
-                aiConfigs,
-                config.baseUrl,
-                config.model,
-                'text-embedding-v2',
-                this.userId,
-                this.db
-            );
-            await this.ragEngine.loadFromDatabase();
+            await ragManager.getOrCreate(this.userId, aiConfigs, this.db);
         }
 
         // 初始化 Agentic 检索器
         const knowledgePath = process.cwd() + '/knowledge';
         this.agenticRetriever = new AgenticRetriever(knowledgePath);
+    }
+
+    private get ragEngine(): RAGEngine | null {
+        return ragManager.get(this.userId) || null;
     }
 
     /**

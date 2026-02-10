@@ -34,8 +34,17 @@ export class AuthService {
       throw new Error('用户名至少需要3个字符');
     }
 
-    if (!password || password.length < 6) {
-      throw new Error('密码至少需要6个字符');
+    if (!password || password.length < 8) {
+      throw new Error('密码至少需要8个字符');
+    }
+    if (!/[A-Z]/.test(password)) {
+      throw new Error('密码必须包含至少一个大写字母');
+    }
+    if (!/[a-z]/.test(password)) {
+      throw new Error('密码必须包含至少一个小写字母');
+    }
+    if (!/[0-9]/.test(password)) {
+      throw new Error('密码必须包含至少一个数字');
     }
 
     const [existing] = await this.pool.execute(
@@ -78,8 +87,17 @@ export class AuthService {
       throw new Error('用户名至少需要3个字符');
     }
 
-    if (!password || password.length < 6) {
-      throw new Error('密码至少需要6个字符');
+    if (!password || password.length < 8) {
+      throw new Error('密码至少需要8个字符');
+    }
+    if (!/[A-Z]/.test(password)) {
+      throw new Error('密码必须包含至少一个大写字母');
+    }
+    if (!/[a-z]/.test(password)) {
+      throw new Error('密码必须包含至少一个小写字母');
+    }
+    if (!/[0-9]/.test(password)) {
+      throw new Error('密码必须包含至少一个数字');
     }
 
     const [existing] = await this.pool.execute(
@@ -252,8 +270,17 @@ export class AuthService {
   }
 
   async changePassword(id: string, oldPassword: string, newPassword: string): Promise<void> {
-    if (!newPassword || newPassword.length < 6) {
-      throw new Error('新密码至少需要6个字符');
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('新密码至少需要8个字符');
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      throw new Error('密码必须包含至少一个大写字母');
+    }
+    if (!/[a-z]/.test(newPassword)) {
+      throw new Error('密码必须包含至少一个小写字母');
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      throw new Error('密码必须包含至少一个数字');
     }
 
     const [rows] = await this.pool.execute(
@@ -364,14 +391,9 @@ export class AuthService {
       );
 
       console.log('已创建默认管理员账户: admin / admin123');
-    } else if (!existingAdmin.password_hash) {
-      // 存在 admin 用户但没有密码，更新密码
-      const hashedPassword = await bcrypt.hash('admin123', 10);
-      await this.pool.execute(
-        'UPDATE sys_users SET password_hash = ?, role = ?, status = ? WHERE username = ?',
-        [hashedPassword, 'admin', 'active', 'admin']
-      );
-      console.log('已更新管理员账户密码: admin / admin123');
+    } else {
+      // admin 用户已存在，不做任何操作（不再重置密码）
+      console.log('管理员账户已存在，跳过初始化');
     }
   }
 }

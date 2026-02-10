@@ -116,11 +116,11 @@ export class FrontendRouteManager {
    */
   getAllRoutes(): FrontendRouteConfig[] {
     const allRoutes: FrontendRouteConfig[] = [];
-    
+
     for (const moduleInfo of this.moduleRoutes.values()) {
       allRoutes.push(...moduleInfo.routes);
     }
-    
+
     return allRoutes;
   }
 
@@ -144,7 +144,7 @@ export class FrontendRouteManager {
    */
   addToRouter(router: Router): void {
     this.router = router;
-    
+
     // 添加所有已注册的路由
     for (const moduleInfo of this.moduleRoutes.values()) {
       this.addRoutesToRouter(moduleInfo.routes);
@@ -186,7 +186,7 @@ export class FrontendRouteManager {
       if (route.name) {
         const prefixedName = this.getPrefixedName(moduleName, route.name as string);
         const existingModule = this.routeNames.get(prefixedName);
-        
+
         if (existingModule && existingModule !== moduleName) {
           conflicts.push({
             name: route.name as string,
@@ -210,7 +210,7 @@ export class FrontendRouteManager {
    */
   private addModulePrefix(moduleName: string, routes: FrontendRouteConfig[]): FrontendRouteConfig[] {
     return routes.map(route => {
-      const prefixedRoute = { ...route };
+      const prefixedRoute: FrontendRouteConfig = { ...route };
 
       // 添加模块前缀到路由名称
       if (prefixedRoute.name) {
@@ -321,13 +321,13 @@ export class FrontendRouteManager {
    */
   private countRoutes(routes: FrontendRouteConfig[]): number {
     let count = routes.length;
-    
+
     for (const route of routes) {
       if (route.children) {
         count += this.countRoutes(route.children);
       }
     }
-    
+
     return count;
   }
 }

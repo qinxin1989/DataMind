@@ -4,7 +4,7 @@
  */
 
 import OpenAI from 'openai';
-import { aiConfigService } from '../admin/modules/ai/aiConfigService';
+import { aiConfigService } from '../admin';
 import { pool } from '../admin/core/database';
 import { v4 as uuidv4 } from 'uuid';
 

@@ -8,7 +8,7 @@ export const menuApi = {
 
   // 获取完整菜单树
   getFullMenuTree: () =>
-    get<MenuItem[]>('/admin/menus'),
+    get<MenuItem[]>('/admin/menus?tree=true'),
 
   // 创建菜单
   create: (data: Partial<MenuItem>) =>

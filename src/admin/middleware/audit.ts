@@ -4,7 +4,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { auditService } from '../modules/audit/auditService';
+import { auditService } from '../../../modules/audit-log/backend/service';
 import type { AuditAction } from '../types';
 
 /** 敏感操作列表 */
@@ -118,7 +118,7 @@ export function auditMiddleware(config: AuditMiddlewareConfig = {}) {
 export function requireConfirmation(operationCode: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const confirmation = req.headers['x-confirm-operation'];
-    
+
     if (confirmation !== operationCode) {
       return res.status(400).json({
         success: false,

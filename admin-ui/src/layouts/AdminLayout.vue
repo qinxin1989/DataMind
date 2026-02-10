@@ -107,11 +107,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, h } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { usePermissionStore } from '@/stores/permission'
 import { message } from 'ant-design-vue'
-import { menuApi } from '@/api/menu'
 import { 
   RobotOutlined, 
   MenuUnfoldOutlined, 
@@ -142,6 +142,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const permissionStore = usePermissionStore()
 
 // 图标映射 - 导入所有可能用到的图标
 const iconMap: Record<string, any> = {
@@ -194,31 +195,23 @@ watch(collapsed, (val) => {
 const selectedKeys = ref<string[]>([])
 const openKeys = ref<string[]>([])
 
-const dynamicMenus = ref<any[]>([])
-
 async function fetchMenus() {
-  try {
-    const res = await menuApi.getUserMenuTree()
-    if (res.success && res.data) {
-      dynamicMenus.value = res.data
-      nextTick(() => {
-        updateMenuSelection()
-      })
-    }
-  } catch (error) {
-    console.error('Failed to fetch menus:', error)
-  }
+  if (permissionStore.loaded) return
+  await permissionStore.loadMenuTree()
+  nextTick(() => {
+    updateMenuSelection()
+  })
 }
 
 const menus = computed(() => {
   const mapItem = (item: any) => ({
     key: item.id,
     label: item.title,
-    icon: getIcon(item.icon),
+    icon: h(getIcon(item.icon)), // 使用 h 函数确保图标正确渲染
     path: item.path,
     children: item.children ? item.children.map(mapItem) : undefined
   })
-  return dynamicMenus.value.map(mapItem)
+  return permissionStore.menuTree.map(mapItem)
 })
 
 // 顶级子菜单 Key 列表，用于实现手风琴效果
@@ -279,25 +272,48 @@ watch(
 function updateMenuSelection() {
   const path = route.path
   
-  // 查找匹配的菜单
-  for (const item of menus.value) {
-    if (item.path === path) {
-      selectedKeys.value = [item.key]
-      // 如果是顶级菜单项（无子菜单），清空所有展开的菜单
-      openKeys.value = []
-      return
+  let targetKey: string | null = null
+  let targetOpenKey: string | null = null
+  let maxLen = -1
+
+  // Helper to check match and update if better
+  const checkMatch = (itemPath: string, key: string, openKey: string | null) => {
+    // 匹配规则: 精确匹配 OR 路径前缀匹配(需以/结尾防止部分字符匹配)
+    if (path === itemPath || path.startsWith(itemPath + '/')) {
+      if (itemPath.length > maxLen) {
+        maxLen = itemPath.length
+        targetKey = key
+        targetOpenKey = openKey
+      }
     }
+  }
+
+  // 遍历菜单寻找最佳匹配
+  for (const item of menus.value) {
+    // 1. 检查顶级菜单
+    if (item.path) {
+      checkMatch(item.path, item.key, null)
+    }
+
+    // 2. 检查子菜单
     if (item.children) {
       for (const child of item.children) {
-        // 部分匹配，处理子路由情况
-        if (child.path && path.startsWith(String(child.path))) {
-          selectedKeys.value = [child.key]
-          const parentKey = 'p_' + item.key
-          // 手风琴效果：只展开当前匹配的父菜单
-          openKeys.value = [parentKey]
-          return
+        if (child.path) {
+          // 子菜单匹配时，需要展开对应的父菜单(key前缀p_)
+          checkMatch(child.path, child.key, 'p_' + item.key)
         }
       }
+    }
+  }
+
+  // 应用最佳匹配
+  if (targetKey) {
+    selectedKeys.value = [targetKey]
+    // 设置展开项 (手风琴效果)
+    if (targetOpenKey) {
+      openKeys.value = [targetOpenKey]
+    } else {
+      openKeys.value = []
     }
   }
 }

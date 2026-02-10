@@ -209,7 +209,7 @@ curl -X POST http://localhost:3000/api/auth/login \
 
 ```bash
 # PM2 日志
-pm2 logs ai-data-platform
+pm2 logs DataMind
 
 # 应用日志
 tail -f logs/app.log
@@ -357,7 +357,7 @@ server {
     
     # 静态文件
     location /uploads {
-        alias /path/to/ai-data-platform/uploads;
+        alias /path/to/DataMind/uploads;
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
@@ -401,7 +401,7 @@ pm2 logs --lines 100
 pm2 monit
 
 # 3. 重启服务（如需要）
-pm2 restart ai-data-platform
+pm2 restart DataMind
 
 # 4. 清理日志
 pm2 flush
@@ -426,7 +426,7 @@ pm2 flush
 如遇到问题，请联系：
 - 技术支持: support@example.com
 - 文档: https://docs.example.com
-- GitHub: https://github.com/your-org/ai-data-platform
+- GitHub: https://github.com/your-org/DataMind
 
 ---
 
