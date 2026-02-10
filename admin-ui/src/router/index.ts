@@ -165,7 +165,7 @@ const routes: RouteRecordRaw[] = [
             path: 'approval',
             name: 'DatasourceApproval',
             component: () => import('@/views/datasource/approval.vue'),
-            meta: { title: '数据源审核', icon: 'AuditOutlined', permission: 'datasource:approve' },
+            meta: { title: '数据源审核', icon: 'AuditOutlined' },
           },
         ]
       },
@@ -208,7 +208,7 @@ const routes: RouteRecordRaw[] = [
             path: '/system/monitoring',
             name: 'SystemMonitoring',
             component: () => import('@/views/system/monitoring.vue'),
-            meta: { title: '系统监控', permission: 'system:view' },
+            meta: { title: '系统监控' },
           },
           {
             path: '/system/audit',

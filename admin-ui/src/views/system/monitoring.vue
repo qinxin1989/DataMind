@@ -56,8 +56,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { message } from 'ant-design-vue'
-import axios from 'axios'
+import { get } from '@/api/request'
 
 const metrics = ref<any>({})
 const slowQueries = ref<any[]>([])
@@ -73,15 +72,15 @@ const slowQueryColumns = [
 async function fetchData() {
   try {
     const [resMetrics, resSlow] = await Promise.all([
-      axios.get('/api/admin/monitoring/metrics'),
-      axios.get('/api/admin/monitoring/slow-queries?limit=10')
+      get('/admin/monitoring/metrics'),
+      get('/admin/monitoring/slow-queries?limit=10')
     ])
     
-    if (resMetrics.data.success) {
-      metrics.value = resMetrics.data.data
+    if (resMetrics.success) {
+      metrics.value = resMetrics.data
     }
-    if (resSlow.data.success) {
-      slowQueries.value = resSlow.data.data
+    if (resSlow.success) {
+      slowQueries.value = resSlow.data
     }
   } catch (error) {
     console.error('Fetch monitoring data failed:', error)

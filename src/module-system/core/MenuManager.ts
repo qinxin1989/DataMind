@@ -66,24 +66,9 @@ export class MenuManager {
               conn
             );
           } else {
-            // 菜单已存在，同步结构性字段（parent_id, sort_order, path, icon）
-            // 确保菜单层级和导航始终与 module.json 定义一致
-            await query(
-              `UPDATE sys_menus 
-               SET parent_id = ?, sort_order = ?, path = ?, icon = ?, 
-                   permission_code = ?, module_name = ?, updated_at = NOW()
-               WHERE id = ?`,
-              [
-                menu.parentId || null,
-                menu.sortOrder,
-                menu.path,
-                menu.icon || null,
-                menu.permission || null,
-                moduleName,
-                menu.id
-              ],
-              conn
-            );
+            // 菜单已存在，跳过强制覆盖以保护用户在 UI 中的所有配置（标题、路径、图标、排序、父级、可见性等）
+            // 确保数据库记录作为最终的可信数据源
+            // console.log(`Menu ${menu.id} already exists, preserving database settings.`);
           }
         }
       });

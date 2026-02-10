@@ -26,7 +26,7 @@
             "path": "/datasource/approval",
             "permission": "datasource:approve",
             "parentId": "ops-management",
-            "sortOrder": 1
+            "sortOrder": 600
         }
     ]
 }
