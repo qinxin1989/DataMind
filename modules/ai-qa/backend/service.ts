@@ -352,8 +352,8 @@ export class AIQAService {
 
   async createDataSource(config: Omit<DataSourceConfig, 'id'>, userId: string): Promise<DataSourceConfig> {
     const fullConfig: DataSourceConfig = { ...config, id: uuidv4(), userId };
-    await dataSourceManager.register(fullConfig);
-    await this.configStore.save(fullConfig);
+    await dataSourceManager.register(fullConfig as any);
+    await this.configStore.save(fullConfig as any);
     return fullConfig;
   }
 
@@ -364,7 +364,7 @@ export class AIQAService {
     }
     const newConfig: DataSourceConfig = { ...ds.config, ...updates, id, userId: ds.config.userId || userId };
     await dataSourceManager.register(newConfig as any);
-    await this.configStore.save(newConfig);
+    await this.configStore.save(newConfig as any);
     return newConfig;
   }
 
@@ -383,7 +383,7 @@ export class AIQAService {
   async testDataSourceConnection(config: Partial<DataSourceConfig>, userId: string): Promise<{ success: boolean; error?: string }> {
     try {
       const testConfig: DataSourceConfig = { ...config as DataSourceConfig, id: 'test', userId };
-      const instance = createDataSource(testConfig);
+      const instance = createDataSource(testConfig as any);
       await instance.testConnection();
       return { success: true };
     } catch (error: any) {
@@ -484,7 +484,7 @@ export class AIQAService {
     console.log(`📊 数据源: ${datasourceId}`);
     console.log(`❓ 问题: ${question}`);
     console.log(`💬 会话ID: ${sessionId || '新会话'}`);
-    
+
     const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
@@ -521,7 +521,7 @@ export class AIQAService {
       session.messages,
       { schemaContext }
     );
-    
+
     // 记录AI响应
     console.log(`\n========== AI 响应 ==========`);
     console.log(`💡 完整回答 (${response.answer?.length || 0} 字符):`);
@@ -537,7 +537,7 @@ export class AIQAService {
       console.log(`\n💰 Token消耗: ${response.tokensUsed}`);
     }
     console.log(`========== 响应结束 ==========\n`);
-    
+
 
     let maskedData = response.data;
     let maskedAnswer = response.answer;
@@ -549,7 +549,14 @@ export class AIQAService {
     }
 
     session.messages.push({ role: 'user', content: question, timestamp: Date.now() });
-    session.messages.push({ role: 'assistant', content: maskedAnswer, sql: response.sql, timestamp: Date.now() });
+    session.messages.push({
+      role: 'assistant',
+      content: maskedAnswer,
+      sql: response.sql,
+      chart: response.chart,
+      charts: response.charts,
+      timestamp: Date.now()
+    });
     await this.configStore.saveChatSession(session, userId);
 
     return {
@@ -619,11 +626,11 @@ export class AIQAService {
     if (!session || !session.messages[messageIndex]) {
       return false;
     }
-    
+
     // 更新消息的 chartConfig
     const message = session.messages[messageIndex];
     message.chartConfig = { ...(message.chartConfig || {}), ...config };
-    
+
     // 保存会话
     await this.configStore.saveChatSession(session, userId);
     return true;

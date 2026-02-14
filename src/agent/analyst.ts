@@ -45,7 +45,7 @@ export class AutoAnalyst {
   // 格式化schema
   private formatSchema(schemas: TableSchema[]): string {
     return schemas.map(table => {
-      const cols = table.columns.map(c => 
+      const cols = table.columns.map(c =>
         `  - ${c.name} (${c.type}${c.comment ? `, ${c.comment}` : ''})`
       ).join('\n');
       return `表: ${table.tableName}\n${cols}`;
@@ -61,7 +61,7 @@ export class AutoAnalyst {
     const schemaDesc = this.formatSchema(schemas);
     const tableNames = schemas.map(s => s.tableName).join(', ');
     const tableCount = schemas.length;
-    
+
     // 检测是否是质量分析
     const isQualityAnalysis = topic.includes('质量') || topic.includes('完整性') || topic.includes('校验');
 
@@ -110,7 +110,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
 
     const content = response.choices[0].message.content || '{}';
     console.log('Analysis plan:', content.substring(0, 500));
-    
+
     try {
       const jsonStr = content.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
       const plan = JSON.parse(jsonStr);
@@ -155,11 +155,11 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
   // 转义 MySQL 保留字
   private escapeReservedWords(sql: string, dbType: string): string {
     if (dbType !== 'mysql') return sql;
-    
+
     // 匹配 SELECT 子句中的字段名（包括 COUNT(field) 等函数中的字段）
     // 以及 FROM/JOIN 后的表名和字段名
     let escapedSql = sql;
-    
+
     // 转义 COUNT(field), SUM(field) 等聚合函数中的保留字
     escapedSql = escapedSql.replace(
       /\b(COUNT|SUM|AVG|MAX|MIN|GROUP_CONCAT)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)/gi,
@@ -170,7 +170,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
         return match;
       }
     );
-    
+
     // 转义 SELECT 子句中的独立字段名（不在函数内的）
     // 匹配模式：SELECT field1, field2 或 SELECT table.field
     escapedSql = escapedSql.replace(
@@ -182,7 +182,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
             // 跳过 SQL 关键字和函数名
             const keywords = ['as', 'distinct', 'count', 'sum', 'avg', 'max', 'min', 'case', 'when', 'then', 'else', 'end', 'null'];
             if (keywords.includes(field.toLowerCase())) return fieldMatch;
-            
+
             if (AutoAnalyst.MYSQL_RESERVED_WORDS.has(field.toLowerCase())) {
               return `\`${field}\``;
             }
@@ -192,10 +192,10 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
         return `SELECT ${escapedSelect} FROM`;
       }
     );
-    
+
     console.log(`[SQL Escape] Original: ${sql}`);
     console.log(`[SQL Escape] Escaped: ${escapedSql}`);
-    
+
     return escapedSql;
   }
 
@@ -210,29 +210,29 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
       // 转义 MySQL 保留字
       const escapedSql = this.escapeReservedWords(sql, dbType);
       const queryResult = await dataSource.executeQuery(escapedSql);
-      
+
       if (!queryResult.success) {
         return { result: null, summary: `查询未能完成` };
       }
 
       const data = queryResult.data || [];
       const rowCount = data.length;
-      
+
       if (rowCount === 0) {
         return { result: [], summary: '未查询到相关数据' };
       }
-      
+
       const firstRow = data[0];
       const keys = Object.keys(firstRow);
-      
+
       // 找到标签字段和数值字段
       const labelKey = keys.find(k => typeof firstRow[k] === 'string' || this.isCodeField(k, firstRow[k]));
       const valueKey = keys.find(k => typeof firstRow[k] === 'number' && k !== labelKey);
-      
+
       // 生成自然语言摘要
       let summary = '';
       let chart: ChartInfo | undefined;
-      
+
       if (rowCount === 1) {
         // 单行结果 - 转换为自然语言
         summary = this.formatSingleRowSummary(firstRow, keys);
@@ -242,27 +242,27 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
           ...d,
           [labelKey]: this.translateLabel(String(d[labelKey] ?? '未知'))
         }));
-        
+
         const items = translatedData.slice(0, 5).map(d => {
           const label = String(d[labelKey]);
-          const value = this.formatNumber(Number(d[valueKey]) || 0);
+          const value = this.formatValueWithFieldUnit(Number(d[valueKey]) || 0, valueKey);
           return `${label} ${value}`;
         });
         summary = `共 ${rowCount} 组：${items.join('，')}${rowCount > 5 ? ' 等' : ''}`;
-        
+
         // 生成图表 - 分布类用饼图，排名类用柱状图
         const descLower = description.toLowerCase();
         const chartType = (descLower.includes('分布') || descLower.includes('占比') || rowCount <= 6) ? 'pie' : 'bar';
-        
+
         // 处理图表数据，超过限制时合并为"其他"
         const maxItems = chartType === 'pie' ? 8 : 12;
         let chartData = translatedData;
-        
+
         if (translatedData.length > maxItems) {
           const sortedData = [...translatedData].sort((a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0));
           const topItems = sortedData.slice(0, maxItems - 1);
           const otherItems = sortedData.slice(maxItems - 1);
-          
+
           // 判断是否是平均值类的数据
           const isAverage = String(valueKey).toLowerCase().includes('avg') || description.includes('平均');
           let otherValue: number;
@@ -271,14 +271,14 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
           } else {
             otherValue = otherItems.reduce((sum, item) => sum + (Number(item[valueKey]) || 0), 0);
           }
-          
+
           const otherItem: any = { ...topItems[0] };
           otherItem[labelKey] = `其他(${otherItems.length}项)`;
           otherItem[valueKey] = isAverage ? Number(otherValue.toFixed(1)) : otherValue;
-          
+
           chartData = [...topItems, otherItem];
         }
-        
+
         chart = {
           type: chartType,
           title: description.slice(0, 20),
@@ -290,15 +290,15 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
         // 大量数据 - 取TOP项并合并其他
         if (valueKey && labelKey) {
           const sortedData = [...data].sort((a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0));
-          
+
           // 取前9项，剩余合并为"其他"
           const topItems = sortedData.slice(0, 9).map(d => ({
             ...d,
             [labelKey]: this.translateLabel(String(d[labelKey] ?? '未知'))
           }));
-          
+
           const otherItems = sortedData.slice(9);
-          
+
           // 判断是否是平均值类的数据
           const isAverage = String(valueKey).toLowerCase().includes('avg') || description.includes('平均');
           let otherValue: number;
@@ -307,19 +307,19 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
           } else {
             otherValue = otherItems.reduce((sum, item) => sum + (Number(item[valueKey]) || 0), 0);
           }
-          
+
           const otherItem: any = {};
           otherItem[labelKey] = `其他(${otherItems.length}项)`;
           otherItem[valueKey] = isAverage ? Number(otherValue.toFixed(1)) : otherValue;
-          
+
           const chartData = [...topItems, otherItem];
-          
+
           const values = data.map(d => Number(d[valueKey]) || 0);
           const total = values.reduce((a, b) => a + b, 0);
           const max = Math.max(...values);
           const min = Math.min(...values);
-          summary = `共 ${rowCount} 条，总计 ${this.formatNumber(total)}，最大 ${this.formatNumber(max)}，最小 ${this.formatNumber(min)}`;
-          
+          summary = `共 ${rowCount} 条，总计 ${this.formatValueWithFieldUnit(total, valueKey)}，最大 ${this.formatValueWithFieldUnit(max, valueKey)}，最小 ${this.formatValueWithFieldUnit(min, valueKey)}`;
+
           chart = {
             type: 'bar',
             title: `${description.slice(0, 15)}`,
@@ -343,16 +343,92 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
   // 判断是否是代码字段
   private isCodeField(fieldName: string, value: any): boolean {
     const lower = fieldName.toLowerCase();
-    return lower.includes('代码') || lower.includes('code') || 
-           (typeof value === 'number' && (value === 0 || value === 1));
+    return lower.includes('代码') || lower.includes('code') ||
+      (typeof value === 'number' && (value === 0 || value === 1));
   }
 
-  // 格式化数值
+  // 格式化数值（中文习惯：用万/亿等单位）
   private formatNumber(value: number): string {
-    if (Number.isInteger(value)) {
-      return value.toLocaleString();
+    if (!Number.isFinite(value)) return String(value);
+
+    const abs = Math.abs(value);
+
+    // 小数值保留适当精度
+    if (abs > 0 && abs < 0.01) return value.toFixed(4);
+    if (abs > 0 && abs < 1) return value.toFixed(3);
+    if (abs < 10000) {
+      return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
     }
-    return value.toFixed(2);
+
+    // 大数值用中文单位
+    if (abs >= 100000000) {
+      return (value / 100000000).toFixed(2) + '亿';
+    }
+    if (abs >= 10000) {
+      return (value / 10000).toFixed(2) + '万';
+    }
+
+    return value.toLocaleString();
+  }
+
+  // 带字段语义单位的智能格式化（用于报告文本）
+  private formatValueWithFieldUnit(value: number, fieldName: string): string {
+    if (!Number.isFinite(value)) return String(value);
+
+    const lower = fieldName.toLowerCase();
+    const abs = Math.abs(value);
+
+    // 人均GDP/GNP：数据库以百万美元为单位
+    const isPerCapita = lower.includes('percapita') || lower.includes('per_capita');
+    const isGDP = lower.includes('gnp') || lower.includes('gdp');
+
+    if (isPerCapita && isGDP) {
+      // 0.036 百万 = 36,000 美元 = 3.6 万美元
+      const usd = value * 1000000;
+      if (usd >= 10000) {
+        return (usd / 10000).toFixed(2) + '万美元';
+      }
+      return usd.toFixed(0) + '美元';
+    }
+
+    // GDP/GNP 总量：数据库以百万美元为单位
+    if (isGDP) {
+      if (abs >= 1000000) return (value / 1000000).toFixed(2) + '万亿美元';
+      if (abs >= 1000) return (value / 1000).toFixed(2) + '亿美元';
+      if (abs >= 1) return (value).toFixed(2) + '百万美元';
+      return value.toFixed(4) + '百万美元';
+    }
+
+    // 面积：平方公里
+    if (lower.includes('area') || lower.includes('surface') || lower.includes('面积')) {
+      if (abs >= 1000000) return (value / 10000).toFixed(2) + '万平方公里';
+      return this.formatNumber(value) + '平方公里';
+    }
+
+    // 人口
+    if (lower.includes('population') || lower.includes('人口') || lower.includes('人数')) {
+      if (abs >= 100000000) return (value / 100000000).toFixed(2) + '亿人';
+      if (abs >= 10000) return (value / 10000).toFixed(2) + '万人';
+      return this.formatNumber(value) + '人';
+    }
+
+    // 百分比/比率
+    if (lower.includes('percentage') || lower.includes('ratio') || lower.includes('百分比') || lower.includes('比率')) {
+      return value.toFixed(2) + '%';
+    }
+
+    // 年龄/寿命
+    if (lower.includes('expectancy') || lower.includes('age') || lower.includes('寿命') || lower.includes('年龄')) {
+      return value.toFixed(2) + '岁';
+    }
+
+    // 数量类
+    if (lower.includes('count') || lower.includes('数量') || lower.includes('个数') || lower === 'total') {
+      return this.formatNumber(value) + '个';
+    }
+
+    // 默认：用中文万/亿格式
+    return this.formatNumber(value);
   }
 
   // 翻译标签为中文
@@ -362,36 +438,36 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
       'Africa': '非洲', 'Asia': '亚洲', 'Europe': '欧洲',
       'North America': '北美洲', 'South America': '南美洲', 'Oceania': '大洋洲', 'Antarctica': '南极洲'
     };
-    
+
     // 国家代码翻译
     const countryMap: Record<string, string> = {
       'CHN': '中国', 'USA': '美国', 'IND': '印度', 'BRA': '巴西', 'JPN': '日本',
       'RUS': '俄罗斯', 'DEU': '德国', 'GBR': '英国', 'FRA': '法国', 'ITA': '意大利'
     };
-    
+
     // 语言翻译
     const langMap: Record<string, string> = {
       'English': '英语', 'Chinese': '中文', 'Spanish': '西班牙语', 'Arabic': '阿拉伯语',
       'French': '法语', 'German': '德语', 'Japanese': '日语', 'Portuguese': '葡萄牙语'
     };
-    
+
     // 政府形式翻译
     const govMap: Record<string, string> = {
-      'Republic': '共和制', 'Constitutional Monarchy': '君主立宪制', 
+      'Republic': '共和制', 'Constitutional Monarchy': '君主立宪制',
       'Federal Republic': '联邦共和制', 'Monarchy': '君主制',
       'Dependent Territory of the UK': '英国属地'
     };
-    
+
     // 性别代码
     if (value === '0') return '女性';
     if (value === '1') return '男性';
-    
+
     // 查找翻译
     if (continentMap[value]) return continentMap[value];
     if (countryMap[value]) return countryMap[value];
     if (langMap[value]) return langMap[value];
     if (govMap[value]) return govMap[value];
-    
+
     return value;
   }
 
@@ -400,26 +476,26 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
     const map: Record<string, string> = {
       'count': '数量', 'total': '总数', 'sum': '总计', 'avg': '平均',
       'max': '最大值', 'min': '最小值', 'record_count': '记录数',
-      'avg_population': '平均人口', 'avg_area': '平均面积', 
+      'avg_population': '平均人口', 'avg_area': '平均面积',
       'avg_gnp': '平均GNP', 'avg_life_expectancy': '平均预期寿命',
       'total_population': '总人口', 'avg_city_population': '平均城市人口',
       'max_city_population': '最大城市人口', 'min_city_population': '最小城市人口',
       'max_age': '最大年龄', 'min_age': '最小年龄', 'avg_age': '平均年龄',
     };
-    
+
     const lower = fieldName.toLowerCase();
-    
+
     // 精确匹配
     if (map[lower]) return map[lower];
-    
+
     // 部分匹配
     for (const [key, label] of Object.entries(map)) {
       if (lower.includes(key)) return label;
     }
-    
+
     // 如果是中文，直接返回
     if (/[\u4e00-\u9fa5]/.test(fieldName)) return fieldName;
-    
+
     // 尝试转换下划线命名
     return fieldName.replace(/_/g, ' ');
   }
@@ -427,14 +503,14 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
   // 格式化单行结果为自然语言摘要
   private formatSingleRowSummary(row: any, keys: string[]): string {
     const parts: string[] = [];
-    
+
     for (const k of keys) {
       const v = row[k];
       if (typeof v !== 'number') continue;
-      
+
       const lower = k.toLowerCase();
-      const formattedValue = this.formatNumber(v);
-      
+      const formattedValue = this.formatValueWithFieldUnit(v, k);
+
       // 根据字段名生成自然语言描述
       if (lower.includes('count') || lower.includes('记录') || lower === 'total' || lower === '数量') {
         parts.push(`共${formattedValue}条`);
@@ -466,7 +542,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
         parts.push(`${label}${formattedValue}`);
       }
     }
-    
+
     return parts.length > 0 ? parts.join('，') : '查询完成';
   }
 
@@ -477,16 +553,16 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
   ): Promise<{ conclusion: string; insights: string[]; recommendations: string[] }> {
     // 如果步骤很少或都失败了，直接返回简单结论
     const successSteps = steps.filter(s => s.summary && !s.summary.includes('失败') && !s.summary.includes('出错'));
-    
+
     if (successSteps.length === 0) {
-      return { 
-        conclusion: '分析过程中遇到问题，未能获取有效数据', 
-        insights: ['数据查询失败，请检查数据源'], 
-        recommendations: ['检查数据源连接', '确认表结构正确'] 
+      return {
+        conclusion: '分析过程中遇到问题，未能获取有效数据',
+        insights: ['数据查询失败，请检查数据源'],
+        recommendations: ['检查数据源连接', '确认表结构正确']
       };
     }
 
-    const stepsContext = successSteps.slice(0, 6).map(s => 
+    const stepsContext = successSteps.slice(0, 6).map(s =>
       `${s.description}: ${s.summary}`
     ).join('\n');
 
@@ -513,10 +589,10 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
       return JSON.parse(jsonStr);
     } catch {
       // 如果AI调用失败，生成简单结论
-      return { 
-        conclusion: `完成了${successSteps.length}项分析`, 
-        insights: successSteps.slice(0, 3).map(s => s.summary || s.description), 
-        recommendations: ['可以针对具体维度深入分析'] 
+      return {
+        conclusion: `完成了${successSteps.length}项分析`,
+        insights: successSteps.slice(0, 3).map(s => s.summary || s.description),
+        recommendations: ['可以针对具体维度深入分析']
       };
     }
   }
@@ -536,7 +612,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
     console.log('Planning analysis...');
     const plan = await this.planAnalysis(topic, schemas, dbType);
     console.log('Plan created with', plan.steps?.length || 0, 'steps');
-    
+
     if (!plan.steps || plan.steps.length === 0) {
       return {
         title: plan.title || '数据分析',
@@ -547,7 +623,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
         recommendations: []
       };
     }
-    
+
     const steps: AnalysisStep[] = [];
     const charts: ChartInfo[] = [];
 
@@ -556,7 +632,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
     for (let i = 0; i < maxSteps; i++) {
       const planStep = plan.steps[i];
       console.log(`Executing step ${i + 1}/${maxSteps}: ${planStep.description}`);
-      
+
       const step: AnalysisStep = {
         step: i + 1,
         description: planStep.description,
@@ -574,16 +650,16 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
       step.result = result;
       step.summary = summary;
       step.chart = chart;
-      
+
       // 收集图表
       if (chart) {
         charts.push(chart);
       }
-      
+
       console.log(`Step ${i + 1} result:`, summary, chart ? '(有图表)' : '');
 
       steps.push(step);
-      
+
       if (onProgress) {
         onProgress(step);
       }
@@ -615,7 +691,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
   // 润色分析步骤（描述和摘要），使其更自然流畅
   private async polishStepsSummary(steps: AnalysisStep[]): Promise<AnalysisStep[]> {
     // 收集所有步骤的描述和摘要
-    const stepsText = steps.map((s, i) => 
+    const stepsText = steps.map((s, i) =>
       `${i + 1}. ${s.description} | ${s.summary || '无结果'}`
     ).join('\n');
 
@@ -655,7 +731,7 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
 
       const polishedText = response.choices[0].message.content || '';
       const polishedLines = polishedText.split('\n').filter(l => l.trim());
-      
+
       // 解析润色后的结果
       return steps.map((step, i) => {
         const line = polishedLines.find(l => l.startsWith(`${i + 1}.`));
@@ -665,11 +741,11 @@ ${isQualityAnalysis ? '4. 质量分析必须包含样本数据查询和空值检
             // 提取描述和摘要
             const descPart = line.substring(line.indexOf('.') + 1, pipeIndex).trim();
             const summaryPart = line.substring(pipeIndex + 3).trim();
-            
-            return { 
-              ...step, 
+
+            return {
+              ...step,
               description: descPart || step.description,
-              summary: summaryPart || step.summary 
+              summary: summaryPart || step.summary
             };
           }
         }

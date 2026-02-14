@@ -35,20 +35,54 @@ export function createDataSourceBridgeRoutes(
         return `数据库连接失败：${message}`;
     }
 
-    // 基于分析数据生成推荐问题
+    // 基于分析数据生成推荐问题（回退逻辑）
     function generateQuestionsFromAnalysis(tables: any[]): string[] {
         const questions: string[] = [];
         for (const table of tables) {
             const tableCn = table.tableNameCn || table.tableName;
-            questions.push(`${tableCn}共有多少条记录？`);
-            const categoryFields = table.columns?.filter((c: any) =>
-                c.name.includes('代码') || c.name.includes('类型') || c.nameCn?.includes('类型')
-            ) || [];
-            for (const field of categoryFields.slice(0, 2)) {
-                questions.push(`按${field.nameCn || field.name}统计${tableCn}的分布情况`);
+
+            // 识别不同类型的字段
+            const numericFields = table.columns?.filter((c: any) => {
+                const name = (c.name || '').toLowerCase();
+                const type = (c.type || '').toLowerCase();
+                return (type.includes('int') || type.includes('decimal') || type.includes('float') || type.includes('number')) &&
+                    !name.includes('id') && !name.includes('code');
+            }) || [];
+
+            const categoryFields = table.columns?.filter((c: any) => {
+                const name = (c.name || '').toLowerCase();
+                return name.includes('type') || name.includes('status') || name.includes('category') ||
+                    name.includes('类型') || name.includes('状态') || name.includes('分类') ||
+                    name.includes('地区') || name.includes('区域') || name.includes('region') || name.includes('continent');
+            }) || [];
+
+            const dateFields = table.columns?.filter((c: any) => {
+                const name = (c.name || '').toLowerCase();
+                const type = (c.type || '').toLowerCase();
+                return type.includes('date') || type.includes('time') ||
+                    name.includes('日期') || name.includes('时间') || name.includes('年') || name.includes('月');
+            }) || [];
+
+            // 排名类
+            if (numericFields.length > 0) {
+                const f = numericFields[0];
+                questions.push(`${f.nameCn || f.name}最高的${tableCn}有哪些？`);
+            }
+            // 分布类
+            if (categoryFields.length > 0) {
+                const f = categoryFields[0];
+                questions.push(`不同${f.nameCn || f.name}的${tableCn}各有多少？`);
+            }
+            // 趋势类
+            if (dateFields.length > 0) {
+                questions.push(`${tableCn}在不同时间段的数量变化`);
+            }
+            // 对比类
+            if (categoryFields.length > 0 && numericFields.length > 0) {
+                questions.push(`各${categoryFields[0].nameCn || categoryFields[0].name}的${numericFields[0].nameCn || numericFields[0].name}对比`);
             }
         }
-        return questions.sort(() => Math.random() - 0.5).slice(0, 15);
+        return [...new Set(questions)].sort(() => Math.random() - 0.5).slice(0, 15);
     }
 
     // 获取数据源列表
@@ -258,13 +292,13 @@ export function createDataSourceBridgeRoutes(
             // 获取现有分析结果
             const cached = await configStore.getSchemaAnalysis(req.params.id, req.user!.id);
             if (!cached) return res.status(404).json({ error: '请先执行分析' });
-            
+
             // 获取数据库 schema
             const schema = await ds.instance.getSchema();
-            
+
             // 调用 AI 生成字段建议
             const analysis = await aiAgent.analyzeSchema(schema);
-            
+
             // 返回建议结果（不自动保存，让用户确认后保存）
             res.json({
                 tables: analysis.tables,

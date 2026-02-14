@@ -9,6 +9,7 @@ import { documentSkills } from './document';
 import { mediaSkills } from './media';
 import { reportSkills } from './report';
 import { crawlerSkills } from './crawler';
+import { qaSkills } from './qa';
 
 // 注册所有技能
 export function registerAllSkills() {
@@ -29,6 +30,10 @@ export function registerAllSkills() {
   // 注册报告技能
   skillsRegistry.registerAll(reportSkills);
   console.log(`[Skills] Registered ${reportSkills.length} report skills`);
+
+  // 注册问答技能
+  skillsRegistry.registerAll(qaSkills);
+  console.log(`[Skills] Registered ${qaSkills.length} qa skills`);
 
   // 注册爬虫技能 (使用已更新的本地实现)
   skillsRegistry.registerAll(crawlerSkills);
@@ -53,6 +58,7 @@ export {
   documentSkills,
   mediaSkills,
   reportSkills,
+  qaSkills,
   crawlerSkills
 };
 

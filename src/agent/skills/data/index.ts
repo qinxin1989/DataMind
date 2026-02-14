@@ -4,6 +4,7 @@
  */
 
 import { SkillDefinition, SkillContext, SkillResult } from '../registry';
+import { advancedDataQuery } from './advanced_query';
 
 // 数据查询技能
 const dataQuery: SkillDefinition = {
@@ -833,13 +834,13 @@ const compareEntities: SkillDefinition = {
 };
 
 // 导出所有数据技能
+
 export const dataSkills: SkillDefinition[] = [
   dataQuery,
   dataAnalyze,
+  dataClean,
   dataSummarize,
   dataJoin,
-  dataClean,
-  // 迁移的技能
   dataStatistics,
   trendAnalysis,
   topRanking,
@@ -847,5 +848,6 @@ export const dataSkills: SkillDefinition[] = [
   anomalyDetection,
   dataExport,
   comprehensiveAnalysis,
-  compareEntities
+  compareEntities,
+  advancedDataQuery
 ];

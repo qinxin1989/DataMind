@@ -7,6 +7,7 @@ import { SkillDefinition, SkillContext, SkillResult } from '../registry';
 import { pptGenerator, PPTConfig, SlideContent } from './pptGenerator';
 import * as fs from 'fs';
 import * as path from 'path';
+import { comprehensiveReport } from './comprehensive';
 
 // 导出 PPT 生成器
 export { pptGenerator, PPTConfig, SlideContent } from './pptGenerator';
@@ -452,5 +453,6 @@ export const reportSkills: SkillDefinition[] = [
   reportSummary,
   reportExcel,
   reportInsight,
-  reportCompare
+  reportCompare,
+  comprehensiveReport
 ];

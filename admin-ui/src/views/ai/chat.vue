@@ -768,7 +768,7 @@ async function loadSessions() {
   } catch (e) { sessions.value = [] }
 }
 
-// 加载会话（懒加载：初始只加载最新的N条消息）
+// 加载会话（快速跳到最新消息，不做滚动动画）
 async function loadSession(id: string) {
   // 取消正在进行的渐进加载
   if (_progressiveAbort) { _progressiveAbort(); _progressiveAbort = null }
@@ -787,48 +787,30 @@ async function loadSession(id: string) {
     hasMoreMessages.value = session.hasMore || false
     totalMessages.value = session.totalMessages || loadedMessages.length
 
-    messages.value = []
+    // 一次性加载所有消息（不做渐进动画）
+    messages.value = loadedMessages.map(m => ({ ...m, _uid: genMsgUid() }))
+    
+    // 等待 DOM 渲染完成后直接跳到底部（无动画）
     await nextTick()
+    if (messagesRef.value) {
+      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    }
 
-    let cancelled = false
-    _progressiveAbort = () => { cancelled = true }
-
-    // 对加载的消息做渐进动画
-    const ANIMATE_COUNT = 10
-    const instantCount = Math.max(0, loadedMessages.length - ANIMATE_COUNT)
-
-    if (instantCount > 0) {
-      const batch = loadedMessages.slice(0, instantCount).map(m => ({ ...m, _uid: genMsgUid() }))
-      messages.value.push(...batch)
-      await nextTick()
-      batch.forEach((_msg, i) => {
-        if (_msg.chart && !noChartMode.value) renderChart(i, _msg.chart)
-        if (_msg.charts?.length && !noChartMode.value) {
-          _msg.charts.forEach((c: any, cIdx: number) => renderChart(i, c, cIdx))
+    // 延迟渲染图表（确保 DOM 完全就绪）
+    setTimeout(() => {
+      messages.value.forEach((msg, i) => {
+        if (msg.chart && !noChartMode.value) renderChart(i, msg.chart)
+        if (msg.charts?.length && !noChartMode.value) {
+          msg.charts.forEach((c: any, cIdx: number) => renderChart(i, c, cIdx))
         }
       })
-    }
-
-    // 逐条渐进加载剩余消息
-    for (let i = instantCount; i < loadedMessages.length; i++) {
-      if (cancelled) return
-
-      const msg: ChatMessage = { ...loadedMessages[i], _uid: genMsgUid() }
-      messages.value.push(msg)
-      await nextTick()
-
-      // 立即渲染图表，确保图表不丢失
-      if (msg.chart && !noChartMode.value) renderChart(i, msg.chart)
-      if (msg.charts?.length && !noChartMode.value) {
-        msg.charts.forEach((c: any, cIdx: number) => renderChart(i, c, cIdx))
-      }
-
-      scrollToBottom()
-
-      if (i < loadedMessages.length - 1) {
-        await new Promise(r => setTimeout(r, 40))
-      }
-    }
+      // 图表渲染后再次确保滚动到底部
+      nextTick(() => {
+        if (messagesRef.value) {
+          messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+        }
+      })
+    }, 100)
 
     _progressiveAbort = null
   } catch (e) { message.error('加载会话失败') }
@@ -1064,17 +1046,76 @@ function renderMarkdown(text: string): string {
 
 // ECharts 渲染逻辑 (经典定制)
 // --- 图表渲染公共工具函数 ---
+// 字段名翻译（英文 -> 中文）
+function translateFieldName(field: string): string {
+  // 常见的组合字段名模式（先匹配组合再匹配单词）
+  const compositeMap: Record<string, string> = {
+    'PerCapitaGDP': '人均GDP', 'PerCapitaGNP': '人均GNP', 'PerCapitaIncome': '人均收入',
+    'SurfaceArea': '国土面积', 'LifeExpectancy': '平均寿命', 'IndepYear': '独立年份',
+    'GovernmentForm': '政府形式', 'HeadOfState': '国家元首', 'CountryCode': '国家代码',
+    'IsOfficial': '是否官方', 'GNPOld': '旧GNP', 'LocalName': '本地名称',
+    'CapitalPopulationRatio': '首都人口占比', 'TotalPopulation': '总人口',
+  }
+  if (compositeMap[field]) return compositeMap[field]
+  
+  const simpleMap: Record<string, string> = {
+    'Name': '名称', 'Population': '人口', 'Continent': '大洲', 'Region': '地区',
+    'GNP': 'GNP', 'GDP': 'GDP', 'Capital': '首都', 'Code': '代码', 'Code2': '代码2',
+    'Language': '语言', 'Percentage': '使用比例', 'District': '区域',
+    'count': '数量', 'total': '合计', 'avg': '平均值', 'sum': '总计', 'max': '最大值', 'min': '最小值',
+  }
+  if (simpleMap[field]) return simpleMap[field]
+  
+  // 驼峰式和下划线分隔的字段名拆分翻译
+  const parts = field.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase().split('_')
+  const wordMap: Record<string, string> = {
+    'per': '人均', 'capita': '', 'population': '人口', 'gdp': 'GDP', 'gnp': 'GNP',
+    'area': '面积', 'surface': '国土', 'life': '平均', 'expectancy': '寿命',
+    'total': '总', 'count': '数量', 'avg': '平均', 'sum': '总计', 'ratio': '比率',
+    'rate': '比率', 'percentage': '百分比', 'name': '名称', 'code': '代码',
+    'type': '类型', 'status': '状态', 'category': '分类', 'region': '地区',
+    'country': '国家', 'city': '城市', 'year': '年', 'month': '月', 'date': '日期',
+    'income': '收入', 'revenue': '收入', 'cost': '成本', 'price': '价格', 'amount': '金额',
+    'language': '语言', 'district': '区域', 'official': '官方',
+    'density': '密度', 'average': '平均', 'max': '最大', 'min': '最小',
+  }
+  const translated = parts.map(p => wordMap[p] || p).filter(Boolean).join('')
+  return translated || field
+}
+
 function formatValue(value: number, fieldName?: string, scale: number = 1) {
-  const isCurrency = fieldName && /(金额|货币|收入|支出|GNP|GDP|生产总值|产值|利润|薪资|工资)/i.test(fieldName)
-  const isPopulation = fieldName && /(人口|人数|居民|市民)/i.test(fieldName)
+  const isPerCapita = fieldName && /(PerCapita|人均)/i.test(fieldName)
+  const isCurrency = fieldName && !isPerCapita && /(金额|货币|收入|支出|GNP|GDP|生产总值|产值|利润|薪资|工资)/i.test(fieldName)
+  const isRatio = fieldName && /(Ratio|比率|占比|比值)/i.test(fieldName)
+  const isPopulation = fieldName && !isRatio && !isPerCapita && /(人口|人数|居民|市民|Population)/i.test(fieldName)
   const isArea = fieldName && /(面积|国土|土地|区域)/i.test(fieldName)
-  const isPercentage = fieldName && /(百分比|占比|比例|率)/i.test(fieldName)
+  const isPercentage = fieldName && /(百分比|Percentage|Rate|率)/i.test(fieldName)
   const isCount = fieldName && /(数量|个数|种类|语言|Count|Number|Total)/i.test(fieldName)
   
+  // 比率类字段：直接显示原值，保留足够小数位
+  if (isRatio) {
+    if (Math.abs(value) < 0.01) return value.toFixed(4)
+    if (Math.abs(value) < 1) return value.toFixed(3)
+    return value.toFixed(2)
+  }
   if (isPercentage) return value.toFixed(2) + '%'
   
   const displayVal = value / scale
-  const formattedVal = displayVal.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  
+  // 小数值智能处理：确保不会显示为0
+  let formattedVal: string
+  if (Math.abs(displayVal) > 0 && Math.abs(displayVal) < 0.01) {
+    formattedVal = displayVal.toFixed(4)
+  } else if (Math.abs(displayVal) > 0 && Math.abs(displayVal) < 1) {
+    formattedVal = displayVal.toFixed(3)
+  } else {
+    formattedVal = displayVal.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  }
+
+  // 人均 GDP/GNP：显示换算后的值+单位
+  if (isPerCapita && fieldName && /(GDP|GNP|生产总值|产值)/i.test(fieldName) && scale < 1) {
+    return formattedVal + '万美元'
+  }
 
   if (isPopulation) {
     return formattedVal + (scale >= 100000000 ? '亿人' : (scale >= 10000 ? '万人' : '人'))
@@ -1100,15 +1141,35 @@ function formatValue(value: number, fieldName?: string, scale: number = 1) {
 }
 
 function getUnitInfo(field: string, maxVal: number) {
-  const isCurrency = /(金额|货币|收入|支出|GNP|GDP|生产总值|产值|利润|薪资|工资|Revenue|Cost|Price|Amount)/i.test(field)
-  const isPopulation = /(人口|人数|居民|市民|Population)/i.test(field)
+  const isPerCapita = /(PerCapita|人均)/i.test(field)
+  const isRatio = /(Ratio|比率|占比|比值)/i.test(field)
+  const isCurrency = !isPerCapita && /(金额|货币|收入|支出|GNP|GDP|生产总值|产值|利润|薪资|工资|Revenue|Cost|Price|Amount)/i.test(field)
+  const isPopulation = !isRatio && !isPerCapita && /(人口|人数|居民|市民|Population)/i.test(field)
   const isCount = /(数量|个数|种类|语言|Count|Number|Total)/i.test(field)
   const isArea = /(面积|国土|土地|区域|SurfaceArea|Space)/i.test(field)
-  const isPercentage = /(百分比|占比|比例|率|Percentage|Rate)/i.test(field)
+  const isPercentage = /(百分比|Percentage|Rate)/i.test(field)
+  
+  // 比率类字段：不做缩放，不加单位
+  if (isRatio) {
+    return { unitName: '', scale: 1 }
+  }
+
+  // 人均类字段：特殊处理
+  if (isPerCapita) {
+    const hasGDP = /(GDP|GNP|生产总值|产值)/i.test(field)
+    if (hasGDP && maxVal < 1) {
+      // 人均GDP/GNP：数据库中的 GNP 通常以百万为单位，人均值 = GNP/Population
+      // 0.036 百万美元 = 36,000 美元 = 3.6 万美元
+      // displayVal = 0.036 / 0.01 = 3.6（万美元）
+      return { unitName: '万美元', scale: 0.01 }
+    }
+    // 其他人均字段：如果值很小，不加单位，保持原值
+    return { unitName: '', scale: 1 }
+  }
   
   let unitName = '', scale = 1
   
-  // 按照图中左上角的单位逻辑重新定义：10^8 -> 亿元, 10^4 -> 万元
+  // 按照数值大小决定缩放
   if (maxVal >= 100000000) { unitName = '亿'; scale = 100000000; }
   else if (maxVal >= 10000) { unitName = '万'; scale = 10000; }
   else { unitName = ''; scale = 1; }
@@ -1153,8 +1214,9 @@ function renderECharts(dom: HTMLElement, chartData: any, customConfig?: ChartCon
   const customColor = customConfig?.customColor
   
   const colorPalette = getColorPalette(colorScheme, customColor)
-  const chartTitle = (title || '').replace(/[-\u2013\u2014\u2212]+/g, ' ').trim() || `${config.yField}统计`
-  const legendName = config.yField || '数据值'
+  const yFieldCn = chartData.unitInfo?.yFieldCn || translateFieldName(config.yField)
+  const chartTitle = (title || '').replace(/[-\u2013\u2014\u2212]+/g, ' ').trim() || `${yFieldCn}统计`
+  const legendName = yFieldCn || '数据值'
 
   let option: any = {
     title: { text: chartTitle, left: 'center', textStyle: { fontSize: 20, fontWeight: 'bold', color: '#2d3748' }, padding: [20, 0, 30, 0] },
@@ -1258,7 +1320,12 @@ function renderECharts(dom: HTMLElement, chartData: any, customConfig?: ChartCon
       type: 'value',
       name: unitName ? `单位：${unitName}` : '',
       nameTextStyle: { fontSize: 12, color: '#94a3b8', fontWeight: 'bold', padding: [0, 0, 0, -45], align: 'left' },
-      axisLabel: { fontSize: 14, color: '#718096', formatter: (v: number) => (v / scale).toLocaleString() },
+      axisLabel: { fontSize: 14, color: '#718096', formatter: (v: number) => {
+        const dv = v / scale;
+        if (Math.abs(dv) > 0 && Math.abs(dv) < 0.01) return dv.toFixed(4);
+        if (Math.abs(dv) > 0 && Math.abs(dv) < 1) return dv.toFixed(3);
+        return dv.toLocaleString();
+      }},
       splitLine: { lineStyle: { type: 'dashed' } }
     };
     option.series = [{
@@ -1303,8 +1370,9 @@ function renderG2Plot(dom: HTMLElement, chartData: any, customConfig?: ChartConf
   const customColor = customConfig?.customColor
   
   const colorPalette = getColorPalette(colorScheme, customColor)
-  const chartTitle = (title || '').replace(/[-\u2013\u2014\u2212]+/g, ' ').trim() || `${config.yField}统计`
-  const legendName = config.yField || '数据值'
+  const yFieldCn = chartData.unitInfo?.yFieldCn || translateFieldName(config.yField)
+  const chartTitle = (title || '').replace(/[-\u2013\u2014\u2212]+/g, ' ').trim() || `${yFieldCn}统计`
+  const legendName = yFieldCn || '数据值'
   
   // const yValues = data.map((d: any) => d[config.yField]).filter((v: any) => typeof v === 'number')
   // const maxValue = yValues.length > 0 ? Math.max(...yValues) : 0
@@ -1330,7 +1398,12 @@ function renderG2Plot(dom: HTMLElement, chartData: any, customConfig?: ChartConf
     data, xField: config.xField, yField: config.yField, legend: false, 
     padding: [20, 20, 130, 20], // 增加底部空间
     xAxis: { label: { rotate: rotate ? (rotate * Math.PI) / 180 : (data.length > 5 ? Math.PI / 5 : 0), autoHide: false, autoRotate: false } },
-    yAxis: { label: { formatter: (v: string) => (parseFloat(v) / scale).toLocaleString() } },
+    yAxis: { label: { formatter: (v: string) => {
+      const dv = parseFloat(v) / scale;
+      if (Math.abs(dv) > 0 && Math.abs(dv) < 0.01) return dv.toFixed(4);
+      if (Math.abs(dv) > 0 && Math.abs(dv) < 1) return dv.toFixed(3);
+      return dv.toLocaleString();
+    }}},
     animation: true
   }
 
@@ -1407,10 +1480,13 @@ function renderChart(idx: number, chartData: any, subIdx?: number) {
     return newItem
   })
 
-  // 获取数值范围并计算最合适的单位和比例
+  // 获取单位信息：优先使用后端 AI 智能判断的 unitInfo，否则 fallback 到本地正则推断
   const yValues = processedData.map((d: any) => d[chartData.config.yField]).filter((v: any) => typeof v === 'number')
   const maxValue = yValues.length > 0 ? Math.max(...yValues) : 0
-  const { unitName, scale } = getUnitInfo(chartData.config.yField, maxValue)
+  const backendUnit = chartData.unitInfo
+  const { unitName, scale } = backendUnit 
+    ? { unitName: backendUnit.unitName, scale: backendUnit.scale }
+    : getUnitInfo(chartData.config.yField, maxValue)
 
   // 2. 清理现有实例
   if (chartCleanups[idx]) {
