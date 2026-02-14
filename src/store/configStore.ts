@@ -511,18 +511,37 @@ export class ConfigStore {
     }));
   }
 
-  async getChatSession(id: string, userId: string): Promise<ChatSession | null> {
+  async getChatSession(id: string, userId: string, options?: { limit?: number; offset?: number }): Promise<(ChatSession & { totalMessages?: number; hasMore?: boolean }) | null> {
     const [rows] = await this.pool.execute(
       'SELECT * FROM chat_history WHERE id = ? AND user_id = ?',
       [id, userId]
     );
     const row = (rows as any[])[0];
     if (!row) return null;
+    
+    const allMessages: ChatMessage[] = typeof row.messages === 'string' ? JSON.parse(row.messages) : row.messages;
+    const totalMessages = allMessages.length;
+    
+    // 支持分页：从末尾开始取（显示最新的消息）
+    let messages = allMessages;
+    let hasMore = false;
+    
+    if (options?.limit && options.limit > 0) {
+      const offset = options.offset || 0;
+      // 从末尾往前取：最新的消息在数组末尾
+      const startIndex = Math.max(0, totalMessages - options.limit - offset);
+      const endIndex = totalMessages - offset;
+      messages = allMessages.slice(startIndex, endIndex);
+      hasMore = startIndex > 0;
+    }
+    
     return {
       id: row.id,
       datasourceId: row.datasource_id,
-      messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : row.messages,
+      messages,
       createdAt: new Date(row.created_at).getTime(),
+      totalMessages,
+      hasMore,
     };
   }
 
@@ -627,19 +646,32 @@ export class ConfigStore {
       if (analysis.tables && analysis.tables.length > 0) {
         for (const table of analysis.tables) {
           const tableId = uuidv4();
+          // 将中文名存入 description（格式：[中文名] 描述）
+          const tableDesc = table.tableNameCn 
+            ? `[${table.tableNameCn}]${table.description ? ' ' + table.description : ''}`
+            : (table.description || null);
           await connection.execute(
             'INSERT INTO schema_tables (id, analysis_id, table_name, description) VALUES (?, ?, ?, ?)',
-            [tableId, analysisId, table.tableName, table.description || null]
+            [tableId, analysisId, table.tableName, tableDesc]
           );
 
           if (table.columns && table.columns.length > 0) {
-            const columnValues = table.columns.map(col => [
-              uuidv4(),
-              tableId,
-              col.name,
-              col.type,
-              col.description || (col.nameCn ? `[${col.nameCn}]` : null)
-            ]);
+            const columnValues = table.columns.map(col => {
+              // 将中文名存入 description（格式：[中文名] 描述）
+              let colDesc: string | null = null;
+              if (col.nameCn) {
+                colDesc = `[${col.nameCn}]${col.description ? ' ' + col.description : ''}`;
+              } else if (col.description) {
+                colDesc = col.description;
+              }
+              return [
+                uuidv4(),
+                tableId,
+                col.name,
+                col.type,
+                colDesc
+              ];
+            });
             await connection.query(
               'INSERT INTO schema_columns (id, table_id, column_name, data_type, description) VALUES ?',
               [columnValues]
@@ -693,16 +725,28 @@ export class ConfigStore {
         [tableRow.id]
       );
 
+      // 从 description 中提取中文名（格式：[中文名] 或 [中文名] 描述）
+      const extractCn = (desc: string | null): { cn: string, desc: string } => {
+        if (!desc) return { cn: '', desc: '' };
+        const match = desc.match(/^\[([^\]]+)\]\s*(.*)$/);
+        if (match) return { cn: match[1], desc: match[2] || '' };
+        return { cn: '', desc };
+      };
+      
+      const tableInfo = extractCn(tableRow.description);
       tables.push({
         tableName: tableRow.table_name,
-        tableNameCn: '',
-        description: tableRow.description,
-        columns: colRows.map((c: any) => ({
-          name: c.column_name,
-          type: c.data_type,
-          nameCn: '',
-          description: c.description
-        }))
+        tableNameCn: tableInfo.cn,
+        description: tableInfo.desc || tableRow.description,
+        columns: colRows.map((c: any) => {
+          const colInfo = extractCn(c.description);
+          return {
+            name: c.column_name,
+            type: c.data_type,
+            nameCn: colInfo.cn,
+            description: colInfo.desc || c.description
+          };
+        })
       });
     }
 

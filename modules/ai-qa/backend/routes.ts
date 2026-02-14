@@ -229,7 +229,9 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== AI 问答 ====================
 
-  router.post('/ask', requirePermission('ai:query'), async (req: Request, res: Response) => {
+  // Note: 这个路由挂载在 /api/ask, /api/query, /api/chat 等多个路径上
+  // 所以这里用 '/' 而不是 '/ask'，实际请求路径是 POST /api/ask
+  router.post('/', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { datasourceId, question, sessionId } = req.body;
       if (!question) {
@@ -270,7 +272,7 @@ export function createRoutes(service: AIQAService): Router {
 
   // ==================== 会话管理 ====================
 
-  router.get('/chat/sessions/:datasourceId', requirePermission('ai:query'), async (req: Request, res: Response) => {
+  router.get('/sessions/:datasourceId', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const sessions = await service.getChatSessions(req.params.datasourceId, getUserId(req));
       res.json({ success: true, data: sessions });
@@ -279,9 +281,13 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/chat/session/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
+  router.get('/session/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
-      const session = await service.getChatSession(req.params.id, getUserId(req));
+      // 支持分页参数：limit 限制返回消息数量，offset 跳过前面的消息
+      const limit = parseInt(req.query.limit as string) || 0; // 0 表示不限制
+      const offset = parseInt(req.query.offset as string) || 0;
+      
+      const session = await service.getChatSession(req.params.id, getUserId(req), { limit, offset });
       if (!session) {
         return res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '会话不存在' } });
       }
@@ -291,7 +297,7 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.delete('/chat/session/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
+  router.delete('/session/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       await service.deleteChatSession(req.params.id, getUserId(req));
       res.json({ success: true, message: '会话已删除' });
@@ -300,33 +306,9 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
-  router.get('/chat/session/:sessionId/message/:messageIndex/config', requirePermission('ai:query'), async (req: Request, res: Response) => {
-    try {
-      const { sessionId, messageIndex } = req.params;
-      const idx = parseInt(messageIndex);
-      if (isNaN(idx)) {
-        return res.status(400).json({ success: false, error: { message: '无效的消息索引' } });
-      }
-
-      const session = await service.getChatSession(sessionId, getUserId(req));
-      if (!session) {
-        return res.status(404).json({ success: false, error: { message: '会话不存在' } });
-      }
-
-      const message = session.messages[idx];
-      if (!message) {
-        return res.status(404).json({ success: false, error: { message: '消息不存在' } });
-      }
-
-      res.json({ success: true, data: message.chartConfig || {} });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: { message: error.message } });
-    }
-  });
-
   // ==================== 消息配置 ====================
 
-  router.get('/chat/session/:sessionId/message/:messageIndex/config', requirePermission('ai:query'), async (req: Request, res: Response) => {
+  router.get('/session/:sessionId/message/:messageIndex/config', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { sessionId, messageIndex } = req.params;
       const idx = parseInt(messageIndex, 10);
@@ -345,6 +327,26 @@ export function createRoutes(service: AIQAService): Router {
       }
 
       res.json({ success: true, data: message.chartConfig || {} });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+    }
+  });
+
+  // 保存图表配置
+  router.post('/session/:sessionId/message/:messageIndex/config', requirePermission('ai:query'), async (req: Request, res: Response) => {
+    try {
+      const { sessionId, messageIndex } = req.params;
+      const idx = parseInt(messageIndex, 10);
+      if (isNaN(idx)) {
+        return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '无效的消息索引' } });
+      }
+
+      const success = await service.updateMessageChartConfig(sessionId, idx, req.body, getUserId(req));
+      if (!success) {
+        return res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '会话或消息不存在' } });
+      }
+
+      res.json({ success: true, message: '图表配置已保存' });
     } catch (error: any) {
       res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
     }

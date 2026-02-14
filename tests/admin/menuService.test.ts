@@ -8,9 +8,10 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MenuService } from '../../src/admin/modules/menu/menuService';
+import { MenuService } from '../../modules/menu-management/backend/service';
 import { permissionService } from '../../src/admin/services/permissionService';
-import type { MenuItem, Role } from '../../src/admin/types';
+import type { Menu } from '../../modules/menu-management/backend/types';
+import type { Role } from '../../src/admin/types';
 
 describe('MenuService Unit Tests', () => {
   let menuService: MenuService;

@@ -102,6 +102,16 @@
           </a-form-item>
         </template>
 
+        <a-form-item label="父菜单" name="parentId">
+          <a-tree-select
+            v-model:value="formState.parentId"
+            :tree-data="parentMenuOptions"
+            placeholder="选择父菜单（不选则为顶级菜单）"
+            allow-clear
+            :field-names="{ label: 'title', value: 'id', children: 'children' }"
+          />
+        </a-form-item>
+
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="图标" name="icon">
@@ -137,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, markRaw } from 'vue'
+import { ref, reactive, onMounted, computed, markRaw } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined,
@@ -190,6 +200,7 @@ const formState = reactive({
   title: '',
   path: '',
   icon: '',
+  parentId: undefined as string | undefined,
   permission: '',
   order: 0,
   visible: true,
@@ -198,6 +209,22 @@ const formState = reactive({
   openMode: 'blank' as 'current' | 'blank' | 'iframe',
   moduleCode: '',
 })
+
+const parentMenuOptions = computed(() => {
+  if (editingMenu.value) {
+    return filterMenuOptions(menuTree.value, editingMenu.value.id)
+  }
+  return menuTree.value
+})
+
+function filterMenuOptions(menus: MenuItem[], excludeId: string): MenuItem[] {
+  return menus
+    .filter(m => m.id !== excludeId)
+    .map(m => ({
+      ...m,
+      children: m.children ? filterMenuOptions(m.children, excludeId) : undefined,
+    }))
+}
 
 const formRules = {
   title: [{ required: true, message: '请输入菜单标题' }],
@@ -297,6 +324,7 @@ function handleAdd(parent?: MenuItem) {
     title: '',
     path: '',
     icon: '',
+    parentId: parent?.id || undefined,
     permission: '',
     order: 0,
     visible: true,
@@ -315,6 +343,7 @@ function handleEdit(record: MenuItem) {
     title: record.title,
     path: record.path || '',
     icon: record.icon || '',
+    parentId: record.parentId || undefined,
     permission: record.permission || '',
     order: record.order || 0,
     visible: record.visible,
@@ -333,7 +362,6 @@ async function handleModalOk() {
     
     const data = {
       ...formState,
-      parentId: parentMenu.value?.id || editingMenu.value?.parentId,
     }
     
     if (editingMenu.value) {

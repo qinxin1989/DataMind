@@ -5,7 +5,7 @@
 import axios from 'axios';
 import type { Menu, CreateMenuRequest, UpdateMenuRequest } from '../../backend/types';
 
-const API_BASE = '/api/menus';
+const API_BASE = '/admin/menus';
 
 interface ApiResponse<T = any> {
   success: boolean;

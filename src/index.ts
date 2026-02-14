@@ -84,6 +84,10 @@ const authService = new AuthService({
 // 认证中间件
 const authMiddleware = createAuthMiddleware(authService);
 
+// 生命周期管理器单例（供模块管理 API 使用）
+import type { LifecycleManager } from './module-system/core/LifecycleManager';
+export let lifecycleManagerInstance: LifecycleManager | null = null;
+
 // 初始化模块系统
 async function initModuleSystem() {
   try {
@@ -113,6 +117,7 @@ async function initModuleSystem() {
       permissionManager,
       migrationManager
     );
+    lifecycleManagerInstance = lifecycleManager;
 
     // 扫描并注册所有模块
     const scanner = new ModuleScanner();

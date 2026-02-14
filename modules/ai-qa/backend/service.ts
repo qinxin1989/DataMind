@@ -478,6 +478,13 @@ export class AIQAService {
   // ==================== AI 问答 ====================
 
   async ask(datasourceId: string, question: string, sessionId: string | undefined, userId: string): Promise<AskResponse> {
+    // 记录用户问题
+    console.log(`\n========== 用户提问 [${new Date().toLocaleString()}] ==========`);
+    console.log(`👤 用户: ${userId}`);
+    console.log(`📊 数据源: ${datasourceId}`);
+    console.log(`❓ 问题: ${question}`);
+    console.log(`💬 会话ID: ${sessionId || '新会话'}`);
+    
     const ds = dataSourceManager.get(datasourceId);
     if (!ds || !this.canAccessDataSource(ds, userId)) {
       throw new Error('Datasource not found or access denied');
@@ -502,38 +509,35 @@ export class AIQAService {
       // ignore
     }
 
-    // 查询 RAG 知识库获取相关上下文
-    const ragEngine = await this.getRAGEngine(userId);
-    let ragContext: { used: boolean; sources?: string[]; context?: string } = { used: false };
-    try {
-      if (ragEngine) {
-        const ragResult = await ragEngine.retrieve(question, 3);
-        if (ragResult.chunks.length > 0) {
-          const relevantChunks = ragResult.chunks.filter(c => c.score > 0.6);
-          if (relevantChunks.length > 0) {
-            ragContext = {
-              used: true,
-              sources: ragResult.sources.map(s => s.title),
-              context: relevantChunks.map(c => c.chunk.content).join('\n\n')
-            };
-          }
-        }
-      }
-    } catch (e: any) {
-      console.log('[RAG] Knowledge retrieval skipped:', e.message);
-    }
+    // 注意：RAG 知识库是独立功能，数据源问答不查询 RAG
+    // RAG 问答使用 ragAsk 方法
 
     // 调用 AI Agent
+    console.log(`🤖 正在调用 AI Agent...`);
     const response = await this.getAIAgent().answerWithContext(
       question,
       ds.instance,
       ds.config.type,
       session.messages,
-      {
-        schemaContext,
-        ragContext: ragContext.context
-      }
+      { schemaContext }
     );
+    
+    // 记录AI响应
+    console.log(`\n========== AI 响应 ==========`);
+    console.log(`💡 完整回答 (${response.answer?.length || 0} 字符):`);
+    console.log(response.answer || '(无回答)');
+    if (response.sql) {
+      console.log(`\n🔍 生成的SQL:`);
+      console.log(response.sql);
+    }
+    if (response.data && Array.isArray(response.data)) {
+      console.log(`\n📈 返回数据: ${response.data.length} 行`);
+    }
+    if (response.tokensUsed) {
+      console.log(`\n💰 Token消耗: ${response.tokensUsed}`);
+    }
+    console.log(`========== 响应结束 ==========\n`);
+    
 
     let maskedData = response.data;
     let maskedAnswer = response.answer;
@@ -552,8 +556,7 @@ export class AIQAService {
       ...response,
       answer: maskedAnswer,
       data: maskedData,
-      sessionId: session.id,
-      ragContext: ragContext.used ? { used: true, sources: ragContext.sources } : { used: false }
+      sessionId: session.id
     };
   }
 
@@ -603,12 +606,27 @@ export class AIQAService {
     }));
   }
 
-  async getChatSession(sessionId: string, userId: string): Promise<ChatSession | null> {
-    return this.configStore.getChatSession(sessionId, userId);
+  async getChatSession(sessionId: string, userId: string, options?: { limit?: number; offset?: number }): Promise<(ChatSession & { totalMessages?: number; hasMore?: boolean }) | null> {
+    return this.configStore.getChatSession(sessionId, userId, options);
   }
 
   async deleteChatSession(sessionId: string, userId: string): Promise<void> {
     await this.configStore.deleteChatSession(sessionId, userId);
+  }
+
+  async updateMessageChartConfig(sessionId: string, messageIndex: number, config: any, userId: string): Promise<boolean> {
+    const session = await this.configStore.getChatSession(sessionId, userId);
+    if (!session || !session.messages[messageIndex]) {
+      return false;
+    }
+    
+    // 更新消息的 chartConfig
+    const message = session.messages[messageIndex];
+    message.chartConfig = { ...(message.chartConfig || {}), ...config };
+    
+    // 保存会话
+    await this.configStore.saveChatSession(session, userId);
+    return true;
   }
 
   // ==================== Agent 技能和工具 ====================

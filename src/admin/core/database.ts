@@ -622,22 +622,59 @@ export async function syncSystemMenus(connection: mysql.PoolConnection): Promise
     }
   }
 
-  // 清理旧的硬编码菜单（保留用户自定义菜单）
-  // 注释掉自动删除，避免误删菜单
-  try {
-    await connection.execute(`
-      DELETE FROM sys_menus 
-      WHERE is_system = TRUE 
-      AND (module_name IS NULL OR module_name = '')
-    `);
-    console.log('已清理旧的硬编码系统菜单');
-  } catch (e: any) {
-    if (e.message.includes("is_system")) {
-      // if column missing, ignore
-      console.log('无法清理旧菜单: is_system 列不存在');
-    } else {
-      console.log('清理旧菜单时出错:', e.message);
+  // 3. 确保一级菜单（父菜单）总是存在，这是树形结构的基础
+  // 这些菜单 ID 被各个模块的 module.json 中的 parentId 引用
+  // 所有模块 module.json 中 parentId 引用的一级菜单都必须在此列出
+  // 新增一级分类时只需在此数组添加一行，所有部署环境启动时自动同步
+  const topLevelMenus = [
+    { id: 'ai-center', title: 'AI创新中心', path: '/ai', icon: 'RobotOutlined', sortOrder: 100 },
+    { id: 'data-center', title: '数据资源中心', path: '/data', icon: 'DatabaseOutlined', sortOrder: 200 },
+    { id: 'data-collection', title: '数据采集中心', path: '/collection', icon: 'FileSearchOutlined', sortOrder: 300 },
+    { id: 'tools-center', title: '工具箱', path: '/tools', icon: 'ToolOutlined', sortOrder: 500 },
+    { id: 'ops-management', title: '运维管理', path: '/ops', icon: 'DashboardOutlined', sortOrder: 600 },
+    { id: 'system-management', title: '系统基础管理', path: '/system', icon: 'SettingOutlined', sortOrder: 700 },
+  ];
+
+  for (const menu of topLevelMenus) {
+    try {
+      // 使用 INSERT IGNORE 确保幂等性，不会覆盖已存在的数据
+      await connection.execute(
+        `INSERT IGNORE INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system, menu_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NULL, ?, TRUE, '*', FALSE, 'internal', NOW(), NOW())`,
+        [menu.id, menu.title, menu.path, menu.icon, menu.sortOrder]
+      );
+    } catch (e: any) {
+      // 如果是主键冲突，说明菜单已存在，忽略
+      if (!e.message.includes('Duplicate entry')) {
+        console.log(`初始化菜单 ${menu.id} 失败:`, e.message);
+      }
     }
+  }
+  console.log('已确保一级菜单存在');
+
+  // 4. 修复孤儿菜单：检查并修复 parent_id 指向不存在菜单的情况
+  try {
+    // 获取所有 parent_id 不为空但父菜单不存在的菜单
+    const [orphanMenus] = await connection.execute(`
+      SELECT m.id, m.title, m.parent_id 
+      FROM sys_menus m 
+      LEFT JOIN sys_menus p ON m.parent_id = p.id 
+      WHERE m.parent_id IS NOT NULL AND p.id IS NULL
+    `);
+    
+    if (Array.isArray(orphanMenus) && orphanMenus.length > 0) {
+      console.log(`发现 ${orphanMenus.length} 个孤儿菜单，正在修复...`);
+      for (const orphan of orphanMenus as any[]) {
+        // 将孤儿菜单的 parent_id 设为 NULL，使其成为一级菜单
+        await connection.execute(
+          'UPDATE sys_menus SET parent_id = NULL WHERE id = ?',
+          [orphan.id]
+        );
+        console.log(`已修复孤儿菜单: ${orphan.title} (${orphan.id})，原 parent_id: ${orphan.parent_id}`);
+      }
+    }
+  } catch (e: any) {
+    console.log('检查孤儿菜单时出错:', e.message);
   }
 
   console.log('现在使用模块化菜单管理');

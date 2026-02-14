@@ -40,51 +40,6 @@
   },
   "menus": [
     {
-      "id": "ai-management",
-      "title": "AI创新中心",
-      "path": "/ai",
-      "icon": "RobotOutlined",
-      "parentId": null,
-      "sortOrder": 1,
-      "permission": "ai:query"
-    },
-    {
-      "id": "data-management",
-      "title": "数据采集中心",
-      "path": "/datasource",
-      "icon": "DatabaseOutlined",
-      "parentId": null,
-      "sortOrder": 20,
-      "permission": "datasource:view"
-    },
-    {
-      "id": "toolbox-management",
-      "title": "工具箱",
-      "path": "/tools",
-      "icon": "ToolOutlined",
-      "parentId": null,
-      "sortOrder": 80,
-      "permission": "admin:access"
-    },
-    {
-      "id": "ops-management",
-      "title": "运维管理",
-      "path": "/ops",
-      "icon": "DashboardOutlined",
-      "parentId": null,
-      "sortOrder": 85,
-      "permission": "admin:access"
-    },
-    {
-      "id": "system-management",
-      "title": "系统基础管理",
-      "path": "/system",
-      "icon": "SettingOutlined",
-      "parentId": null,
-      "sortOrder": 90,
-      "permission": "admin:access"
-    },
-    {
       "id": "menu-management-menu",
       "title": "菜单管理",
       "path": "/system/menus",
@@ -92,6 +47,15 @@
       "parentId": "system-management",
       "sortOrder": 3,
       "permission": "menu:view"
+    },
+    {
+      "id": "module-management-menu",
+      "title": "模块管理",
+      "path": "/system/modules",
+      "icon": "AppstoreOutlined",
+      "parentId": "system-management",
+      "sortOrder": 10,
+      "permission": "system:module:view"
     }
   ],
   "permissions": [

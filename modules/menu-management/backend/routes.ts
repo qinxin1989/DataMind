@@ -215,20 +215,4 @@ router.post('/sort', requirePermission('menu:update'), async (req: Request, res:
   }
 });
 
-/**
- * PUT /menus/batch/order - 批量更新排序
- */
-router.put('/batch/order', requirePermission('menu:update'), async (req: Request, res: Response) => {
-  try {
-    const { items } = req.body;
-    if (!items || !Array.isArray(items)) {
-      return res.status(400).json(error('VALID_PARAM_MISSING', '参数错误'));
-    }
-    await menuService.updateMenuOrder(items);
-    res.json(success({ message: '更新成功' }));
-  } catch (err: any) {
-    res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
-  }
-});
-
 export default router;

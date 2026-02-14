@@ -86,10 +86,16 @@ CREATE TABLE IF NOT EXISTS sys_menus (
   visible BOOLEAN DEFAULT TRUE,
   permission_code VARCHAR(100),
   is_system BOOLEAN DEFAULT FALSE,
+  menu_type VARCHAR(20) DEFAULT 'internal',
+  external_url VARCHAR(500),
+  open_mode VARCHAR(20) DEFAULT 'current',
+  module_code VARCHAR(50),
+  module_name VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_parent (parent_id),
-  INDEX idx_sort (sort_order)
+  INDEX idx_sort (sort_order),
+  INDEX idx_module (module_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- AI配置表
@@ -669,60 +675,12 @@ INSERT INTO sys_user_roles (user_id, role_id) VALUES
 ON DUPLICATE KEY UPDATE role_id = VALUES(role_id);
 
 -- ========================================
--- 初始化菜单
+-- 菜单说明
 -- ========================================
-
--- 一级菜单
-INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system) VALUES
-('ai-center', 'AI创新中心', '/ai', 'RobotOutlined', NULL, 100, 1, '*', 0),
-('data-center', '数据资源中心', '/data', 'DatabaseOutlined', NULL, 200, 1, '*', 0),
-('data-collection', '数据采集中心', '/collection', 'FileSearchOutlined', NULL, 300, 1, '*', 0),
-('tools-center', '工具箱', '/tools', 'ToolOutlined', NULL, 500, 1, '*', 0),
-('system-management', '系统基础管理', '/system', 'SettingOutlined', NULL, 700, 1, '*', 0)
-ON DUPLICATE KEY UPDATE title = VALUES(title);
-
--- 二级菜单 - AI创新中心
-INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system) VALUES
-('ai-stats-menu', 'AI统计', '/ai/stats', 'BarChartOutlined', 'ai-center', 1, 1, 'ai:view', 0),
-('ai-qa-main', 'AI智能问答', '/ai/chat', 'QuestionCircleOutlined', 'ai-center', 30, 1, 'ai-qa:view', 0),
-('knowledge-base', '知识库管理', '/ai/knowledge', 'BookOutlined', 'ai-center', 31, 1, 'ai-qa:knowledge:view', 0),
-('ai-history', '对话历史记录', '/ai/history', 'HistoryOutlined', 'ai-center', 32, 1, 'ai:view', 0)
-ON DUPLICATE KEY UPDATE title = VALUES(title);
-
--- 二级菜单 - 数据资源中心
-INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system) VALUES
-('datasource-management-menu', '数据源管理', '/datasource', 'DatabaseOutlined', 'data-center', 1, 1, 'datasource:view', 0),
-('datasource-approval-menu', '数据源审核', '/datasource/approval', 'AuditOutlined', 'data-center', 2, 1, 'datasource:approve', 0)
-ON DUPLICATE KEY UPDATE title = VALUES(title);
-
--- 二级菜单 - 数据采集中心
-INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system) VALUES
-('ai-crawler-assistant', 'AI 爬虫助手', '/ai/crawler-assistant', 'RobotOutlined', 'data-collection', 1, 1, 'ai:view', 0),
-('crawler-template-config', '采集模板配置', '/ai/crawler-template-config', 'SettingOutlined', 'data-collection', 2, 1, 'crawler_template_view', 0),
-('crawler-management-main', '爬虫管理', '/ai/crawler', 'DatabaseOutlined', 'data-collection', 3, 1, 'crawler:view', 0)
-ON DUPLICATE KEY UPDATE title = VALUES(title);
-
--- 二级菜单 - 工具箱
-INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system) VALUES
-('file-tools-main', '文件工具', '/tools/file', 'FileTextOutlined', 'tools-center', 100, 1, 'file-tools:view', 0),
-('efficiency-tools-main', '效率工具', '/tools/efficiency', 'ThunderboltOutlined', 'tools-center', 110, 1, 'efficiency-tools:view', 0),
-('official-doc-main', '公文写作', '/tools/official-doc', 'FileTextOutlined', 'tools-center', 120, 1, 'official-doc:view', 0),
-('ocr-service-main', 'OCR 识别', '/ai/ocr', 'ScanOutlined', 'tools-center', 130, 1, 'ocr:view', 0)
-ON DUPLICATE KEY UPDATE title = VALUES(title);
-
--- 二级菜单 - 系统基础管理
-INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system) VALUES
-('user-management-menu', '用户管理', '/system/users', 'UserOutlined', 'system-management', 1, 1, 'user:view', 0),
-('role-management-menu', '角色管理', '/system/roles', 'TeamOutlined', 'system-management', 2, 1, 'role:view', 0),
-('menu-management-menu', '菜单管理', '/system/menus', 'MenuOutlined', 'system-management', 3, 1, 'menu:view', 0),
-('ai-config-main', 'AI 模型配置', '/ai/config', 'SettingOutlined', 'system-management', 4, 1, 'ai:view', 0),
-('system-config-main', '系统配置', '/system/config', 'SettingOutlined', 'system-management', 900, 1, 'system-config:view', 0),
-('system-status', '系统状态', '/system/status', 'DashboardOutlined', 'system-management', 901, 1, 'system-config:view', 0),
-('audit-log-main', '审计日志', '/system/audit', 'FileSearchOutlined', 'system-management', 902, 1, 'audit:view', 0),
-('system-backup-main', '备份恢复', '/system/backup', 'CloudServerOutlined', 'system-management', 903, 1, 'system-backup:view', 0),
-('notification-main', '通知中心', '/notification', 'BellOutlined', 'system-management', 904, 1, 'notification:view', 0),
-('dashboard-main', '大屏管理', '/dashboard/list', 'FundOutlined', 'system-management', 905, 1, 'dashboard:view', 0)
-ON DUPLICATE KEY UPDATE title = VALUES(title);
+-- 菜单数据不再由 init.sql 管理
+-- 一级菜单（容器）由 database.ts syncSystemMenus() 在每次启动时确保存在
+-- 二级菜单（功能）由各模块 module.json 定义，通过 MenuManager 在模块启用时自动注册
+-- 这样新增/删除功能只需增删模块即可，菜单自动同步
 
 SET FOREIGN_KEY_CHECKS = 1;
 

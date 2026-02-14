@@ -37,7 +37,7 @@
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'title'">
           <a-space>
-            <component :is="record.icon" v-if="record.icon" />
+            <component :is="getIcon(record.icon)" v-if="record.icon" />
             <span>{{ record.title }}</span>
           </a-space>
         </template>
@@ -161,11 +161,56 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, markRaw } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import {
+  PlusOutlined,
+  ReloadOutlined,
+  UserOutlined,
+  TeamOutlined,
+  MenuOutlined,
+  RobotOutlined,
+  DatabaseOutlined,
+  SettingOutlined,
+  BellOutlined,
+  DashboardOutlined,
+  MessageOutlined,
+  BookOutlined,
+  HistoryOutlined,
+  BarChartOutlined,
+  ControlOutlined,
+  LinkOutlined,
+  GlobalOutlined,
+  ToolOutlined,
+  FileSearchOutlined,
+  QuestionOutlined,
+} from '@ant-design/icons-vue'
 import { menuApi } from '../api'
 import type { Menu } from '../../backend/types'
+
+const iconMap: Record<string, any> = {
+  UserOutlined: markRaw(UserOutlined),
+  TeamOutlined: markRaw(TeamOutlined),
+  MenuOutlined: markRaw(MenuOutlined),
+  RobotOutlined: markRaw(RobotOutlined),
+  DatabaseOutlined: markRaw(DatabaseOutlined),
+  SettingOutlined: markRaw(SettingOutlined),
+  BellOutlined: markRaw(BellOutlined),
+  DashboardOutlined: markRaw(DashboardOutlined),
+  MessageOutlined: markRaw(MessageOutlined),
+  BookOutlined: markRaw(BookOutlined),
+  HistoryOutlined: markRaw(HistoryOutlined),
+  BarChartOutlined: markRaw(BarChartOutlined),
+  ControlOutlined: markRaw(ControlOutlined),
+  LinkOutlined: markRaw(LinkOutlined),
+  GlobalOutlined: markRaw(GlobalOutlined),
+  ToolOutlined: markRaw(ToolOutlined),
+  FileSearchOutlined: markRaw(FileSearchOutlined),
+}
+
+function getIcon(iconName: string) {
+  return iconMap[iconName] || markRaw(QuestionOutlined)
+}
 
 const loading = ref(false)
 const menuTree = ref<Menu[]>([])

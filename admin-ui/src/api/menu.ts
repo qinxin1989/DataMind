@@ -8,7 +8,7 @@ export const menuApi = {
 
   // 获取完整菜单树
   getFullMenuTree: () =>
-    get<MenuItem[]>('/admin/menus?tree=true'),
+    get<MenuItem[]>('/admin/menus'),
 
   // 创建菜单
   create: (data: Partial<MenuItem>) =>
@@ -24,5 +24,5 @@ export const menuApi = {
 
   // 批量更新排序
   updateOrder: (items: { id: string; order: number; parentId?: string }[]) =>
-    post('/admin/menus/order', { items }),
+    post('/admin/menus/sort', { items }),
 }

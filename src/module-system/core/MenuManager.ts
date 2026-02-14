@@ -66,9 +66,14 @@ export class MenuManager {
               conn
             );
           } else {
-            // 菜单已存在，跳过强制覆盖以保护用户在 UI 中的所有配置（标题、路径、图标、排序、父级、可见性等）
-            // 确保数据库记录作为最终的可信数据源
-            // console.log(`Menu ${menu.id} already exists, preserving database settings.`);
+            // 菜单已存在 — 认领归属：确保 module_name 已设置
+            // 这样模块卸载时 DELETE WHERE module_name=? 才能正确清理
+            // 不覆盖用户在 UI 中修改过的标题、图标、排序等配置
+            await query(
+              `UPDATE sys_menus SET module_name = ? WHERE id = ? AND (module_name IS NULL OR module_name = '')`,
+              [moduleName, menu.id],
+              conn
+            );
           }
         }
       });
@@ -92,72 +97,6 @@ export class MenuManager {
       console.log(`Menus unregistered for module ${moduleName}`);
     } catch (error) {
       throw new Error(`Failed to unregister menus for module ${moduleName}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  /**
-   * 获取用户可见菜单
-   */
-  async getUserMenus(userId: string): Promise<MenuItem[]> {
-    try {
-      // 获取用户角色
-      const roles = await query(
-        `SELECT r.id FROM sys_roles r
-         INNER JOIN sys_user_roles ur ON r.id = ur.role_id
-         WHERE ur.user_id = ?`,
-        [userId]
-      );
-
-      if (roles.length === 0) {
-        return [];
-      }
-
-      const roleIds = roles.map((r: any) => r.id);
-
-      // 获取角色权限
-      const permissions = await query(
-        `SELECT DISTINCT rp.permission_code as code FROM sys_role_permissions rp
-         WHERE rp.role_id IN (${roleIds.map(() => '?').join(',')})`,
-        roleIds
-      );
-
-      const permissionCodes = permissions.map((p: any) => p.code);
-
-      // 获取可见菜单
-      let menus;
-      if (permissionCodes.includes('*')) {
-        // 超级管理员可以看到所有菜单
-        menus = await query(
-          `SELECT * FROM sys_menus 
-           WHERE visible = TRUE 
-           ORDER BY sort_order ASC`
-        );
-      } else {
-        // 普通用户只能看到有权限的菜单
-        menus = await query(
-          `SELECT * FROM sys_menus 
-           WHERE visible = TRUE 
-           AND (permission_code IS NULL OR permission_code IN (${permissionCodes.map(() => '?').join(',')}))
-           ORDER BY sort_order ASC`,
-          permissionCodes
-        );
-      }
-
-      return menus.map((menu: any) => ({
-        id: menu.id,
-        title: menu.title,
-        path: menu.path,
-        icon: menu.icon,
-        parentId: menu.parent_id,
-        sortOrder: menu.sort_order,
-        permission: menu.permission_code,
-        moduleName: menu.module_name,
-        visible: menu.visible,
-        createdAt: menu.created_at,
-        updatedAt: menu.updated_at
-      }));
-    } catch (error) {
-      throw new Error(`Failed to get user menus: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -194,7 +133,7 @@ export class MenuManager {
         icon: menu.icon,
         parentId: menu.parent_id,
         sortOrder: menu.sort_order,
-        permission: menu.permission,
+        permission: menu.permission_code,
         moduleName: menu.module_name,
         visible: menu.visible,
         createdAt: menu.created_at,

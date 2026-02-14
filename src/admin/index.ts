@@ -8,6 +8,7 @@ import { pool } from './core/database';
 
 // 导入模块路由 — 静态 router
 import userRoutes from '../../modules/user-management/backend/routes';
+import moduleManageRoutes from './routes/moduleRoutes';
 import roleRoutes from '../../modules/role-management/backend/routes';
 import menuRoutes from '../../modules/menu-management/backend/routes';
 import notificationRoutes from '../../modules/notification/backend/routes';
@@ -126,6 +127,7 @@ export function createAdminRouter(pool?: any): Router {
   router.use('/users', userRoutes);
   router.use('/roles', roleRoutes);
   router.use('/menus', menuRoutes);
+  router.use('/modules', moduleManageRoutes);
   router.use('/audit', initAuditRoutes(pool));
 
   // AI 路由（组合 ai-config + ai-stats + ai-crawler-assistant）

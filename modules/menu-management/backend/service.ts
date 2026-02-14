@@ -236,15 +236,6 @@ export class MenuService {
   }
 
   /**
-   * 更新排序
-   */
-  async updateSortOrder(items: { id: string; sortOrder: number }[]): Promise<void> {
-    for (const item of items) {
-      await pool.execute('UPDATE sys_menus SET sort_order = ? WHERE id = ?', [item.sortOrder, item.id]);
-    }
-  }
-
-  /**
    * 更新菜单顺序
    */
   async updateMenuOrder(items: { id: string; order: number }[]): Promise<void> {

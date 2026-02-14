@@ -222,6 +222,12 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/system/backup.vue'),
             meta: { title: '备份恢复', permission: 'system:backup:view' },
           },
+          {
+            path: '/system/modules',
+            name: 'ModuleManagement',
+            component: () => import('@/views/system/modules.vue'),
+            meta: { title: '模块管理', permission: 'system:module:view' },
+          },
         ],
       },
       {

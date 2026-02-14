@@ -66,62 +66,62 @@ export const aiApi = {
   getUsageStats: (startTime: number, endTime: number) =>
     get<AIUsageStats>('/admin/ai/stats', { params: { startTime, endTime } }),
 
-  // 查询对话历史（使用审计日志接口）
+  // 查询对话历史
   getConversations: (params: { page?: number; pageSize?: number; userId?: string; datasourceId?: string; keyword?: string }) =>
-    get<PaginatedResponse<ConversationHistory>>('/admin/audit/chat-history', { params }),
+    get<PaginatedResponse<ConversationHistory>>('/admin/ai/conversations', { params }),
 
   // 获取对话历史统计
   getChatStats: (startTime?: number, endTime?: number) =>
-    get<ChatHistoryStats>('/admin/audit/chat-history/stats', { params: { startTime, endTime } }),
+    get<ChatHistoryStats>('/admin/ai/stats', { params: { startTime, endTime } }),
 
   // 删除对话历史
   deleteChatHistory: (id: string) =>
-    del(`/admin/audit/chat-history/${id}`),
+    del(`/admin/ai/conversations/${id}`),
 
   // --- 爬虫相关 ---
   // 获取模板列表
   getCrawlerTemplates: () =>
-    get<any[]>('/skills/crawler/templates'),
+    get<any[]>('/admin/crawler/templates'),
 
   // 获取定时任务列表
   getCrawlerTasks: () =>
-    get<any[]>('/skills/crawler/tasks'),
+    get<any[]>('/admin/crawler/tasks'),
 
   // 获取采集结果批次
   getCrawlerResults: () =>
-    get<any[]>('/skills/crawler/results'),
+    get<any[]>('/admin/crawler/results'),
 
   // 获取所有采集结果行（Flattened View）
   getCrawlerItems: (params: { page?: number; pageSize?: number; department?: string; dataType?: string; title?: string }) =>
-    get<{ items: any[]; total: number }>('/skills/crawler/items', { params }),
+    get<{ items: any[]; total: number }>('/admin/crawler/items', { params }),
 
   // 获取筛选选项
   getCrawlerOptions: () =>
-    get<{ departments: string[]; dataTypes: string[] }>('/skills/crawler/options'),
+    get<{ departments: string[]; dataTypes: string[] }>('/admin/crawler/options'),
 
   // 获取具体结果明细
   getCrawlerResultDetails: (id: string) =>
-    get<any[]>(`/skills/crawler/results/${id}`),
+    get<any[]>(`/admin/crawler/results/${id}`),
 
   // 切换任务状态
   toggleCrawlerTask: (id: string, status: 'active' | 'paused') =>
-    post(`/skills/crawler/tasks/${id}/toggle`, { status }),
+    post(`/admin/crawler/tasks/${id}/toggle`, { status }),
 
   // 创建爬虫模板
   createCrawlerTemplate: (data: any) =>
-    post<{ id: string; message: string }>('/skills/crawler/templates', data),
+    post<{ id: string; message: string }>('/admin/crawler/templates', data),
 
   // 更新爬虫模板
   updateCrawlerTemplate: (id: string, data: any) =>
-    put<{ message: string }>(`/skills/crawler/templates/${id}`, data),
+    put<{ message: string }>(`/admin/crawler/templates/${id}`, data),
 
   // 删除爬虫模板
   deleteCrawlerTemplate: (id: string) =>
-    del(`/skills/crawler/templates/${id}`),
+    del(`/admin/crawler/templates/${id}`),
 
   // 删除采集结果
   deleteCrawlerResult: (id: string) =>
-    del(`/skills/crawler/results/${id}`),
+    del(`/admin/crawler/results/${id}`),
 
   // --- AI 爬虫助手相关 ---
   // 分析网页并生成选择器
@@ -134,7 +134,7 @@ export const aiApi = {
 
   // 保存爬虫模板
   saveCrawlerTemplate: (data: { name: string; description: string; url: string; department?: string; data_type?: string; selectors: any }) =>
-    post<any>('/skills/crawler/templates', data),
+    post<any>('/admin/crawler/templates', data),
 
   // AI对话接口（支持上下文追问）
   chat: (data: { messages: Array<{ role: string; content: string }> }) =>

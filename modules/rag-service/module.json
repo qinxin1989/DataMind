@@ -37,17 +37,7 @@
       "QaChat": "./frontend/views/QaChat.vue"
     }
   },
-  "menus": [
-    {
-      "id": "rag-knowledge",
-      "title": "知识库",
-      "path": "/ai/knowledge",
-      "icon": "BookOutlined",
-      "parentId": "ai-menu",
-      "sortOrder": 20,
-      "permission": "rag-service:view"
-    }
-  ],
+  "menus": [],
   "permissions": [
     {
       "code": "rag-service:view",

@@ -227,6 +227,54 @@ export function createDataSourceBridgeRoutes(
         }
     });
 
+    // 保存分析结果（用户编辑后）
+    router.post('/:id/schema/analysis/save', authMiddleware, async (req, res) => {
+        const ds = dataSourceManager.get(req.params.id);
+        if (!ds) return res.status(404).json({ error: '数据源不存在' });
+        if (!canAccessDataSource(ds.config, req.user!.id)) return res.status(403).json({ error: '无权访问' });
+        try {
+            const { tables, suggestedQuestions } = req.body;
+            const now = Date.now();
+            await configStore.saveSchemaAnalysis({
+                datasourceId: req.params.id,
+                tables: tables || [],
+                suggestedQuestions: suggestedQuestions || [],
+                analyzedAt: now,
+                updatedAt: now,
+                isUserEdited: true
+            }, req.user!.id);
+            res.json({ success: true, message: '保存成功' });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // AI 建议字段映射
+    router.post('/:id/schema/analysis/suggest', authMiddleware, async (req, res) => {
+        const ds = dataSourceManager.get(req.params.id);
+        if (!ds) return res.status(404).json({ error: '数据源不存在' });
+        if (!canAccessDataSource(ds.config, req.user!.id)) return res.status(403).json({ error: '无权访问' });
+        try {
+            // 获取现有分析结果
+            const cached = await configStore.getSchemaAnalysis(req.params.id, req.user!.id);
+            if (!cached) return res.status(404).json({ error: '请先执行分析' });
+            
+            // 获取数据库 schema
+            const schema = await ds.instance.getSchema();
+            
+            // 调用 AI 生成字段建议
+            const analysis = await aiAgent.analyzeSchema(schema);
+            
+            // 返回建议结果（不自动保存，让用户确认后保存）
+            res.json({
+                tables: analysis.tables,
+                suggestedQuestions: analysis.suggestedQuestions || generateQuestionsFromAnalysis(analysis.tables)
+            });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
     // 审核与修复
     router.post('/:id/approve', authMiddleware, requireAdmin, async (req, res) => {
         const ds = dataSourceManager.get(req.params.id);

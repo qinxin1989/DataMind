@@ -1,4 +1,4 @@
-import { get, post } from './request'
+import { get, put } from './request'
 import type { Notification } from '@/types'
 
 export const notificationApi = {
@@ -12,9 +12,9 @@ export const notificationApi = {
 
   // 标记为已读
   markAsRead: (id: string) =>
-    post(`/admin/notifications/${id}/read`),
+    put(`/admin/notifications/${id}/read`),
 
   // 标记全部已读
   markAllAsRead: () =>
-    post('/admin/notifications/read-all'),
+    put('/admin/notifications/read-all'),
 }

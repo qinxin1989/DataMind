@@ -194,7 +194,7 @@ describe('MenuService', () => {
       expect(deleted).toBeNull();
     });
 
-    it('删除父菜单应同时删除子菜单', async () => {
+    it('删除有子菜单的父菜单应拒绝', async () => {
       const parent = await menuService.createMenu({ title: '父菜单', path: '/parent' });
       const child = await menuService.createMenu({ 
         title: '子菜单', 
@@ -203,13 +203,15 @@ describe('MenuService', () => {
       });
       testMenuIds.push(parent.id, child.id);
 
-      await menuService.deleteMenu(parent.id);
+      await expect(
+        menuService.deleteMenu(parent.id)
+      ).rejects.toThrow(/子菜单/);
 
-      const deletedParent = await menuService.getMenuById(parent.id);
-      const deletedChild = await menuService.getMenuById(child.id);
-
-      expect(deletedParent).toBeNull();
-      expect(deletedChild).toBeNull();
+      // 父菜单和子菜单应该都还在
+      const existingParent = await menuService.getMenuById(parent.id);
+      const existingChild = await menuService.getMenuById(child.id);
+      expect(existingParent).toBeDefined();
+      expect(existingChild).toBeDefined();
     });
 
     it('删除不存在的菜单应抛出错误', async () => {
@@ -251,11 +253,11 @@ describe('MenuService', () => {
       expect(updated2?.order).toBe(5);
     });
 
-    it('应该使用sortOrder更新排序', async () => {
+    it('应该使用updateMenuOrder更新排序', async () => {
       const menu = await menuService.createMenu({ title: '测试', path: '/test', order: 1 });
       testMenuIds.push(menu.id);
 
-      await menuService.updateSortOrder([{ id: menu.id, sortOrder: 99 }]);
+      await menuService.updateMenuOrder([{ id: menu.id, order: 99 }]);
 
       const updated = await menuService.getMenuById(menu.id);
       expect(updated?.sortOrder).toBe(99);

@@ -111,18 +111,46 @@
             </a-button>
           </div>
         </template>
-        <div class="chat-messages" ref="messagesRef">
-          <div v-if="messages.length > filteredMessages.length" class="history-load-more">
-            <a-button type="link" size="small" @click="loadMoreHistory">加载更早的历史记录...</a-button>
+        <div class="chat-messages" ref="messagesRef" @scroll="handleMessagesScroll">
+          <!-- 加载更多历史消息提示 -->
+          <div v-if="hasMoreMessages" class="history-load-more">
+            <a-spin v-if="loadingMore" size="small" />
+            <a-button v-else type="link" size="small" @click="loadOlderMessages">
+              ↑ 加载更早的 {{ totalMessages - messages.length }} 条消息
+            </a-button>
           </div>
           <div v-if="filteredMessages.length === 0" class="empty-chat">
             <RobotOutlined style="font-size: 48px; color: #ccc" />
             <p>选择数据源后开始提问</p>
           </div>
-          <div v-for="(msg, idx) in messages" :key="idx" :class="['message', msg.role, { 'has-chart': !!msg.chart && !noChartMode }]">
+          <div v-for="(msg, idx) in messages" :key="msg._uid ?? idx" :class="['message', msg.role, { 'has-chart': !!msg.chart && !noChartMode }]">
             <div class="bubble">
               <div v-if="msg.role === 'user'">{{ msg.content }}</div>
               <div v-else>
+                <!-- 可折叠的思考过程 -->
+                <div v-if="msg.thinkingSteps && msg.thinkingSteps.length" class="thinking-collapse">
+                  <div class="thinking-toggle" @click="msg.showThinking = !msg.showThinking">
+                    <span class="toggle-icon">{{ msg.showThinking ? '▼' : '▶' }}</span>
+                    <span class="toggle-text">思考过程 ({{ getTotalThinkingTime(msg.thinkingSteps) }}ms)</span>
+                  </div>
+                  <div v-if="msg.showThinking" class="thinking-detail">
+                    <div v-for="(step, sIdx) in msg.thinkingSteps" :key="sIdx" class="thinking-step-wrapper">
+                      <div :class="['thinking-step', step.status]">
+                        <span class="step-icon">
+                          <span v-if="step.status === 'done'" class="done">✓</span>
+                          <span v-else-if="step.status === 'error'" class="error">✗</span>
+                          <span v-else>○</span>
+                        </span>
+                        <span class="step-text">{{ step.step }}</span>
+                        <span v-if="step.duration" class="step-duration">{{ step.duration }}ms</span>
+                      </div>
+                      <!-- 步骤详情 -->
+                      <div v-if="step.detail" class="step-detail">
+                        <pre>{{ step.detail }}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div class="md-content" v-html="renderMarkdown(msg.content)"></div>
                 <div v-if="msg.sql" class="sql-block">
                   <code>{{ msg.sql }}</code>
@@ -229,6 +257,18 @@
                         </template>
                       </a-dropdown>
                     </a-tooltip>
+                    
+                    <a-tooltip :title="msg.chartConfig?.useTranslation === false ? '显示译文' : '显示原文'">
+                      <a-button 
+                        size="small" 
+                        type="text" 
+                        @click="toggleTranslation(idx)"
+                        :disabled="!msg.chartConfig?.translations || Object.keys(msg.chartConfig.translations).length === 0"
+                      >
+                        <span v-if="msg.chartConfig?.useTranslation === false">译</span>
+                        <span v-else>原</span>
+                      </a-button>
+                    </a-tooltip>
                   </a-space>
                 </div>
 
@@ -252,8 +292,29 @@
               </div>
             </div>
           </div>
+          <!-- 思考中状态（紧凑内嵌样式） -->
           <div v-if="loading" class="message ai">
-            <div class="bubble"><a-spin size="small" /> 思考中...</div>
+            <div class="bubble">
+              <div class="thinking-collapse thinking-live">
+                <div class="thinking-toggle" @click="showLiveThinking = !showLiveThinking">
+                  <a-spin size="small" />
+                  <span class="toggle-text">思考中... {{ currentStepSummary }}</span>
+                  <span class="toggle-icon">{{ showLiveThinking ? '▼' : '▶' }}</span>
+                </div>
+                <div v-if="showLiveThinking" class="thinking-detail">
+                  <div v-for="(step, idx) in currentThinkingSteps" :key="idx" :class="['thinking-step', step.status]">
+                    <span class="step-icon">
+                      <a-spin v-if="step.status === 'running'" size="small" style="transform: scale(0.7);" />
+                      <span v-else-if="step.status === 'done'" class="done">✓</span>
+                      <span v-else-if="step.status === 'error'" class="error">✗</span>
+                      <span v-else>○</span>
+                    </span>
+                    <span class="step-text">{{ step.step }}</span>
+                    <span v-if="step.duration" class="step-duration">{{ step.duration }}ms</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         
@@ -372,7 +433,16 @@ interface ChartConfig {
   customColor?: string;
   width?: string | number;
   height?: string | number;
-  translations?: Record<string, string>; // 新增：翻译映射表
+  translations?: Record<string, string>; // 翻译映射表
+  useTranslation?: boolean; // 是否使用翻译（默认true）
+}
+
+// 思考步骤类型
+interface ThinkingStep {
+  step: string;       // 步骤名称
+  status: 'pending' | 'running' | 'done' | 'error';
+  duration?: number;  // 耗时(ms)
+  detail?: string;    // 详细信息
 }
 
 interface ChatMessage { 
@@ -385,9 +455,15 @@ interface ChatMessage {
   question?: string; 
   sources?: { id: string; title: string }[]; 
   hasChart?: boolean;
-  chartConfig?: ChartConfig; 
+  chartConfig?: ChartConfig;
+  thinkingSteps?: ThinkingStep[];  // 思考过程
+  showThinking?: boolean;          // 是否展开思考过程
+  _uid?: number;                   // 内部唯一ID，用于渐进加载动画
 }
 interface Session { id: string; preview: string; messageCount: number; createdAt: number }
+
+// 分页加载配置
+const MESSAGES_PER_PAGE = 20 // 每次加载的消息数量
 interface TableSchema { tableName: string; columns: { name: string; type: string }[] }
 interface TableAnalysis { tableName: string; tableNameCn: string; columns: { name: string; nameCn: string }[] }
 interface AskResponse {
@@ -409,6 +485,9 @@ const selectedDatasource = ref<Datasource | null>(null)
 const messages = ref<ChatMessage[]>([])
 const sessions = ref<Session[]>([])
 const currentSessionId = ref<string>('')
+const hasMoreMessages = ref(false) // 是否还有更多历史消息
+const totalMessages = ref(0) // 总消息数
+const loadingMore = ref(false) // 是否正在加载更多消息
 
 const chartLib = ref(localStorage.getItem('ai_chat_chart_lib') || 'echarts')
 const noChartMode = ref(localStorage.getItem('ai_chat_no_chart') === 'true')
@@ -422,6 +501,9 @@ watch(noChartMode, async (val: boolean) => {
     setTimeout(() => {
       messages.value.forEach((msg, idx) => {
         if (msg.chart) renderChart(idx, msg.chart)
+        if (msg.charts?.length) {
+          msg.charts.forEach((c: any, cIdx: number) => renderChart(idx, c, cIdx))
+        }
       })
     }, 50)
   }
@@ -432,6 +514,11 @@ const inputText = ref('')
 // 用于存储各消息图表的清理函数
 const chartCleanups: Record<number, () => void> = {}
 
+// 渐进式加载
+let _msgUid = 0
+const genMsgUid = () => ++_msgUid
+let _progressiveAbort: (() => void) | null = null
+
 // 切换图表库处理
 function handleChartLibChange() {
   localStorage.setItem('ai_chat_chart_lib', chartLib.value)
@@ -439,8 +526,9 @@ function handleChartLibChange() {
   // 重新渲染当前所有可见的图表
   nextTick(() => {
     messages.value.forEach((msg, idx) => {
-      if (msg.chart) {
-        renderChart(idx, msg.chart)
+      if (msg.chart) renderChart(idx, msg.chart)
+      if (msg.charts?.length) {
+        msg.charts.forEach((c: any, cIdx: number) => renderChart(idx, c, cIdx))
       }
     })
   })
@@ -448,6 +536,17 @@ function handleChartLibChange() {
 const loading = ref(false)
 const loadingDatasources = ref(false)
 const analyzing = ref(false)
+
+// 思考过程状态
+const currentThinkingSteps = ref<ThinkingStep[]>([])
+const showLiveThinking = ref(true) // 思考过程是否展开
+const currentStepSummary = computed(() => {
+  const running = currentThinkingSteps.value.find(s => s.status === 'running')
+  if (running) return running.step + '...'
+  const done = currentThinkingSteps.value.filter(s => s.status === 'done')
+  if (done.length > 0) return done[done.length - 1].step + ' ✓'
+  return ''
+})
 const testingConnection = ref<string | null>(null) // 正在测试连接的数据源ID
 const suggestedQuestions = ref<string[]>([])
 const schemaData = ref<TableSchema[]>([])
@@ -571,6 +670,7 @@ async function selectDatasource(ds: Datasource) {
     testingConnection.value = null
   }
   
+  if (_progressiveAbort) { _progressiveAbort(); _progressiveAbort = null }
   selectedDatasource.value = ds
   currentSessionId.value = ''
   messages.value = []
@@ -668,29 +768,130 @@ async function loadSessions() {
   } catch (e) { sessions.value = [] }
 }
 
-// 加载会话
+// 加载会话（懒加载：初始只加载最新的N条消息）
 async function loadSession(id: string) {
+  // 取消正在进行的渐进加载
+  if (_progressiveAbort) { _progressiveAbort(); _progressiveAbort = null }
+
   currentSessionId.value = id
+  hasMoreMessages.value = false
+  totalMessages.value = 0
+  
   try {
-    const res = await get<any>(`/chat/session/${id}`)
+    // 初始只加载最新的 N 条消息
+    const res = await get<any>(`/chat/session/${id}?limit=${MESSAGES_PER_PAGE}`)
     const session = res.data || res
-    messages.value = session.messages || []
-    scrollToBottom()
-    // 加载会话后，渲染其中的图表（使用延迟确保 DOM 完全就绪）
+    const loadedMessages: ChatMessage[] = session.messages || []
+    
+    // 记录分页信息
+    hasMoreMessages.value = session.hasMore || false
+    totalMessages.value = session.totalMessages || loadedMessages.length
+
+    messages.value = []
     await nextTick()
-    setTimeout(() => {
-      messages.value.forEach((msg, idx) => {
-        if (msg.chart) {
-          renderChart(idx, msg.chart)
+
+    let cancelled = false
+    _progressiveAbort = () => { cancelled = true }
+
+    // 对加载的消息做渐进动画
+    const ANIMATE_COUNT = 10
+    const instantCount = Math.max(0, loadedMessages.length - ANIMATE_COUNT)
+
+    if (instantCount > 0) {
+      const batch = loadedMessages.slice(0, instantCount).map(m => ({ ...m, _uid: genMsgUid() }))
+      messages.value.push(...batch)
+      await nextTick()
+      batch.forEach((_msg, i) => {
+        if (_msg.chart && !noChartMode.value) renderChart(i, _msg.chart)
+        if (_msg.charts?.length && !noChartMode.value) {
+          _msg.charts.forEach((c: any, cIdx: number) => renderChart(i, c, cIdx))
         }
       })
-    }, 100)
+    }
+
+    // 逐条渐进加载剩余消息
+    for (let i = instantCount; i < loadedMessages.length; i++) {
+      if (cancelled) return
+
+      const msg: ChatMessage = { ...loadedMessages[i], _uid: genMsgUid() }
+      messages.value.push(msg)
+      await nextTick()
+
+      // 立即渲染图表，确保图表不丢失
+      if (msg.chart && !noChartMode.value) renderChart(i, msg.chart)
+      if (msg.charts?.length && !noChartMode.value) {
+        msg.charts.forEach((c: any, cIdx: number) => renderChart(i, c, cIdx))
+      }
+
+      scrollToBottom()
+
+      if (i < loadedMessages.length - 1) {
+        await new Promise(r => setTimeout(r, 40))
+      }
+    }
+
+    _progressiveAbort = null
   } catch (e) { message.error('加载会话失败') }
+}
+
+// 加载更早的历史消息（向上滚动时触发）
+async function loadOlderMessages() {
+  if (!currentSessionId.value || !hasMoreMessages.value || loadingMore.value) return
+  
+  loadingMore.value = true
+  const scrollContainer = messagesRef.value
+  const oldScrollHeight = scrollContainer?.scrollHeight || 0
+  
+  try {
+    // 计算 offset：已加载的消息数量
+    const offset = messages.value.length
+    const res = await get<any>(`/chat/session/${currentSessionId.value}?limit=${MESSAGES_PER_PAGE}&offset=${offset}`)
+    const session = res.data || res
+    const olderMessages: ChatMessage[] = session.messages || []
+    
+    hasMoreMessages.value = session.hasMore || false
+    
+    if (olderMessages.length > 0) {
+      // 将旧消息插入到数组开头
+      const batch = olderMessages.map(m => ({ ...m, _uid: genMsgUid() }))
+      messages.value.unshift(...batch)
+      
+      await nextTick()
+      
+      // 保持滚动位置：新的 scrollHeight - 旧的 scrollHeight
+      if (scrollContainer) {
+        const newScrollHeight = scrollContainer.scrollHeight
+        scrollContainer.scrollTop = newScrollHeight - oldScrollHeight
+      }
+      
+      // 渲染新加载消息的图表
+      batch.forEach((_msg, i) => {
+        if (_msg.chart && !noChartMode.value) renderChart(i, _msg.chart)
+        if (_msg.charts?.length && !noChartMode.value) {
+          _msg.charts.forEach((c: any, cIdx: number) => renderChart(i, c, cIdx))
+        }
+      })
+    }
+  } catch (e) {
+    message.error('加载历史消息失败')
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+// 监听滚动事件，到顶部时加载更多
+function handleMessagesScroll(e: Event) {
+  const target = e.target as HTMLElement
+  // 当滚动到顶部附近（50px）时触发加载
+  if (target.scrollTop < 50 && hasMoreMessages.value && !loadingMore.value) {
+    loadOlderMessages()
+  }
 }
 
 
 // 新建对话
 function newChat() {
+  if (_progressiveAbort) { _progressiveAbort(); _progressiveAbort = null }
   currentSessionId.value = ''
   messages.value = []
 }
@@ -704,6 +905,20 @@ async function deleteSession(id: string) {
   } catch (e) { message.error('删除失败') }
 }
 
+// 计算思考总时间
+function getTotalThinkingTime(steps: ThinkingStep[]): number {
+  return steps.reduce((sum, s) => sum + (s.duration || 0), 0)
+}
+
+// 更新思考步骤
+function updateThinkingStep(stepName: string, status: 'pending' | 'running' | 'done' | 'error', duration?: number) {
+  const step = currentThinkingSteps.value.find(s => s.step === stepName)
+  if (step) {
+    step.status = status
+    if (duration !== undefined) step.duration = duration
+  }
+}
+
 // 发送消息
 async function handleSend(e?: KeyboardEvent) {
   if (loading.value) return
@@ -715,11 +930,45 @@ async function handleSend(e?: KeyboardEvent) {
   if (!question || !selectedDatasource.value) return
 
   inputText.value = ''
-  messages.value.push({ role: 'user', content: question })
+  messages.value.push({ role: 'user', content: question, _uid: genMsgUid() })
   scrollToBottom()
+
+  // 初始化思考步骤（4步流程）
+  currentThinkingSteps.value = [
+    { step: '理解问题', status: 'running' },
+    { step: '生成SQL', status: 'pending' },
+    { step: '执行查询', status: 'pending' },
+    { step: '生成回答', status: 'pending' },
+  ]
+  
+  const stepTimers: Record<string, number> = {}
+  stepTimers['理解问题'] = Date.now()
 
   loading.value = true
   try {
+    // 模拟步骤更新：理解问题 → 生成SQL → 执行查询 → 生成回答
+    setTimeout(() => {
+      if (currentThinkingSteps.value.find(s => s.step === '理解问题')?.status === 'running') {
+        updateThinkingStep('理解问题', 'done', Date.now() - stepTimers['理解问题'])
+        updateThinkingStep('生成SQL', 'running')
+        stepTimers['生成SQL'] = Date.now()
+      }
+    }, 800)
+    setTimeout(() => {
+      if (currentThinkingSteps.value.find(s => s.step === '生成SQL')?.status === 'running') {
+        updateThinkingStep('生成SQL', 'done', Date.now() - stepTimers['生成SQL'])
+        updateThinkingStep('执行查询', 'running')
+        stepTimers['执行查询'] = Date.now()
+      }
+    }, 3000)
+    setTimeout(() => {
+      if (currentThinkingSteps.value.find(s => s.step === '执行查询')?.status === 'running') {
+        updateThinkingStep('执行查询', 'done', Date.now() - stepTimers['执行查询'])
+        updateThinkingStep('生成回答', 'running')
+        stepTimers['生成回答'] = Date.now()
+      }
+    }, 5000)
+
     // 调用数据源查询接口（使用 aiPost，超时时间更长）
     const res = await aiPost<AskResponse>('/ask', {
       datasourceId: selectedDatasource.value.id,
@@ -728,27 +977,41 @@ async function handleSend(e?: KeyboardEvent) {
       noChart: noChartMode.value
     })
 
+    // 标记所有步骤完成
+    currentThinkingSteps.value.forEach(s => {
+      if (s.status !== 'done') {
+        s.status = 'done'
+        if (!s.duration && stepTimers[s.step]) {
+          s.duration = Date.now() - stepTimers[s.step]
+        }
+      }
+    })
+
     console.log('=== Frontend received response ===')
     
     const resBody = res.data
     
     if (resBody?.sessionId) currentSessionId.value = resBody.sessionId
 
-    // 重点：如果 resBody 是包装过的，resBody.data 才是真正的 AskResponse
-    // 根据拦截器返回的是 response.data，res 已经是 { success: true, data: AskResponse }
     const askRes = resBody as any
     const answerContent = askRes.answer || '无法回答'
+
+    // 保存思考步骤到消息中
+    const finalSteps = [...currentThinkingSteps.value]
 
     messages.value.push({
       role: 'assistant',
       content: answerContent,
       sql: askRes.sql,
       chart: noChartMode.value ? undefined : askRes.chart, 
-      charts: noChartMode.value ? undefined : askRes.charts, // 拦截复数图表
+      charts: noChartMode.value ? undefined : askRes.charts,
       data: askRes.data,
       sources: askRes.sources,
       question,
-      hasChart: !noChartMode.value && (!!askRes.chart || (askRes.charts && askRes.charts.length > 0))
+      hasChart: !noChartMode.value && (!!askRes.chart || (askRes.charts && askRes.charts.length > 0)),
+      thinkingSteps: finalSteps,
+      showThinking: false,
+      _uid: genMsgUid()
     })
 
     if (askRes.chart) {
@@ -765,9 +1028,20 @@ async function handleSend(e?: KeyboardEvent) {
     
     loadSessions()
   } catch (e: any) {
-    messages.value.push({ role: 'assistant', content: e.message || '请求失败' })
+    // 标记当前步骤为错误
+    currentThinkingSteps.value.forEach(s => {
+      if (s.status === 'running') s.status = 'error'
+    })
+    messages.value.push({ 
+      role: 'assistant', 
+      content: e.message || '请求失败',
+      thinkingSteps: [...currentThinkingSteps.value],
+      showThinking: false,
+      _uid: genMsgUid()
+    })
   } finally {
     loading.value = false
+    currentThinkingSteps.value = []
     scrollToBottom()
   }
 }
@@ -1122,11 +1396,12 @@ function renderChart(idx: number, chartData: any, subIdx?: number) {
 
   // 1. 数据预处理：翻译和缩放
   const translations = msg.chartConfig!.translations || {}
+  const useTranslation = msg.chartConfig!.useTranslation !== false // 默认使用翻译
   const processedData = JSON.parse(JSON.stringify(chartData.data)).map((item: any) => {
     const newItem = { ...item }
-    // 翻译 X 轴标签
+    // 翻译 X 轴标签（如果启用翻译）
     const xVal = String(item[chartData.config.xField])
-    if (translations[xVal]) {
+    if (useTranslation && translations[xVal]) {
       newItem[chartData.config.xField] = translations[xVal]
     }
     return newItem
@@ -1190,9 +1465,10 @@ function renderChart(idx: number, chartData: any, subIdx?: number) {
   const resizeObserver = new ResizeObserver(() => { resizeHandler() })
   resizeObserver.observe(dom)
   
+  const createdWithLib = chartLib.value
   chartCleanups[idx] = () => {
     resizeObserver.disconnect()
-    if (chartLib.value === 'echarts') {
+    if (createdWithLib === 'echarts') {
       try { echarts.dispose(dom) } catch (e) {}
     } else {
       try { chartInstance?.destroy() } catch (e) {}
@@ -1208,7 +1484,7 @@ function generateDashboard(question?: string) {
   
   // 获取token并添加到URL中
   const token = localStorage.getItem('token')
-  const url = `/api/agent/dashboard/preview?datasourceId=${selectedDatasource.value.id}&topic=${encodeURIComponent(topic)}&theme=dark&token=${token}`
+  const url = `/api/ai-qa/agent/dashboard/preview?datasourceId=${selectedDatasource.value.id}&topic=${encodeURIComponent(topic)}&theme=dark&token=${token}`
   window.open(url, '_blank')
 }
 
@@ -1282,7 +1558,7 @@ async function translateChartByType(idx: number, mode: 'ai' | 'direct' = 'ai') {
     const res = await aiPost<any>(endpoint, { texts: textsToTranslate })
     const mapping = res.data || res
     if (mapping) {
-      // 翻译完成后持久化
+      // 翻译完成后更新图表并持久化
       await updateChartConfig(idx, { translations: mapping }, true)
       message.success(mode === 'direct' ? '直接翻译完成' : 'AI 翻译完成')
     }
@@ -1299,21 +1575,25 @@ async function translateChart(idx: number) {
   return translateChartByType(idx, 'ai')
 }
 
-// 历史记录过滤 (仅显示最近 2 天)
-const showAllHistory = ref(false)
-const filteredMessages = computed(() => {
-  if (showAllHistory.value || messages.value.length === 0) return messages.value
+/**
+ * 切换原文/译文显示
+ */
+async function toggleTranslation(idx: number) {
+  const msg = messages.value[idx]
+  if (!msg.chartConfig?.translations) return
   
-  const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000
-  return messages.value.filter(m => {
-    if (!(m as any).createdAt) return true
-    return (m as any).createdAt > twoDaysAgo
-  })
-})
+  const useTranslation = msg.chartConfig.useTranslation === false ? true : false
+  await updateChartConfig(idx, { useTranslation }, true)
+  message.success(useTranslation ? '已切换到译文' : '已切换到原文')
+}
+
+// 历史记录过滤（已不再需要，改用分页加载）
+const showAllHistory = ref(false)
+const filteredMessages = computed(() => messages.value)
 
 function loadMoreHistory() {
-  showAllHistory.value = true
-  message.info('已加载历史记录')
+  // 触发加载更早的消息
+  loadOlderMessages()
 }
 
 onMounted(() => { refreshDatasources() })
@@ -1559,6 +1839,22 @@ onMounted(() => { refreshDatasources() })
   min-height: 0;
 }
 
+.history-load-more {
+  text-align: center;
+  padding: 12px 0 16px;
+  color: #999;
+  font-size: 13px;
+  border-bottom: 1px dashed #e8e8e8;
+  margin-bottom: 16px;
+}
+.history-load-more :deep(.ant-btn-link) {
+  color: #667eea;
+  font-size: 13px;
+}
+.history-load-more :deep(.ant-btn-link:hover) {
+  color: #764ba2;
+}
+
 .empty-chat {
   display: flex;
   flex-direction: column;
@@ -1569,7 +1865,11 @@ onMounted(() => { refreshDatasources() })
 }
 .empty-chat .hint { font-size: 12px; color: #bbb; margin-top: 8px; }
 
-.message { margin-bottom: 16px; }
+.message { margin-bottom: 16px; animation: msgSlideIn 0.3s ease-out both; }
+@keyframes msgSlideIn {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .message.user { text-align: right; }
 .message .bubble {
   display: inline-block;
@@ -1788,6 +2088,103 @@ onMounted(() => { refreshDatasources() })
 .color-picker-input::-webkit-color-swatch {
   border: 2px solid #e2e8f0;
   border-radius: 50%;
+}
+
+/* 思考过程样式 - 紧凑折叠样式 */
+.thinking-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  transition: all 0.3s;
+}
+
+.thinking-step.pending { color: #bbb; }
+.thinking-step.running { color: #667eea; }
+.thinking-step.done { color: #52c41a; }
+.thinking-step.error { color: #f5222d; }
+
+.step-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.step-icon .done { color: #52c41a; }
+.step-icon .error { color: #f5222d; }
+
+.step-text { flex: 1; }
+
+.step-duration {
+  font-size: 10px;
+  color: #999;
+  font-family: monospace;
+}
+
+/* 可折叠思考过程（完成后和实时思考共用） */
+.thinking-collapse {
+  margin-bottom: 8px;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.thinking-collapse.thinking-live {
+  border-color: #667eea44;
+  background: #fafbff;
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fafafa;
+  cursor: pointer;
+  font-size: 12px;
+  color: #888;
+  transition: all 0.2s;
+}
+
+.thinking-live .thinking-toggle {
+  background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
+  color: #667eea;
+}
+
+.thinking-toggle:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.toggle-icon {
+  font-size: 10px;
+  color: #999;
+  margin-left: auto;
+}
+
+.toggle-text {
+  font-weight: 500;
+  flex: 1;
+}
+
+.thinking-detail {
+  padding: 6px 10px;
+  background: white;
+  border-top: 1px solid #f0f0f0;
+}
+
+.thinking-live .thinking-detail {
+  background: #fcfcff;
+}
+
+.thinking-detail .thinking-step {
+  padding: 2px 6px;
+  background: transparent;
+  font-size: 11px;
 }
 
 </style>

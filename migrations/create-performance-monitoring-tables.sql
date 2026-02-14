@@ -2,6 +2,9 @@
 -- 创建时间: 2026-02-01
 -- 用途: 存储性能指标、告警和报告数据
 
+CREATE DATABASE IF NOT EXISTS datamind;
+USE datamind;
+
 -- 性能指标表
 CREATE TABLE IF NOT EXISTS performance_metrics (
   id VARCHAR(36) PRIMARY KEY COMMENT '指标ID',
@@ -71,7 +74,7 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警规则表';
 
 -- 插入预定义告警规则
-INSERT INTO alert_rules (id, name, type, metric, operator, threshold, duration, severity, enabled) VALUES
+INSERT IGNORE INTO alert_rules (id, name, type, metric, operator, threshold, duration, severity, enabled) VALUES
 ('rule-001', 'API响应时间过长(Warning)', 'api', 'response_time', '>', 200, 60, 'warning', TRUE),
 ('rule-002', 'API响应时间过长(Error)', 'api', 'response_time', '>', 500, 30, 'error', TRUE),
 ('rule-003', '数据库查询过慢(Warning)', 'database', 'query_time', '>', 100, 60, 'warning', TRUE),

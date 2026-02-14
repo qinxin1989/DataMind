@@ -263,6 +263,8 @@ export class AIAgent {
     // 支持 API Key 为空的情况
     const openaiConfig: any = {
       baseURL: config.baseURL,
+      timeout: 60000, // 60秒超时
+      maxRetries: 2,  // 最多重试2次
     };
 
     if (config.apiKey && config.apiKey.trim() !== '') {
@@ -1416,10 +1418,17 @@ ${schemaDesc}
   ): Promise<AgentResponse> {
     // 重置 token 计数
     this.lastRequestTokens = 0;
+    const q = question.toLowerCase();
 
     try {
-      // 首先检测是否为闲聊/非数据查询
-      const q = question.toLowerCase();
+      // 1. 检测是否需要生成报告（调用 Skill，支持 AI 深度分析）
+      const reportIntent = this.detectReportIntent(q);
+      if (reportIntent) {
+        console.log('=== Detected report intent:', reportIntent);
+        return this.handleReportRequest(question, dataSource, dbType, reportIntent, context);
+      }
+
+      // 2. 检测是否为闲聊/非数据查询
       if (this.isChitChatQuestion(q)) {
         console.log('=== Detected chitchat question (no AI call)');
         const chitChatAnswer = this.handleChitChat(question);
@@ -1465,6 +1474,10 @@ ${schemaDesc}
       const timings: { [key: string]: number } = {};
       const startTime = Date.now();
 
+      // 步骤1: 理解问题
+      console.log('=== 步骤1: AI 理解问题');
+      const understandStart = Date.now();
+
       // 使用优化的 schema 上下文（如果提供）
       const schemaForAI = context?.schemaContext || this.formatSchemaForAI(schemas);
 
@@ -1474,17 +1487,21 @@ ${schemaDesc}
         systemPromptAddition = `\n\n相关知识背景:\n${context.ragContext.slice(0, 500)}`;
         console.log('=== Using RAG context, length:', context.ragContext.length);
       }
+      timings['理解'] = Date.now() - understandStart;
 
       // 对于文件类型，使用 AI 来规划查询
       if (dbType === 'file') {
+        // 步骤2: 生成SQL
         const planningStart = Date.now();
-        console.log('=== Using AI planning for file datasource (with context)');
+        console.log('=== 步骤2: 生成查询语句 (file)');
         const queryPlan = await this.planFileQueryWithContext(question, schemas, history, schemaForAI, systemPromptAddition, context?.noChart);
-        timings['规划'] = Date.now() - planningStart;
+        timings['生成SQL'] = Date.now() - planningStart;
         const internalSql = queryPlan.sql;
         console.log('AI generated query:', internalSql);
 
+        // 步骤3: 执行查询
         const executionStart = Date.now();
+        console.log('=== 步骤3: 执行查询');
         const queryResult = await dataSource.executeQuery(internalSql);
         timings['执行'] = Date.now() - executionStart;
         console.log('Query result:', queryResult.success, 'rows:', queryResult.rowCount);
@@ -1499,13 +1516,14 @@ ${schemaDesc}
           chart = this.generateChartData(result, queryPlan.chartType as any, queryPlan.chartTitle || question, schemas);
         }
 
-        const explanationStart = Date.now();
-        const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext, context?.noChart);
-        timings['总结'] = Date.now() - explanationStart;
+        // 步骤4: AI 生成回答
+        const answerStart = Date.now();
+        console.log('=== 步骤4: AI 生成回答');
+        const explanation = await this.generateChineseAnswer(question, result, history, context?.ragContext, context?.noChart);
+        timings['生成回答'] = Date.now() - answerStart;
 
-        // 格式化耗时
         const totalTime = Date.now() - startTime;
-        const timeStr = `\n\n> ⏱️ 响应耗时: ${totalTime}ms (规划:${timings['规划']}ms, 执行:${timings['执行']}ms, 总结:${timings['总结']}ms)`;
+        const timeStr = `\n\n> ⏱️ 响应耗时: ${totalTime}ms (理解:${timings['理解']}ms, 生成SQL:${timings['生成SQL']}ms, 执行:${timings['执行']}ms, 生成回答:${timings['生成回答']}ms)`;
 
         return {
           answer: explanation + timeStr,
@@ -1516,21 +1534,36 @@ ${schemaDesc}
         };
       }
 
-      // 数据库类型：使用优化的 SQL 生成
+      // 步骤2: 生成SQL
       const planningStart = Date.now();
-      console.log('=== Using optimized SQL generation with context');
+      console.log('=== 步骤2: 生成SQL语句');
       const sqlPlan = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition, context?.noChart);
-      timings['规划'] = Date.now() - planningStart;
+      timings['生成SQL'] = Date.now() - planningStart;
       sql = sqlPlan.sql;
       console.log('AI generated SQL:', sql);
 
       // 转义 MySQL 保留字
-      const escapedSql = escapeReservedWords(sql || '', dbType);
+      let escapedSql = escapeReservedWords(sql || '', dbType);
       if (escapedSql !== sql) {
         console.log('Escaped SQL:', escapedSql);
       }
+      
+      // 强制添加 LIMIT 限制，防止返回过多数据
+      const hasLimit = /\bLIMIT\s+\d+/i.test(escapedSql);
+      if (!hasLimit && /^\s*SELECT/i.test(escapedSql)) {
+        // 检查是否是聚合查询（有 GROUP BY 或聚合函数但没有 GROUP BY）
+        const hasGroupBy = /\bGROUP\s+BY\b/i.test(escapedSql);
+        const hasAggregateOnly = /\b(COUNT|SUM|AVG|MAX|MIN)\s*\(/i.test(escapedSql) && !hasGroupBy;
+        if (!hasAggregateOnly) {
+          // 非纯聚合查询，添加 LIMIT
+          escapedSql = escapedSql.replace(/;?\s*$/, '') + ' LIMIT 100';
+          console.log('Added LIMIT 100 to SQL:', escapedSql);
+        }
+      }
 
+      // 步骤3: 执行查询
       const executionStart = Date.now();
+      console.log('=== 步骤3: 执行查询');
       const queryResult = await dataSource.executeQuery(escapedSql);
       timings['执行'] = Date.now() - executionStart;
       if (!queryResult.success) {
@@ -1543,14 +1576,14 @@ ${schemaDesc}
         chart = this.generateChartData(result, (sqlPlan.chartType || 'bar') as any, sqlPlan.chartTitle || question, schemas);
       }
 
-      // 解读结果（带 RAG 上下文）
-      const explanationStart = Date.now();
-      const explanation = await this.explainResultWithContext(question, result, history, context?.ragContext, context?.noChart);
-      timings['总结'] = Date.now() - explanationStart;
+      // 步骤4: AI 生成回答
+      const answerStart = Date.now();
+      console.log('=== 步骤4: AI 生成回答');
+      const explanation = await this.generateChineseAnswer(question, result, history, context?.ragContext, context?.noChart);
+      timings['生成回答'] = Date.now() - answerStart;
 
-      // 格式化耗时
       const totalTime = Date.now() - startTime;
-      const timeStr = `\n\n> ⏱️ 响应耗时: ${totalTime}ms (规划:${timings['规划']}ms, 执行:${timings['执行']}ms, 总结:${timings['总结']}ms)`;
+      const timeStr = `\n\n> ⏱️ 响应耗时: ${totalTime}ms (理解:${timings['理解']}ms, 生成SQL:${timings['生成SQL']}ms, 执行:${timings['执行']}ms, 生成回答:${timings['生成回答']}ms)`;
 
       return {
         answer: explanation + timeStr,
@@ -1659,6 +1692,473 @@ ${schemaContext}${additionalContext}`
     return { sql: cleanSQL(content) };
   }
 
+  // 检测是否需要生成报告（返回报告类型或 null）
+  private detectReportIntent(question: string): 'summary' | 'ppt' | 'dashboard' | 'analysis' | null {
+    const q = question.toLowerCase();
+    
+    // PPT/演示文稿
+    if (/(生成|(制|)|(导出|))(ppt|演示|幻灯片|报告文档)/i.test(q)) {
+      return 'ppt';
+    }
+    
+    // 数据大屏
+    if (/(生成|(制|)|(展示|))(大屏|(可视化|)看板|dashboard)/i.test(q)) {
+      return 'dashboard';
+    }
+    
+    // 深度分析报告
+    if (/(生成|(写|)).*(报告|分析报告|总结报告)/i.test(q)) {
+      return 'summary';
+    }
+    
+    // 详细分析/深度分析
+    if (/(详细|深度|全面|综合).*分析/i.test(q) || /分析.*(报告|结果)/i.test(q)) {
+      return 'analysis';
+    }
+    
+    return null;
+  }
+  
+  // 处理报告生成请求（调用 Skill，支持 AI）
+  private async handleReportRequest(
+    question: string,
+    dataSource: BaseDataSource,
+    dbType: string,
+    reportType: 'summary' | 'ppt' | 'dashboard' | 'analysis',
+    context?: any
+  ): Promise<AgentResponse> {
+    await this.ensureInitialized();
+    const startTime = Date.now();
+    const schemas = await dataSource.getSchema();
+    
+    try {
+      if (reportType === 'analysis') {
+        // 深度分析：调用 AI 生成分析报告
+        return await this.generateAnalysisReport(question, dataSource, dbType, schemas, context);
+      }
+      
+      // 其他报告类型：调用对应的 Skill
+      const skillContext = {
+        dataSource,
+        dbType,
+        schemas,
+        workDir: 'public/downloads'
+      };
+      
+      const skillName = `report.${reportType}`;
+      const skill = skillsRegistry.get(skillName);
+      
+      if (!skill) {
+        return {
+          answer: `抱歉，${reportType} 报告生成功能暂未启用。`,
+          tokensUsed: 0,
+          modelName: 'none'
+        };
+      }
+      
+      const result = await skill.execute(
+        { datasourceId: 'current', topic: question },
+        skillContext as any
+      );
+      
+      const totalTime = Date.now() - startTime;
+      
+      if (result.success) {
+        return {
+          answer: `${result.message}\n\n> ⏱️ 生成耗时: ${totalTime}ms`,
+          data: result.data,
+          skillUsed: skillName,
+          tokensUsed: this.lastRequestTokens,
+          modelName: this.model
+        };
+      } else {
+        return {
+          answer: `报告生成失败: ${result.message}`,
+          tokensUsed: 0,
+          modelName: 'none'
+        };
+      }
+    } catch (error: any) {
+      return {
+        answer: `报告生成失败: ${error.message}`,
+        tokensUsed: 0,
+        modelName: 'none'
+      };
+    }
+  }
+  
+  // 生成深度分析报告（调用 AI）
+  private async generateAnalysisReport(
+    question: string,
+    dataSource: BaseDataSource,
+    dbType: string,
+    schemas: TableSchema[],
+    context?: any
+  ): Promise<AgentResponse> {
+    const startTime = Date.now();
+    
+    // 收集基础数据
+    const dataOverview: any[] = [];
+    for (const schema of schemas.slice(0, 5)) {
+      try {
+        const countResult = await dataSource.executeQuery(
+          `SELECT COUNT(*) as total FROM ${schema.tableName} LIMIT 1`
+        );
+        dataOverview.push({
+          table: schema.tableName,
+          count: countResult.data?.[0]?.total || 0,
+          columns: schema.columns.length
+        });
+      } catch (e) {
+        // 忽略失败的表
+      }
+    }
+    
+    // 调用 AI 生成分析报告
+    const schemaStr = schemas.slice(0, 5).map(s => 
+      `${s.tableName}: ${s.columns.slice(0, 10).map(c => c.name).join(', ')}`
+    ).join('\n');
+    
+    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content: `你是数据分析专家。根据数据概览生成简洁的分析报告。
+
+**输出格式**：
+# 数据分析报告
+
+## 1. 数据概览
+(列出各表的记录数和字段数)
+
+## 2. 数据特征
+(分析字段类型和可能的业务含义)
+
+## 3. 建议分析方向
+(提出3-5个可以深入分析的问题)
+
+保持简洁，每个部分不超过5行。`
+        },
+        {
+          role: 'user',
+          content: `用户问题: ${question}\n\n数据概览:\n${JSON.stringify(dataOverview, null, 2)}\n\n表结构:\n${schemaStr}`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 1000
+    }));
+    
+    const answer = response.choices[0].message.content || '无法生成分析报告';
+    const totalTime = Date.now() - startTime;
+    
+    return {
+      answer: answer + `\n\n> ⏱️ 报告生成耗时: ${totalTime}ms`,
+      data: dataOverview,
+      skillUsed: 'report.analysis',
+      tokensUsed: this.lastRequestTokens,
+      modelName: this.model
+    };
+  }
+
+  // 快速生成答案（不调用AI，毫秒级返回）
+  private generateQuickAnswer(question: string, result: any[], schemas?: TableSchema[]): string {
+    if (!result || (Array.isArray(result) && result.length === 0)) {
+      return '查询结果为空，没有找到相关数据。';
+    }
+    
+    const data = Array.isArray(result) ? result : [result];
+    const count = data.length;
+    const keys = Object.keys(data[0]);
+    
+    // 检测字段类型，用于智能单位
+    const detectFieldType = (key: string): 'area' | 'population' | 'gdp' | 'count' | 'generic' => {
+      const k = key.toLowerCase();
+      if (k.includes('area') || k.includes('surface') || k.includes('面积')) return 'area';
+      if (k.includes('population') || k.includes('人口')) return 'population';
+      if (k.includes('gnp') || k.includes('gdp') || k.includes('生产总值')) return 'gdp';
+      if (k.includes('count') || k.includes('total') || k.includes('数量')) return 'count';
+      return 'generic';
+    };
+    
+    // 单值查询（如 COUNT(*), SUM() 等）
+    if (count === 1 && keys.length === 1) {
+      const value = data[0][keys[0]];
+      const fieldType = detectFieldType(keys[0]);
+      return `查询结果：**${this.formatValueWithUnit(value, fieldType)}**`;
+    }
+    
+    // 单行多列查询
+    if (count === 1) {
+      const row = data[0];
+      const details = keys.map(k => {
+        const fieldType = detectFieldType(k);
+        return `- **${this.translateFieldName(k)}**: ${this.formatValueWithUnit(row[k], fieldType)}`;
+      }).join('\n');
+      return `查询结果：\n\n${details}`;
+    }
+    
+    // 多行查询（排名/统计类）
+    // 智能识别字段角色
+    const numericKeys = keys.filter(k => {
+      const sample = data[0][k];
+      return typeof sample === 'number';
+    });
+    const textKeys = keys.filter(k => {
+      const sample = data[0][k];
+      return typeof sample === 'string';
+    });
+    
+    // 数值字段（用于显示数据）
+    const valueKey = numericKeys[numericKeys.length - 1] || keys[keys.length - 1];
+    const valueFieldType = detectFieldType(valueKey);
+    console.log('[generateQuickAnswer] keys:', keys, 'valueKey:', valueKey, 'fieldType:', valueFieldType);
+    
+    // 生成排名列表（显示所有文本字段）
+    const items = data.slice(0, 15).map((row, i) => {
+      const value = row[valueKey];
+      
+      // 收集所有文本字段的值
+      const textParts = textKeys.map(k => this.translateName(row[k])).filter(v => v);
+      const displayName = textParts.join(' - ') || this.translateName(row[keys[0]]);
+      
+      if (numericKeys.length === 0) {
+        return `${i + 1}. ${displayName}`;
+      }
+      return `${i + 1}. **${displayName}**: ${this.formatValueWithUnit(value, valueFieldType)}`;
+    });
+    
+    let answer = `查询到 **${count}** 条结果：\n\n${items.join('\n')}`;
+    if (count > 15) {
+      answer += `\n\n...及其他 ${count - 15} 条数据`;
+    }
+    
+    return answer;
+  }
+  
+  // 翻译常见名称（国家、大洲等）
+  private translateName(name: any): string {
+    if (typeof name !== 'string') return String(name);
+    const translations: Record<string, string> = {
+      // 国家
+      'Russian Federation': '俄罗斯', 'China': '中国', 'United States': '美国',
+      'Canada': '加拿大', 'Brazil': '巴西', 'Australia': '澳大利亚',
+      'India': '印度', 'Argentina': '阿根廷', 'Kazakhstan': '哈萨克斯坦',
+      'Algeria': '阿尔及利亚', 'Antarctica': '南极洲', 'Japan': '日本',
+      'Germany': '德国', 'France': '法国', 'United Kingdom': '英国',
+      'Italy': '意大利', 'South Korea': '韩国', 'Spain': '西班牙',
+      'Mexico': '墨西哥', 'Indonesia': '印度尼西亚', 'Turkey': '土耳其',
+      'Saudi Arabia': '沙特阿拉伯', 'Iran': '伊朗', 'Egypt': '埃及',
+      'Nigeria': '尼日利亚', 'Pakistan': '巴基斯坦', 'Bangladesh': '孟加拉国',
+      'Vietnam': '越南', 'Philippines': '菲律宾', 'Thailand': '泰国',
+      'Poland': '波兰', 'Ukraine': '乌克兰', 'Netherlands': '荷兰',
+      'Belgium': '比利时', 'Sweden': '瑞典', 'Switzerland': '瑞士',
+      'Austria': '奥地利', 'Norway': '挪威', 'Denmark': '丹麦',
+      'Finland': '芬兰', 'Portugal': '葡萄牙', 'Greece': '希腊',
+      'Czech Republic': '捷克', 'Romania': '罗马尼亚', 'Hungary': '匈牙利',
+      'Israel': '以色列', 'Singapore': '新加坡', 'Malaysia': '马来西亚',
+      'South Africa': '南非', 'New Zealand': '新西兰', 'Ireland': '爱尔兰',
+      'Colombia': '哥伦比亚', 'Chile': '智利', 'Peru': '秘鲁',
+      'Venezuela': '委内瑞拉', 'Cuba': '古巴', 'North Korea': '朝鲜',
+      'Myanmar': '缅甸', 'Nepal': '尼泊尔', 'Sri Lanka': '斯里兰卡',
+      'Cambodia': '柬埔寨', 'Laos': '老挝', 'Mongolia': '蒙古',
+      // 大洲
+      'Asia': '亚洲', 'Europe': '欧洲', 'Africa': '非洲',
+      'North America': '北美洲', 'South America': '南美洲', 'Oceania': '大洋洲',
+      'Antarctica': '南极洲',
+      // 城市
+      'Shanghai': '上海', 'Beijing': '北京', 'Mumbai': '孟买',
+      'Delhi': '德里', 'Tokyo': '东京', 'Seoul': '首尔',
+      'New York': '纽约', 'Los Angeles': '洛杉矶', 'London': '伦敦',
+      'Paris': '巴黎', 'Moscow': '莫斯科', 'São Paulo': '圣保罗',
+    };
+    return translations[name] || name;
+  }
+  
+  // 翻译字段名
+  private translateFieldName(field: string): string {
+    const translations: Record<string, string> = {
+      'Name': '名称', 'Population': '人口', 'SurfaceArea': '面积',
+      'Continent': '大洲', 'Region': '地区', 'GNP': '国民生产总值',
+      'LifeExpectancy': '平均寿命', 'GovernmentForm': '政府形式',
+      'HeadOfState': '国家元首', 'Capital': '首都', 'Code': '代码',
+      'IndepYear': '独立年份', 'District': '地区', 'CountryCode': '国家代码',
+      'Language': '语言', 'IsOfficial': '是否官方', 'Percentage': '使用比例',
+    };
+    return translations[field] || field;
+  }
+  
+  // 格式化数值（带单位）
+  private formatValueWithUnit(value: any, fieldType: 'area' | 'population' | 'gdp' | 'count' | 'generic'): string {
+    if (value === null || value === undefined) return '-';
+    if (typeof value !== 'number') return this.translateName(value);
+    
+    const num = value;
+    let formatted: string;
+    let unit = '';
+    
+    if (num >= 100000000) {
+      formatted = (num / 100000000).toFixed(2);
+      unit = '亿';
+    } else if (num >= 10000) {
+      formatted = (num / 10000).toFixed(2);
+      unit = '万';
+    } else if (Number.isInteger(num)) {
+      formatted = num.toLocaleString();
+    } else {
+      formatted = num.toFixed(2);
+    }
+    
+    // 根据字段类型添加单位
+    switch (fieldType) {
+      case 'area':
+        return formatted + unit + '平方公里';
+      case 'population':
+        return formatted + unit + '人';
+      case 'gdp':
+        return formatted + unit + '美元';
+      case 'count':
+        return formatted + unit + '个';
+      default:
+        return formatted + unit;
+    }
+  }
+  
+  // 格式化数值（通用）
+  private formatValue(value: any): string {
+    return this.formatValueWithUnit(value, 'generic');
+  }
+
+  // 快速生成简单结果的描述（不调用AI，立即返回）- 已废弃，使用generateQuickAnswer
+  private generateSimpleExplanation(question: string, result: any[]): string {
+    return this.generateQuickAnswer(question, result);
+  }
+  
+  // 保留旧方法以兼容
+  private _deprecatedGenerateSimpleExplanation(question: string, result: any[]): string {
+    const count = result.length;
+    if (count === 0) return '没有查询到数据';
+    
+    const keys = Object.keys(result[0]);
+    const firstKey = keys[0];
+    const secondKey = keys[1];
+    
+    // 检测查询类型
+    const isCountQuery = keys.some(k => /count|total|数量|总数/i.test(k));
+    const isRankQuery = /排名|前\d+|最大|最小|最高|最低|top/i.test(question);
+    const isSingleValue = count === 1 && keys.length <= 2;
+    
+    let explanation = '';
+    
+    if (isSingleValue) {
+      // 单值查询：如 COUNT(*)
+      const value = result[0][keys[keys.length - 1]];
+      explanation = `查询结果：**${this.formatNumber(value)}**`;
+    } else if (isRankQuery || isCountQuery) {
+      // 排名/统计查询
+      const items = result.slice(0, 10).map((row, i) => {
+        const name = row[firstKey];
+        const value = row[secondKey] || row[keys[keys.length - 1]];
+        return `${i + 1}. **${name}**: ${this.formatNumber(value)}`;
+      });
+      explanation = `查询到 ${count} 条结果：\n\n${items.join('\n')}`;
+      if (count > 10) explanation += `\n\n...及其他 ${count - 10} 条`;
+    } else {
+      // 普通查询
+      const preview = result.slice(0, 5).map(row => {
+        const mainValue = row[firstKey];
+        const detail = keys.slice(1, 3).map(k => `${k}: ${row[k]}`).join(', ');
+        return `- **${mainValue}** (${detail})`;
+      });
+      explanation = `查询到 ${count} 条结果：\n\n${preview.join('\n')}`;
+      if (count > 5) explanation += `\n\n...及其他 ${count - 5} 条`;
+    }
+    
+    return explanation;
+  }
+  
+  // 格式化数字
+  private formatNumber(value: any): string {
+    if (typeof value !== 'number') return String(value);
+    if (value >= 100000000) return (value / 100000000).toFixed(2) + '亿';
+    if (value >= 10000) return (value / 10000).toFixed(2) + '万';
+    return value.toLocaleString();
+  }
+
+  // AI 生成符合中国人回答习惯的自然语言回答
+  private async generateChineseAnswer(
+    question: string,
+    result: any,
+    history: ChatMessage[],
+    ragContext?: string,
+    noChart?: boolean
+  ): Promise<string> {
+    if (!result || (Array.isArray(result) && result.length === 0)) {
+      return '抱歉，没有查询到相关数据。您可以换个方式描述问题，或检查数据源中是否有对应的数据。';
+    }
+
+    await this.ensureInitialized();
+
+    const data = Array.isArray(result) ? result : [result];
+    const totalCount = data.length;
+
+    // 限制发送给AI的数据量
+    let limitedResult: any[];
+    if (totalCount <= 50) {
+      limitedResult = data;
+    } else {
+      limitedResult = [...data.slice(0, 30), ...data.slice(-20)];
+    }
+    const resultStr = JSON.stringify(limitedResult);
+    const dataSummary = totalCount > 50 ? `(总共${totalCount}条，已省略中间数据)` : '';
+
+    // 检查结果是否包含维度字段
+    const hasDimensionField = data.length > 0 &&
+      Object.keys(data[0]).some(key =>
+        /(\u5730\u533a|\u533a\u57df|\u7701\u4efd|\u57ce\u5e02|\u7c7b\u578b|\u7c7b\u522b|\u65f6\u95f4|\u65e5\u671f|region|area|province|city|type|category|date|time)/i.test(key)
+      );
+
+    let systemPrompt = `你是一位专业的数据分析师，请根据查询结果生成一段符合中国人语言习惯的回答。
+
+**回答风格要求**:
+1. 像一位专业同事在回答你的提问，语气自然、亲切、口语化
+2. 先直接回答用户的问题（一句话给出核心结论），然后再展开具体数据
+3. 数值要用中文习惯的表达：用“万”“亿”等单位，不要显示长串数字
+4. 有排名数据时突出前几名和特点，适当做对比和洞察
+5. 如果有明显的趋势或规律，用一句话概括
+6. 禁止说“无法分析”“数据不足”，有数据就给结论
+7. 用 Markdown 格式使内容更清晰易读${hasDimensionField ? '\n8. 结果包含分类/地域维度，请详细列出每个维度的具体数值' : ''}
+
+**举例**:
+- 用户问“哪个地区人口最多” → “从数据来看，**广东省**的人口最多，达到了1.26亿，其次是山东省(1.02亿)和河南省(9,937万)...”
+- 用户问“月销售额趋势” → “总体来看，销售额呈现**稳步上升**趋势。其中3月份增长最快，环比增长23%...”`;
+
+    if (ragContext) {
+      systemPrompt += `\n\n参考知识:\n${ragContext.slice(0, 300)}`;
+    }
+    if (noChart) {
+      systemPrompt += `\n注意:当前为无图模式，请不要在回复中提及任何图表、图形或可视化内容。`;
+    }
+
+    try {
+      const response = await this.callWithRetry(() => this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `问题:${question}\n查询结果${dataSummary}:${resultStr}` }
+        ],
+        temperature: 0.4,
+        max_tokens: 1000,
+      }));
+
+      return response.choices[0].message.content || '查询完成，但无法生成详细说明。';
+    } catch (error: any) {
+      console.error('generateChineseAnswer: AI call failed:', error.message);
+      // 回退到快速回答
+      return this.generateQuickAnswer(question, data);
+    }
+  }
+
   // 带上下文的结果解读
   private async explainResultWithContext(
     question: string,
@@ -1667,14 +2167,28 @@ ${schemaContext}${additionalContext}`
     ragContext?: string,
     noChart?: boolean
   ): Promise<string> {
-    await this.ensureInitialized();
-
     if (!result || (Array.isArray(result) && result.length === 0)) {
       return '数据库中没有相关数据';
     }
 
-    const limitedResult = Array.isArray(result) ? result.slice(0, 1000) : result;
+    const totalCount = Array.isArray(result) ? result.length : 1;
+    
+    // 优化：简单查询结果（≤20条）直接生成描述，不调用AI
+    if (totalCount <= 20 && Array.isArray(result)) {
+      return this.generateSimpleExplanation(question, result);
+    }
+    
+    await this.ensureInitialized();
+
+    // 优化：限制发送给AI的数据量，最多50条，超过则只取前30+后20
+    let limitedResult: any[];
+    if (result.length <= 50) {
+      limitedResult = result;
+    } else {
+      limitedResult = [...result.slice(0, 30), ...result.slice(-20)];
+    }
     const resultStr = JSON.stringify(limitedResult);
+    const dataSummary = totalCount > 50 ? `(总共${totalCount}条，已省略中间数据)` : '';
 
     // 检查结果是否包含维度字段（用于增强分析）
     const hasDimensionField = Array.isArray(result) && result.length > 0 &&
@@ -1708,9 +2222,10 @@ ${schemaContext}${additionalContext}`
         model: this.model,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `问题:${question}\n结果:${resultStr}` }
+          { role: 'user', content: `问题:${question}\n结果${dataSummary}:${resultStr}` }
         ],
         temperature: 0.3,
+        max_tokens: 800,  // 限制回复长度，加快响应
       }));
 
       return response.choices[0].message.content || '无法解读结果';
@@ -2079,7 +2594,7 @@ ${schemaContext}${additionalContext}`
       "description": "详细业务描述，包含字段含义、数据格式、典型值说明"
     }
   ]
-  ${index === 0 ? ',"suggestedQuestions": ["生成10-15个简单直白的提问问题（中文），要求：1）用日常口语化表达，如\"总共多少\"\"哪个最多\"\"排名前十\"\"按地区分布\"等 2）问题要简短，不超过15个字 3）涵盖常见查询：总数、排名、分布、趋势、对比 4）避免专业术语，用普通人会问的方式"]' : ''}
+  ${index === 0 ? ',"suggestedQuestions": ["生成12-15个有分析价值的问题（中文），要求：1）包含聚合分析：如SUM/AVG/COUNT统计 2）包含排名对比：TOP N、最大最小 3）包含分组分布：按某维度GROUP BY 4）包含关联分析：跨表JOIN查询 5）问题要具体，直接说明要查什么，如\"人口最多的10个国家\"\"各大洲国家数量对比\"\"GDP排名前20\" 6）避免太简单的问题如\"有多少条数据\""]' : ''}
 }
 
 **特别注意**:
@@ -2179,67 +2694,77 @@ ${schemaContext}${additionalContext}`
     return info.join('\n');
   }
 
-  // 基于中文名称生成简单直白的问题
+  // 基于中文名称生成有分析价值的问题
   private generateChineseQuestions(schemas: TableSchema[], analyzedTables: any[]): string[] {
     const questions: string[] = [];
+    const tableNames = schemas.map(s => s.tableName.toLowerCase());
+    
+    // 检测是否是 world 数据库（常见教学数据库）
+    const isWorldDb = tableNames.includes('country') || tableNames.includes('city') || tableNames.includes('countrylanguage');
+    
+    if (isWorldDb) {
+      // World 数据库专用问题
+      questions.push(
+        '人口最多的10个国家',
+        '各大洲国家数量对比',
+        'GDP排名前20的国家',
+        '人口密度最高的国家',
+        '人口超过1亿的国家有哪些',
+        '亚洲国家的平均寿命',
+        '各大洲总人口对比',
+        '面积最大的10个国家',
+        '人口最多的10个城市',
+        '每个国家有多少城市',
+        '官方语言使用最多的是哪种',
+        '哪些国家使用英语作为官方语言',
+        '独立最早的10个国家',
+        '人均GDP最高的国家',
+        '非洲国家的平均GDP'
+      );
+      return questions;
+    }
 
+    // 通用逻辑
     for (let i = 0; i < schemas.length; i++) {
       const table = schemas[i];
       const analyzed = analyzedTables[i];
       const tableCn = analyzed?.tableNameCn || this.guessTableNameCn(table.tableName);
 
-      // 基础统计 - 更口语化
-      questions.push(`一共有多少条${tableCn}？`);
-      questions.push(`展示前10条${tableCn}`);
-      questions.push(`给我看看所有${tableCn}`);
+      // 识别关键字段（支持中英文）
+      const numericFields = table.columns.filter(c => {
+        const name = c.name.toLowerCase();
+        const type = c.type.toLowerCase();
+        return (type.includes('int') || type.includes('decimal') || type.includes('float') || type.includes('number')) &&
+          !name.includes('id') && !name.includes('code');
+      });
 
-      // 地区/地域字段
-      const regionFields = table.columns.filter(c =>
-        c.name.includes('地区') || c.name.includes('区域') || c.name.includes('省份') || c.name.includes('城市')
-      );
-      for (const field of regionFields.slice(0, 2)) {
+      const categoryFields = table.columns.filter(c => {
+        const name = c.name.toLowerCase();
+        return name.includes('type') || name.includes('status') || name.includes('category') ||
+          name.includes('continent') || name.includes('region') || name.includes('district') ||
+          name.includes('类型') || name.includes('状态') || name.includes('分类') || name.includes('地区');
+      });
+
+      // 数值字段分析
+      for (const field of numericFields.slice(0, 3)) {
         const fieldCn = analyzed?.columns?.find((c: any) => c.name === field.name)?.nameCn || field.name;
-        questions.push(`按${fieldCn}分布，哪个最多？`);
-        questions.push(`${fieldCn}排名前十的是哪些？`);
+        questions.push(`${fieldCn}排名前10的${tableCn}`);
+        questions.push(`${tableCn}的${fieldCn}平均值`);
       }
 
-      // 类型/分类字段
-      const categoryFields = table.columns.filter(c =>
-        c.name.includes('类型') || c.name.includes('类别') || c.name.includes('分类') || c.name.includes('性别') || c.name.includes('状态')
-      );
+      // 分类字段分析
       for (const field of categoryFields.slice(0, 2)) {
         const fieldCn = analyzed?.columns?.find((c: any) => c.name === field.name)?.nameCn || field.name;
-        questions.push(`按${fieldCn}分组统计数量`);
-        questions.push(`哪种${fieldCn}最多？`);
-      }
-
-      // 时间字段
-      const dateFields = table.columns.filter(c =>
-        c.type.toLowerCase().includes('date') || c.name.includes('时间') || c.name.includes('日期')
-      );
-      if (dateFields.length > 0) {
-        questions.push(`按月份统计数量趋势`);
-        questions.push(`最近的数据有哪些？`);
-      }
-
-      // 数值字段
-      const numericFields = table.columns.filter(c =>
-        c.name.includes('数量') || c.name.includes('金额') || c.name.includes('分数') || c.name.includes('年龄') || c.name.includes('比例')
-      );
-      for (const field of numericFields.slice(0, 2)) {
-        const fieldCn = analyzed?.columns?.find((c: any) => c.name === field.name)?.nameCn || field.name;
-        questions.push(`${fieldCn}最大的是多少？`);
-        questions.push(`${fieldCn}排名前十的`);
-        questions.push(`${fieldCn}平均是多少？`);
+        questions.push(`按${fieldCn}统计${tableCn}数量`);
       }
     }
 
-    // 综合分析
-    questions.push(`数据总览`);
-    questions.push(`有什么规律和特点？`);
-    questions.push(`帮我分析一下数据`);
+    // 多表关联问题
+    if (schemas.length > 1) {
+      questions.push('各表数据量统计');
+    }
 
-    return questions.slice(0, 15);
+    return [...new Set(questions)].slice(0, 15);
   }
 
   // 猜测表的中文名
