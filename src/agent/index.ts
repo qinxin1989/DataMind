@@ -2920,7 +2920,7 @@ ${hasMultipleTables ? '- \ud83d\udd17 \u5173\u8054\u5206\u6790\uff1a\u8de8\u8868
       const questions = parsed.questions || [];
       return questions.sort(() => Math.random() - 0.5).slice(0, 15);
     } catch (e) {
-      console.error('JSON 解析失败，尝试正则提取:', e);
+      console.warn('JSON 解析失败，尝试正则提取:', e instanceof Error ? e.message : String(e));
       // 备用：用正则提取引号内的中文问题
       const matches = content.match(/"([^"]*[\u4e00-\u9fa5][^"]*?)"/g);
       if (matches && matches.length >= 3) {
@@ -3048,6 +3048,7 @@ ${hasMultipleTables ? '- \ud83d\udd17 \u5173\u8054\u5206\u6790\uff1a\u8de8\u8868
       'city': '城市',
       'user': '用户',
       'order': '订单',
+      'countrylanguage': '国家语言',
     };
     return map[tableName.toLowerCase()] || tableName;
   }
