@@ -138,7 +138,7 @@ export class ApiDataSource extends BaseDataSource {
     }
   }
 
-  async getSchema(): Promise<TableSchema[]> {
+  protected async fetchSchema(): Promise<TableSchema[]> {
     if (!this.schema) await this.connect();
     return this.schema ? [this.schema] : [];
   }

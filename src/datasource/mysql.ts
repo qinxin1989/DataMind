@@ -60,9 +60,10 @@ export class MySQLDataSource extends BaseDataSource {
     }
   }
 
-  async getSchema(): Promise<TableSchema[]> {
+  protected async fetchSchema(): Promise<TableSchema[]> {
     if (!this.connection) await this.connect();
-    
+
+    // 1. 查询所有表名 (1 次查询)
     const [tables] = await this.connection!.query(
       `SELECT TABLE_NAME FROM information_schema.TABLES 
        WHERE TABLE_SCHEMA = ? 
@@ -70,32 +71,52 @@ export class MySQLDataSource extends BaseDataSource {
       [this.config.database]
     );
 
-    const schemas: TableSchema[] = [];
-    for (const table of tables as any[]) {
-      const tableName = table.TABLE_NAME;
-      const [columns] = await this.connection!.query(
-        `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_COMMENT 
-         FROM information_schema.COLUMNS 
-         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
-        [this.config.database, tableName]
-      );
+    const tableNames = (tables as any[]).map(t => t.TABLE_NAME);
+    if (tableNames.length === 0) return [];
 
-      const columnInfos: ColumnInfo[] = (columns as any[]).map(col => ({
+    // 2. 批量查询所有表的列信息 (1 次查询，替代 N 次)
+    const [allColumns] = await this.connection!.query(
+      `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_COMMENT 
+       FROM information_schema.COLUMNS 
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (?)
+       ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+      [this.config.database, tableNames]
+    );
+
+    // 按表名分组列信息
+    const columnsByTable = new Map<string, ColumnInfo[]>();
+    for (const col of allColumns as any[]) {
+      const tName = col.TABLE_NAME;
+      if (!columnsByTable.has(tName)) columnsByTable.set(tName, []);
+      columnsByTable.get(tName)!.push({
         name: col.COLUMN_NAME,
         type: col.DATA_TYPE,
         nullable: col.IS_NULLABLE === 'YES',
         isPrimaryKey: col.COLUMN_KEY === 'PRI',
         comment: col.COLUMN_COMMENT || undefined,
-      }));
-
-      // 获取样例数据
-      const [sampleData] = await this.connection!.query(
-        `SELECT * FROM \`${tableName}\` LIMIT 3`
-      );
-
-      schemas.push({ tableName, columns: columnInfos, sampleData: sampleData as any[] });
+      });
     }
-    return schemas;
+
+    // 3. 并行查询所有表的样例数据 (N 次查询，但并行执行)
+    const samplePromises = tableNames.map(async (tableName) => {
+      try {
+        const [rows] = await this.connection!.query(
+          `SELECT * FROM \`${tableName}\` LIMIT 3`
+        );
+        return { tableName, data: rows as any[] };
+      } catch {
+        return { tableName, data: [] };
+      }
+    });
+    const sampleResults = await Promise.all(samplePromises);
+    const sampleByTable = new Map(sampleResults.map(r => [r.tableName, r.data]));
+
+    // 4. 组装结果
+    return tableNames.map(tableName => ({
+      tableName,
+      columns: columnsByTable.get(tableName) || [],
+      sampleData: sampleByTable.get(tableName) || [],
+    }));
   }
 
   async executeQuery(sql: string): Promise<QueryResult> {

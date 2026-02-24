@@ -15,15 +15,13 @@ import type {
   PriorityUpdate
 } from './types';
 
-// 全局配置版本，用于通知所有 AIAgent 实例刷新配置
-let globalConfigVersion = 0;
-
+// 配置变更标记（AIAgent 已改为每次请求直接从数据库读取最新配置，此函数保留供外部调用兼容）
 export function bumpConfigVersion() {
-  globalConfigVersion++;
+  // no-op: AIAgent now reads fresh configs from DB on every request
 }
 
 export function getConfigVersion() {
-  return globalConfigVersion;
+  return 0;
 }
 
 export class AIConfigService {

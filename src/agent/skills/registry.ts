@@ -54,7 +54,7 @@ export interface SkillDefinition {
 }
 
 // 技能分类
-export type SkillCategory = 'data' | 'document' | 'media' | 'report';
+export type SkillCategory = 'data' | 'document' | 'media' | 'report' | 'file' | 'shell' | 'web' | 'ocr' | 'diagram' | 'design' | 'qa' | 'crawler' | 'data_analysis';
 
 // 技能注册中心
 export class SkillsRegistry {
@@ -67,6 +67,15 @@ export class SkillsRegistry {
     this.categories.set('document', []);
     this.categories.set('media', []);
     this.categories.set('report', []);
+    this.categories.set('file', []);
+    this.categories.set('shell', []);
+    this.categories.set('web', []);
+    this.categories.set('ocr', []);
+    this.categories.set('diagram', []);
+    this.categories.set('design', []);
+    this.categories.set('qa', []);
+    this.categories.set('crawler', []);
+    this.categories.set('data_analysis', []);
   }
 
   // 注册技能

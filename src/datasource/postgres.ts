@@ -106,7 +106,7 @@ export class PostgresDataSource extends BaseDataSource {
     }
   }
 
-  async getSchema(): Promise<TableSchema[]> {
+  protected async fetchSchema(): Promise<TableSchema[]> {
     if (!this.client) await this.connect();
 
     // 获取所有 schema（不仅仅是 public）

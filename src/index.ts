@@ -587,7 +587,68 @@ app.use('/api/tools/file', authMiddleware, async (req, res, next) => {
 });
 
 
+// ========== Agent Chat SSE 端点 ==========
+import { runAgentLoop, AgentSSEEvent } from './agent/agentLoop';
 
+app.post('/api/agent/chat', authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: '未认证' });
+  }
+
+  const { message, datasourceId, mode, sessionId } = req.body;
+  if (!message) {
+    return res.status(400).json({ error: '请提供 message' });
+  }
+
+  // 设置 SSE 响应头
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const sendSSE = (event: AgentSSEEvent) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch { /* 忽略写入失败（客户端已断开） */ }
+  };
+
+  try {
+    // 获取 OpenAI 实例
+    const { openai, model } = await aiAgent.getOpenAIInstance();
+
+    // 获取数据源（可选）
+    let dataSource: BaseDataSource | undefined;
+    let dbType: string | undefined;
+    if (datasourceId && dataSourceManager.has(datasourceId)) {
+      const dsEntry = dataSourceManager.get(datasourceId)!;
+      dataSource = dsEntry.instance;
+      dbType = dsEntry.config.type;
+    }
+
+    // 执行 Agent Loop
+    const result = await runAgentLoop({
+      userMessage: message,
+      dataSource,
+      dbType,
+      openai,
+      model,
+      config: { mode: mode || undefined },
+      workDir: process.cwd(),
+      userId: req.user.id,
+      uploadDir,
+      onEvent: sendSSE,
+    });
+
+    // 发送最终完成事件
+    sendSSE({ type: 'done', content: result.content });
+  } catch (error: any) {
+    sendSSE({ type: 'error', message: error.message || 'Agent 执行失败' });
+  } finally {
+    res.end();
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 

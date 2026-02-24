@@ -113,6 +113,25 @@ Defined in `tsconfig.json`:
 ## Environment Configuration
 Copy `.env.example` to `.env`. Key variables: `CONFIG_DB_*` (MySQL connection for internal config DB), `JWT_SECRET`, `FILE_ENCRYPTION_KEY`, `MCP_API_KEY`. AI provider configs live in the database, not in `.env`.
 
+## Conversation Startup Rules（新对话启动规则）
+- **首次对话必读**：每次新对话开始时，Agent 必须先读取以下文件以恢复上下文：
+  1. `CLAUDE.md` — 项目偏好、术语、记忆管理规则
+  2. `AGENTS.md` — 项目架构、构建命令、Agent 行为规则
+  3. `memory/session.md`（如存在）— 上次会话的进展和待办
+  4. `memory/glossary.md`（如存在）— 项目术语表
+  5. `docs/tasks.md`（如存在）— 当前任务进度 checklist
+  6. `docs/plan.md`（如存在）— 当前实施计划
+- **识别未完成任务**：读取后，检查 `docs/tasks.md` 和内部 TODO 列表中的未完成项 `- [ ]`，主动向用户汇报当前进度。
+- **避免重复提问**：已在记忆文件中记录的背景信息，不要再向用户确认。
+
+## Task & Plan Tracking Rules（任务跟踪规则）
+- **计划文件**：所有计划任务必须在 `docs/` 目录下创建对应的 `.md` 文件（如 `docs/plan.md`），使用 Markdown checklist 格式跟踪进度。
+- **任务打勾**：每完成一个阶段/任务，必须同时做两件事：
+  1. 在 Warp Agent 内部 TODO 列表中 `mark_todo_as_done`
+  2. 在对应的 `docs/*.md` 计划文件中将 `- [ ]` 改为 `- [x]`
+- **两处同步**：内部 TODO 和 MD 文件的完成状态必须保持一致，不能只更新一处。
+- **实时更新**：任务完成后立即打勾，不要等到所有任务结束后才批量更新。
+
 ## Key Conventions
 - The codebase and UI are primarily in **Chinese** (comments, log messages, user-facing strings). Keep this consistent.
 - All API routes require JWT auth via `authMiddleware` except login/register endpoints.

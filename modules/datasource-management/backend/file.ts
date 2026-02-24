@@ -204,7 +204,7 @@ export class FileDataSource extends BaseDataSource {
     return fileInfos.length > 0;
   }
 
-  async getSchema(): Promise<TableSchema[]> {
+  protected async fetchSchema(): Promise<TableSchema[]> {
     if (this.schemas.length === 0) await this.connect();
     return this.schemas;
   }
