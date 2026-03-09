@@ -27,6 +27,7 @@ export interface KnowledgeDocument {
     categoryId?: string;       // 所属分类ID
     datasourceId?: string;     // 关联的数据源ID
     customFields?: Record<string, any>;
+    [key: string]: any;        // 允许任意额外属性
   };
   chunks?: KnowledgeChunk[];   // 分块后的内容
   embedding?: number[];        // 文档级别的向量（可选）

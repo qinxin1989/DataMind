@@ -1,0 +1,693 @@
+{
+  "timestamp": "2026-02-25T15:20:47.748Z",
+  "summary": {
+    "total": 172,
+    "correct": 92,
+    "accuracy": "53.5%",
+    "matched": 121,
+    "unmatched": 51
+  },
+  "byCategory": [
+    {
+      "name": "产出统计",
+      "total": 30,
+      "correct": 24,
+      "accuracy": "80.0%",
+      "patterns": [
+        "TOP-N-GROUP-时间窗口",
+        "TOP-N-GROUP",
+        "未匹配"
+      ]
+    },
+    {
+      "name": "时间窗口",
+      "total": 35,
+      "correct": 20,
+      "accuracy": "57.1%",
+      "patterns": [
+        "TOP-N-GROUP-时间窗口",
+        "TOP-N-GROUP",
+        "未匹配"
+      ]
+    },
+    {
+      "name": "极值查询",
+      "total": 16,
+      "correct": 0,
+      "accuracy": "0.0%",
+      "patterns": [
+        "TOP-N",
+        "未匹配"
+      ]
+    },
+    {
+      "name": "排名查询",
+      "total": 8,
+      "correct": 4,
+      "accuracy": "50.0%",
+      "patterns": [
+        "TOP-N",
+        "未匹配"
+      ]
+    },
+    {
+      "name": "平均值统计",
+      "total": 15,
+      "correct": 6,
+      "accuracy": "40.0%",
+      "patterns": [
+        "未匹配",
+        "COUNT",
+        "AVG_DURATION"
+      ]
+    },
+    {
+      "name": "总数统计",
+      "total": 16,
+      "correct": 16,
+      "accuracy": "100.0%",
+      "patterns": [
+        "COUNT"
+      ]
+    },
+    {
+      "name": "总和统计",
+      "total": 6,
+      "correct": 0,
+      "accuracy": "0.0%",
+      "patterns": [
+        "COUNT"
+      ]
+    },
+    {
+      "name": "去重查询",
+      "total": 2,
+      "correct": 0,
+      "accuracy": "0.0%",
+      "patterns": [
+        "未匹配"
+      ]
+    },
+    {
+      "name": "限制查询",
+      "total": 5,
+      "correct": 4,
+      "accuracy": "80.0%",
+      "patterns": [
+        "LIMIT",
+        "未匹配"
+      ]
+    },
+    {
+      "name": "存在性查询",
+      "total": 6,
+      "correct": 0,
+      "accuracy": "0.0%",
+      "patterns": [
+        "COUNT"
+      ]
+    },
+    {
+      "name": "复杂分析",
+      "total": 15,
+      "correct": 12,
+      "accuracy": "80.0%",
+      "patterns": [
+        "未匹配",
+        "TOP-N-GROUP"
+      ]
+    },
+    {
+      "name": "组合条件",
+      "total": 18,
+      "correct": 6,
+      "accuracy": "33.3%",
+      "patterns": [
+        "TOP-N-GROUP",
+        "未匹配"
+      ]
+    }
+  ],
+  "failedCases": [
+    {
+      "question": "发明人产出排名前10",
+      "category": "产出统计",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "发明人产量排名前10",
+      "category": "产出统计",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请人产出排名前10",
+      "category": "产出统计",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请人产量排名前10",
+      "category": "产出统计",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "专利类型产出排名前10",
+      "category": "产出统计",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "专利类型产量排名前10",
+      "category": "产出统计",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近3年的发明人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近3年专利申请情况",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近3年的申请人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近5年的发明人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近5年专利申请情况",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近5年的申请人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近10年的发明人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近10年专利申请情况",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近10年的申请人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020年以来的发明人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020年以来专利申请情况",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020年以来的申请人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020-2023年的发明人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020-2023年专利申请情况",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020-2023年的申请人趋势如何？",
+      "category": "时间窗口",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数最大/最高的是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数最小/最低的是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数最大值是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数最小值是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用最大/最高的是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用最小/最低的是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用最大值是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用最小值是多少？",
+      "category": "极值查询",
+      "expected": "EXTREME",
+      "actual": "TOP-N",
+      "shouldMatch": true
+    },
+    {
+      "question": "最长审查是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "最短审查是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "最长授权是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "最短授权是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "最长公开是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "最短公开是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "最长申请是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "最短申请是多少天？",
+      "category": "极值查询",
+      "expected": "EXTREME_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数排名前10的专利",
+      "category": "排名查询",
+      "expected": "TOP-N",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "按被引证次数排序前15",
+      "category": "排名查询",
+      "expected": "TOP-N",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用排名前10的专利",
+      "category": "排名查询",
+      "expected": "TOP-N",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "按申请费用排序前15",
+      "category": "排名查询",
+      "expected": "TOP-N",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "平均被引证次数是多少？",
+      "category": "平均值统计",
+      "expected": "AVG",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数的平均值",
+      "category": "平均值统计",
+      "expected": "AVG",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数均值是多少？",
+      "category": "平均值统计",
+      "expected": "AVG",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "平均申请费用是多少？",
+      "category": "平均值统计",
+      "expected": "AVG",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用的平均值",
+      "category": "平均值统计",
+      "expected": "AVG",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用均值是多少？",
+      "category": "平均值统计",
+      "expected": "AVG",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "审查平均耗时多久？",
+      "category": "平均值统计",
+      "expected": "AVG_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "授权平均耗时多久？",
+      "category": "平均值统计",
+      "expected": "AVG_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "公开平均耗时多久？",
+      "category": "平均值统计",
+      "expected": "AVG_DURATION",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数总计是多少？",
+      "category": "总和统计",
+      "expected": "SUM",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "一共多少被引证次数？",
+      "category": "总和统计",
+      "expected": "SUM",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "被引证次数总和是多少？",
+      "category": "总和统计",
+      "expected": "SUM",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用总计是多少？",
+      "category": "总和统计",
+      "expected": "SUM",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "一共多少申请费用？",
+      "category": "总和统计",
+      "expected": "SUM",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "申请费用总和是多少？",
+      "category": "总和统计",
+      "expected": "SUM",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "有多少不同的发明人？",
+      "category": "去重查询",
+      "expected": "DISTINCT",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "有多少不同的申请人？",
+      "category": "去重查询",
+      "expected": "DISTINCT",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "取前5条看看",
+      "category": "限制查询",
+      "expected": "LIMIT",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "是否有发明人？",
+      "category": "存在性查询",
+      "expected": "EXISTS",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "是否存在发明人？",
+      "category": "存在性查询",
+      "expected": "EXISTS",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "有没有发明人的数据？",
+      "category": "存在性查询",
+      "expected": "EXISTS",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "是否有申请人？",
+      "category": "存在性查询",
+      "expected": "EXISTS",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "是否存在申请人？",
+      "category": "存在性查询",
+      "expected": "EXISTS",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "有没有申请人的数据？",
+      "category": "存在性查询",
+      "expected": "EXISTS",
+      "actual": "COUNT",
+      "shouldMatch": true
+    },
+    {
+      "question": "各发明人的技术领域分布情况",
+      "category": "复杂分析",
+      "expected": "LLM",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": false
+    },
+    {
+      "question": "各年份不同类型专利的占比变化",
+      "category": "复杂分析",
+      "expected": "LLM",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": false
+    },
+    {
+      "question": "预测一下明年的专利申请趋势",
+      "category": "复杂分析",
+      "expected": "LLM",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": false
+    },
+    {
+      "question": "近5年的发明人排名",
+      "category": "组合条件",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近5年按发明人统计",
+      "category": "组合条件",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近5年的申请人排名",
+      "category": "组合条件",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近5年按申请人统计",
+      "category": "组合条件",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近10年的发明人排名",
+      "category": "组合条件",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近10年按发明人统计",
+      "category": "组合条件",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "近10年的申请人排名",
+      "category": "组合条件",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "近10年按申请人统计",
+      "category": "组合条件",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020年以来的发明人排名",
+      "category": "组合条件",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020年以来按发明人统计",
+      "category": "组合条件",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020年以来的申请人排名",
+      "category": "组合条件",
+      "expected": "TOP-N-GROUP",
+      "actual": "未匹配",
+      "shouldMatch": true
+    },
+    {
+      "question": "2020年以来按申请人统计",
+      "category": "组合条件",
+      "expected": "TREND",
+      "actual": "TOP-N-GROUP",
+      "shouldMatch": true
+    }
+  ]
+}

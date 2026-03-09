@@ -9,7 +9,7 @@ export abstract class BaseDataSource {
 
   abstract connect(): Promise<void>;
   abstract disconnect(): Promise<void>;
-  abstract executeQuery(sql: string): Promise<QueryResult>;
+  abstract executeQuery(sql: string, signal?: AbortSignal): Promise<QueryResult>;
   abstract testConnection(): Promise<boolean>;
 
   // 子类实现实际的 Schema 获取逻辑

@@ -65,6 +65,11 @@
                 {{ ds.name }}
               </a-select-option>
             </a-select>
+            <div class="divider"></div>
+            <a-select v-model:value="ragMode" size="small" class="mini-select mode-select">
+              <a-select-option value="vector">向量模式</a-select-option>
+              <a-select-option value="agent-only">Agent模式</a-select-option>
+            </a-select>
           </div>
           <div class="input-container">
             <a-textarea
@@ -95,7 +100,7 @@ import { message } from 'ant-design-vue'
 import { 
   RobotOutlined, UserOutlined, SendOutlined, FileTextOutlined 
 } from '@ant-design/icons-vue'
-import { aiPost } from '@/api/request'
+import { useUserStore } from '@/stores/user'
 import { 
   datasources, qaScopeOptions, renderMarkdown, getConfidenceColor,
   loadDatasources, type ChatMessage
@@ -109,7 +114,42 @@ const chatHistory = ref<ChatMessage[]>([])
 const ragQuestion = ref('')
 const ragLoading = ref(false)
 const ragDatasourceId = ref<string>()
-const qaScope = ref<string[]>(['all'])
+const ragMode = ref<'vector' | 'agent-only'>('vector')
+
+const userStore = useUserStore()
+
+function getAuthHeaders() {
+  const token = (userStore as any)?.token || (userStore as any)?.accessToken
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  return headers
+}
+
+async function readSSE(response: Response, onData: (obj: any) => void) {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('SSE response has no body')
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() || ''
+    for (const part of parts) {
+      const line = part.split('\n').find((l) => l.startsWith('data: '))
+      if (!line) continue
+      const jsonStr = line.slice(6).trim()
+      if (!jsonStr) continue
+      try {
+        const obj = JSON.parse(jsonStr)
+        onData(obj)
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }
+}
 
 const suggestedQuestions = [
   "本知识库包含哪些主要内容？",
@@ -188,24 +228,62 @@ async function handleRAGAsk() {
       }
     }
 
-    const res = await aiPost<any>('/admin/ai-qa/rag/ask', { 
+    const lastMsg = chatHistory.value[chatHistory.value.length - 1]
+    lastMsg.loading = false
+    lastMsg.content = '正在检索知识库...\n'
+
+    const payload = {
       question: q,
       datasourceId: ragDatasourceId.value,
       categoryId,
-      documentId
+      documentId,
+      mode: ragMode.value === 'vector' ? 'hybrid' : 'agent-only',
+      topK1: 5,
+      topK2: 20,
+    }
+
+    const res = await fetch('/api/admin/ai-qa/rag/stream', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
     })
 
-    const lastMsg = chatHistory.value[chatHistory.value.length - 1]
-    lastMsg.loading = false
-    
-    if (res.success) {
-      lastMsg.content = res.data.answer
-      lastMsg.confidence = res.data.confidence
-      lastMsg.sources = res.data.sources
-      lastMsg.dataContext = res.data.dataContext
-    } else {
-      lastMsg.content = `抱歉，遇到了一些问题：${res.error?.message || '未知错误'}`
+    if (!res.ok) {
+      lastMsg.content = `抱歉，遇到了一些问题：HTTP ${res.status}`
+      return
     }
+
+    const stageLines: string[] = []
+    const appendStage = (line: string) => {
+      stageLines.push(line)
+      lastMsg.content = stageLines.join('\n') + '\n\n' + (lastMsg.content?.includes('最终回答：') ? '' : '')
+      scrollToBottom()
+    }
+
+    await readSSE(res, (evt) => {
+      if (!evt) return
+      if (evt.type === 'rag') {
+        if (evt.stage === 'start') {
+          appendStage(`- 渐进检索开始：topK1=${evt.data?.topK1} topK2=${evt.data?.topK2} mode=${evt.data?.mode}`)
+        } else if (evt.stage?.endsWith(':start')) {
+          appendStage(`- ${evt.stage}...`)
+        } else if (evt.stage?.endsWith(':done')) {
+          const n = evt.data?.chunks?.length || evt.data?.sources?.length
+          appendStage(`- ${evt.stage}（命中 ${n ?? 0} 条，耗时 ${evt.data?.elapsedMs ?? '-'}ms）`)
+        } else if (evt.stage === 'answer:datacontext') {
+          appendStage(`- 已关联数据源上下文：rowCount=${evt.data?.rowCount ?? 0}`)
+        } else if (evt.stage === 'answer:done') {
+          const answer = evt.data?.answer || ''
+          lastMsg.content = stageLines.join('\n') + `\n\n---\n\n最终回答：\n\n${answer}`
+          lastMsg.confidence = evt.data?.confidence
+          lastMsg.sources = evt.data?.sources
+          scrollToBottom()
+        }
+      } else if (evt.type === 'error') {
+        lastMsg.content = stageLines.join('\n') + `\n\n错误：${evt.message || '未知错误'}`
+        scrollToBottom()
+      }
+    })
 
   } catch (e) {
     const lastMsg = chatHistory.value[chatHistory.value.length - 1]

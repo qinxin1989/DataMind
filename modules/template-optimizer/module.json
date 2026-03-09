@@ -1,0 +1,76 @@
+{
+  "name": "template-optimizer",
+  "displayName": "模板优化",
+  "version": "1.0.0",
+  "description": "SQL模板优化工具 - 前端可直接运行模板测试和优化",
+  "author": "DataMind Team",
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "routes": {
+      "prefix": "/template-optimizer",
+      "file": "./backend/routes.ts"
+    }
+  },
+  "frontend": {
+    "entry": "./frontend/TemplateOptimizerPage.vue"
+  },
+  "menus": [
+    {
+      "id": "template-optimizer",
+      "title": "模板优化",
+      "path": "/template-optimizer",
+      "icon": "ThunderboltOutlined",
+      "permission": "template:optimize",
+      "sortOrder": 200
+    }
+  ],
+  "permissions": [
+    {
+      "code": "template:optimize",
+      "name": "模板优化",
+      "description": "运行SQL模板测试和优化任务"
+    },
+    {
+      "code": "template:test",
+      "name": "模板测试",
+      "description": "运行SQL模板匹配测试"
+    },
+    {
+      "code": "template:view",
+      "name": "查看报告",
+      "description": "查看模板验证报告"
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "autoOptimize": {
+        "type": "boolean",
+        "title": "自动优化",
+        "description": "是否启用自动优化模式",
+        "default": false
+      },
+      "targetAccuracy": {
+        "type": "number",
+        "title": "目标准确率",
+        "description": "自动优化的目标准确率(0-1)",
+        "default": 0.85,
+        "minimum": 0.5,
+        "maximum": 0.99
+      },
+      "maxIterations": {
+        "type": "integer",
+        "title": "最大迭代次数",
+        "description": "自动优化的最大迭代次数",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 10
+      }
+    }
+  },
+  "lifecycle": {
+    "onEnable": "backend/lifecycle/onEnable.ts",
+    "onDisable": "backend/lifecycle/onDisable.ts"
+  }
+}

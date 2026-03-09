@@ -76,6 +76,8 @@ export interface AgentResponse {
   answer: string;
   sql?: string;
   data?: any[];
+  chart?: any;
+  charts?: any[];
   skillUsed?: string;
   toolUsed?: string;
   visualization?: any;

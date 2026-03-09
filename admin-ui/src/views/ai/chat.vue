@@ -1134,7 +1134,8 @@ function formatValue(value: number, fieldName?: string, scale: number = 1) {
 
   if (isCount) {
     const isLangOrType = fieldName && /(语言|种类|类型|Species|Type|Language)/i.test(fieldName)
-    return formattedVal + (isLangOrType ? '种' : '个')
+    const baseUnit = isLangOrType ? '种' : '个'
+    return formattedVal + (scale >= 100000000 ? '亿' + baseUnit : (scale >= 10000 ? '万' + baseUnit : baseUnit))
   }
   
   return formattedVal
@@ -1968,9 +1969,52 @@ onMounted(() => { refreshDatasources() })
 .md-content :deep(ul), .md-content :deep(ol) { margin: 8px 0; padding-left: 20px; }
 .md-content :deep(strong) { color: #667eea; }
 .md-content :deep(code) { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-.md-content :deep(table) { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
-.md-content :deep(th), .md-content :deep(td) { padding: 6px 10px; border: 1px solid #eee; }
-.md-content :deep(th) { background: #f8f9fa; }
+.md-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+.md-content :deep(th) {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: center;
+  font-size: 13px;
+  border: none;
+  white-space: nowrap;
+}
+.md-content :deep(td) {
+  padding: 9px 14px;
+  border: none;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: center;
+  color: #333;
+}
+.md-content :deep(tr:last-child td) {
+  border-bottom: none;
+}
+.md-content :deep(tbody tr:nth-child(even)) {
+  background: #f8fafc;
+}
+.md-content :deep(tbody tr:hover) {
+  background: #eef1fb;
+  transition: background 0.2s ease;
+}
+/* 表格中第一列（通常是排名/名称）左对齐加粗 */
+.md-content :deep(td:first-child) {
+  font-weight: 500;
+  color: #444;
+}
+/* 数值列右对齐更专业 */
+.md-content :deep(td:last-child) {
+  font-variant-numeric: tabular-nums;
+}
 
 .sql-block {
   background: #2d3748;

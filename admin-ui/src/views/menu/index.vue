@@ -46,13 +46,14 @@
               编辑
             </a-button>
             <a-popconfirm
-              v-if="!record.isSystem"
+              v-if="!isSystemMenu(record.id)"
               title="确定删除该菜单？"
               @confirm="handleDelete(record)"
               v-permission="'menu:update'"
             >
               <a-button type="link" size="small" danger>删除</a-button>
             </a-popconfirm>
+            <a-tag v-else color="orange">系统菜单</a-tag>
           </a-space>
         </template>
       </template>
@@ -169,6 +170,25 @@ import {
 } from '@ant-design/icons-vue'
 import { menuApi } from '@/api/menu'
 import type { MenuItem } from '@/types'
+
+// 系统关键菜单ID列表 - 这些菜单不可删除
+const SYSTEM_MENU_IDS = [
+  'workbench',           // 工作台
+  'ai-center',           // AI创新中心
+  'data-center',         // 数据资源中心
+  'data-collection',     // 数据采集中心
+  'tools-center',        // 工具箱
+  'ops-management',      // 运维管理
+  'system-management',   // 系统基础管理
+  'user-management-menu', // 用户管理
+  'role-management-menu', // 角色管理
+  'menu-management-menu', // 菜单管理
+]
+
+// 检查是否为系统关键菜单
+function isSystemMenu(menuId: string): boolean {
+  return SYSTEM_MENU_IDS.includes(menuId)
+}
 
 const iconMap: Record<string, any> = {
   UserOutlined: markRaw(UserOutlined),

@@ -78,6 +78,7 @@
                 <a-select-opt-group label="云服务">
                   <a-select-option value="siliconflow">SiliconFlow (硅基流动)</a-select-option>
                   <a-select-option value="qwen">通义千问 (阿里云)</a-select-option>
+                  <a-select-option value="coding-plan">Coding Plan (阿里云百炼)</a-select-option>
                   <a-select-option value="zhipu">智谱AI (GLM)</a-select-option>
                   <a-select-option value="openai">OpenAI</a-select-option>
                   <a-select-option value="azure">Azure OpenAI</a-select-option>
@@ -144,28 +145,25 @@
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="模型" name="model">
-              <a-select v-model:value="formState.model" :options="getModelOptions()" show-search allow-clear>
-                <template #dropdownRender="{ menuNode }">
-                  <component :is="menuNode" />
-                  <a-divider style="margin: 4px 0" />
-                  <div style="padding: 4px 8px; color: #999; font-size: 12px">
-                    可手动输入其他模型名称
-                  </div>
-                </template>
-              </a-select>
+              <a-auto-complete
+                v-model:value="formState.model"
+                :options="getModelOptions()"
+                :filter-option="false"
+                allow-clear
+                placeholder="请选择或输入模型名称"
+                @search="onModelSearch"
+              />
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="嵌入模型 (Embedding)" name="embeddingModel">
-              <a-select v-model:value="formState.embeddingModel" :options="getEmbeddingOptions()" show-search allow-clear>
-                <template #dropdownRender="{ menuNode }">
-                  <component :is="menuNode" />
-                  <a-divider style="margin: 4px 0" />
-                  <div style="padding: 4px 8px; color: #999; font-size: 12px">
-                    RAG 向量化使用的模型
-                  </div>
-                </template>
-              </a-select>
+              <a-auto-complete
+                v-model:value="formState.embeddingModel"
+                :options="getEmbeddingOptions()"
+                :filter-option="false"
+                allow-clear
+                placeholder="请选择或输入嵌入模型"
+              />
             </a-form-item>
           </a-col>
         </a-row>
@@ -223,7 +221,7 @@ const providerConfigs: Record<string, {
   qwen: {
     label: '通义千问',
     endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    models: ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen-long'],
+    models: ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen-long', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.5-flash-2026-02-23', 'qwen3.5-plus-2026-02-15', 'qwen3.5-122b-a10b', 'qwen3.5-397b-a17b'],
     defaultModel: 'qwen-plus',
     embeddingModels: ['text-embedding-v2', 'text-embedding-v1'],
     defaultEmbeddingModel: 'text-embedding-v2',
@@ -255,6 +253,15 @@ const providerConfigs: Record<string, {
     endpoint: 'https://api.deepseek.com/v1',
     models: ['deepseek-chat', 'deepseek-reasoner'],
     defaultModel: 'deepseek-chat',
+  },
+  'coding-plan': {
+    label: 'Coding Plan (阿里云百炼)',
+    endpoint: 'https://coding.dashscope.aliyuncs.com/v1',
+    embedEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', // 嵌入使用不同端点
+    models: ['qwen3.5-plus', 'kimi-k2.5', 'glm-5', 'MiniMax-M2.5', 'qwen3-max-2026-01-23', 'qwen3-coder-next', 'qwen3-coder-plus', 'glm-4.7', 'qwen3.5-coder', 'qwen3-max'],
+    defaultModel: 'qwen3.5-plus',
+    embeddingModels: ['text-embedding-v2', 'text-embedding-v1'],
+    defaultEmbeddingModel: 'text-embedding-v2',
   },
   'local-qwen': {
     label: 'Qwen3-32B (本地)',
@@ -414,6 +421,13 @@ function getEmbeddingOptions() {
   const config = providerConfigs[formState.provider]
   if (!config?.embeddingModels?.length) return []
   return config.embeddingModels.map(m => ({ label: m, value: m }))
+}
+
+function onModelSearch(value: string) {
+  // 支持自定义输入模型名称
+  if (value && !getModelOptions().some(opt => opt.value === value)) {
+    formState.model = value
+  }
 }
 
 function isLocalProvider(): boolean {

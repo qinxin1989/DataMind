@@ -54,6 +54,72 @@ export function createRoutes(service: AIQAService): Router {
     }
   });
 
+  // ==================== 缓存命中 + 后台任务问答 ====================
+
+  router.post('/cached', requirePermission('ai:query'), async (req: Request, res: Response) => {
+    try {
+      const { datasourceId, question, sessionId } = req.body;
+      if (!question) {
+        return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供问题' } });
+      }
+      if (!datasourceId) {
+        return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请选择数据源' } });
+      }
+
+      const out = await service.askCached(datasourceId, question, sessionId, getUserId(req));
+      if (out.hit && out.result) {
+        return res.json({
+          success: true,
+          data: {
+            mode: 'hit',
+            result: out.result,
+          }
+        });
+      }
+      return res.json({
+        success: true,
+        data: {
+          mode: 'job',
+          jobId: out.jobId,
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+    }
+  });
+
+  router.get('/jobs/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
+    const job = await service.getQAJobWithResult(req.params.id, getUserId(req));
+    if (!job) {
+      return res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '任务不存在' } });
+    }
+    return res.json({ success: true, data: job });
+  });
+
+  router.post('/jobs/:id/cancel', requirePermission('ai:query'), async (req: Request, res: Response) => {
+    try {
+      const ok = await service.cancelQAJob(req.params.id, getUserId(req));
+      if (!ok) {
+        return res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '任务不存在' } });
+      }
+      return res.json({ success: true, message: '已取消' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+    }
+  });
+
+  router.get('/charts/:id', requirePermission('ai:query'), async (req: Request, res: Response) => {
+    try {
+      const chart = await service.getChartById(req.params.id, getUserId(req));
+      if (!chart) {
+        return res.status(404).json({ success: false, error: { code: 'RES_NOT_FOUND', message: '图表不存在' } });
+      }
+      return res.json({ success: true, data: chart });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+    }
+  });
+
   router.post('/categories', requirePermission('ai:query'), async (req: Request, res: Response) => {
     try {
       const { name, description } = req.body;
@@ -255,6 +321,66 @@ export function createRoutes(service: AIQAService): Router {
     } catch (error: any) {
       res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
     }
+  });
+
+  // ==================== SSE 流式问答 ====================
+
+  router.post('/stream', requirePermission('ai:query'), async (req: Request, res: Response) => {
+    const { datasourceId, question, sessionId } = req.body;
+    if (!question) {
+      return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供问题' } });
+    }
+    if (!datasourceId) {
+      return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请选择数据源' } });
+    }
+
+    // 设置 SSE 头
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    try {
+      await service.askStream(datasourceId, question, sessionId, getUserId(req), (event) => {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      });
+    } catch (error: any) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'done', content: '' })}\n\n`);
+    res.end();
+  });
+
+  // ==================== RAG 渐进式 SSE ====================
+
+  router.post('/rag/stream', requirePermission('ai:query'), async (req: Request, res: Response) => {
+    const { question, datasourceId, categoryId, documentId, topK1, topK2, mode } = req.body || {};
+    if (!question) {
+      return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供问题' } });
+    }
+
+    // 设置 SSE 头
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    try {
+      await service.ragAskStream(
+        question,
+        getUserId(req),
+        { datasourceId, categoryId, documentId, topK1, topK2, mode },
+        (event) => {
+          res.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+      );
+    } catch (error: any) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'done', content: '' })}\n\n`);
+    res.end();
   });
 
   router.post('/query', requirePermission('ai:query'), async (req: Request, res: Response) => {

@@ -30,13 +30,13 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'ai',
         name: 'AIManagement',
-        meta: { title: 'AI管理', icon: 'RobotOutlined' },
+        meta: { title: 'AI创新中心', icon: 'RobotOutlined' },
         children: [
           {
             path: '/ai/chat',
             name: 'AIChat',
             component: () => import('@/views/ai/chat.vue'),
-            meta: { title: 'AI问答' },
+            meta: { title: 'AI智能问答' },
           },
           {
             path: '/ai/knowledge',
@@ -227,6 +227,12 @@ const routes: RouteRecordRaw[] = [
             name: 'ModuleManagement',
             component: () => import('@/views/system/modules.vue'),
             meta: { title: '模块管理', permission: 'system:module:view' },
+          },
+          {
+            path: '/system/template-optimizer',
+            name: 'TemplateOptimizer',
+            component: () => import('@/views/system/templateOptimizer.vue'),
+            meta: { title: '模板优化', permission: 'template:optimize' },
           },
         ],
       },

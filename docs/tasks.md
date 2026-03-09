@@ -32,3 +32,24 @@
 
 ## Phase 5: 验证
 - [x] 运行 `tsc` 编译验证通过（新增 agent 文件 0 错误；剩余 109 错误为项目已有代码）
+
+---
+
+# Plan B — Agent 能力集成到 AI 问答 + 超时修复
+
+## Phase 1: 修复超时
+- [x] 1a: 降低重试放大倍数 (maxRetries: OpenAI 2→1, callWithRetry 3→2)
+- [x] 1b: 降低 OpenAI timeout (60s→45s)
+- [x] 1c: 添加全局超时守卫 (answerWithContext Promise.race 120s)
+
+## Phase 2: 新技能注入 planAction()
+- [x] 2a: 扩展 planAction() 工具列表（10 个新技能加入 prompt）
+- [x] 2b: planAction() switch 添加 16 个新技能路由分支
+- [x] 2c: 补充 SkillContext 的 workDir 字段
+
+## Phase 3: AI 问答 SSE 模式
+- [x] 3a: ai-qa service 添加 askStream()（调用 runAgentLoop，支持会话历史 + schema 上下文）
+- [x] 3b: ai-qa routes 添加 POST /stream SSE 端点
+
+## Phase 4: 验证
+- [x] 编译验证通过（新修改文件 0 错误）

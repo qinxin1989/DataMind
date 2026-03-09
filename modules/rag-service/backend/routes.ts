@@ -127,6 +127,20 @@ router.post('/search', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /test-embedding - 测试向量模型
+ */
+router.get('/test-embedding', async (req: Request, res: Response) => {
+  try {
+    const service = await getService(req);
+    const result = await service.testEmbedding();
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[RAG] Test embedding error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * GET /categories - 获取分类列表
  */
 router.get('/categories', async (req: Request, res: Response) => {

@@ -57,8 +57,72 @@ export class RAGEngine {
   private userId: string;
   private pool: any;
 
+  private truncateForDb(text: string, maxBytes: number): string {
+    const t = String(text ?? '');
+    if (maxBytes <= 0) return '';
+    
+    // 估算字节数：UTF8MB4 下中文字符占3-4字节，保守按4字节估算
+    // 预留 10% 余量确保安全
+    const safeByteLimit = Math.floor(maxBytes * 0.9);
+    const safeCharLimit = Math.floor(safeByteLimit / 4);
+    
+    if (t.length <= safeCharLimit) return t;
+    if (safeCharLimit <= 200) return t.slice(0, safeCharLimit);
+    
+    const headLen = Math.floor(safeCharLimit * 0.6);
+    const tailLen = safeCharLimit - headLen - 40;
+    const head = t.slice(0, headLen);
+    const tail = tailLen > 0 ? t.slice(-tailLen) : '';
+    return `${head}\n\n[内容过长已截断，原始长度=${t.length}]\n\n${tail}`;
+  }
+
+  // 缓存 content 列最大长度（0 表示未探测，null 表示 TEXT/LONGTEXT 无限制）
+  private contentMaxLengthCache: number | null | undefined = undefined;
+
+  // 动态探测 knowledge_documents.content 列的最大字符长度
+  private async getContentMaxLength(): Promise<number | null> {
+    if (this.contentMaxLengthCache !== undefined) {
+      return this.contentMaxLengthCache;
+    }
+    if (!this.pool) {
+      this.contentMaxLengthCache = null;
+      return null;
+    }
+    try {
+      const [rows] = await this.pool.execute(
+        `SELECT CHARACTER_MAXIMUM_LENGTH as maxLen
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = 'knowledge_documents'
+           AND column_name = 'content'`,
+        []
+      );
+      const maxLen = (rows as any[])[0]?.maxLen;
+      // NULL 表示 TEXT/LONGTEXT/BLOB 等无限制类型
+      if (maxLen === null || maxLen === undefined) {
+        this.contentMaxLengthCache = null;
+        console.log('[RAG] content 列为 TEXT/LONGTEXT，无长度限制');
+        return null;
+      }
+      // VARCHAR 等有长度限制的，留 10% 余量避免意外
+      const effectiveLimit = Math.floor(Number(maxLen) * 0.9);
+      this.contentMaxLengthCache = effectiveLimit;
+      console.log(`[RAG] content 列最大长度: ${maxLen}，使用限制: ${effectiveLimit}`);
+      return effectiveLimit;
+    } catch (e: any) {
+      console.warn('[RAG] 探测 content 列长度失败:', e.message);
+      this.contentMaxLengthCache = 60000; // 兜底：保守值
+      return this.contentMaxLengthCache;
+    }
+  }
+
+  private isLikelyEmbeddingModel(model: string): boolean {
+    const m = String(model || '').toLowerCase();
+    return /embedding|bge|text-embedding/.test(m);
+  }
+
   constructor(
-    apiKeyOrConfigs: string | { apiKey?: string; baseURL?: string; model: string; provider?: string }[],
+    apiKeyOrConfigs: string | { apiKey?: string; baseURL?: string; baseUrl?: string; model: string; provider?: string }[],
     baseURL?: string,
     model: string = 'qwen-plus',
     embeddingModel: string = 'text-embedding-v2',
@@ -71,8 +135,59 @@ export class RAGEngine {
     let embeddingConfigs: { apiKey?: string; baseURL?: string; model: string; provider?: string }[];
 
     if (Array.isArray(apiKeyOrConfigs)) {
-      embeddingConfigs = apiKeyOrConfigs;
-      const firstConfig = apiKeyOrConfigs[0];
+      // Normalize configs: handle both baseUrl and baseURL
+      const rawEmbeddingConfigs = apiKeyOrConfigs.map((cfg: any) => {
+        const embeddingModelFromCfg =
+          (typeof cfg.embeddingModel === 'string' && cfg.embeddingModel.trim() !== '' ? cfg.embeddingModel.trim() : undefined) ||
+          (typeof cfg.embedding_model === 'string' && cfg.embedding_model.trim() !== '' ? cfg.embedding_model.trim() : undefined);
+
+        const normalizedBaseURL = cfg.baseURL || cfg.baseUrl;
+
+        // baseURL 为空的配置无法调用，直接跳过（避免 Connection error baseURL:null）
+        if (!normalizedBaseURL) {
+          return null;
+        }
+
+        // coding-plan 的聊天端点通常不支持 embeddings（会 404）。这里默认不把它加入嵌入候选，避免无意义循环切换。
+        // 若未来要支持，请在配置里提供明确的 embedding baseURL（不是 coding.dashscope）
+        const provider = String(cfg.provider || '').trim();
+        const shouldSkipForEmbedding =
+          provider === 'coding-plan' &&
+          (!normalizedBaseURL || /^https:\/\/coding\.dashscope\.aliyuncs\.com\//i.test(normalizedBaseURL));
+
+        if (shouldSkipForEmbedding) {
+          return null;
+        }
+
+        return {
+          ...cfg,
+          baseURL: normalizedBaseURL, // Support both field names
+          // 关键修复：嵌入模型必须使用 embeddingModel 字段，不能误用聊天模型 cfg.model
+          model: embeddingModelFromCfg || embeddingModel,
+        };
+      }).filter(Boolean) as { apiKey?: string; baseURL?: string; model: string; provider?: string }[];
+
+      // 去重，避免 switchToNextModel 在等价配置间打转
+      const seen = new Set<string>();
+      embeddingConfigs = [];
+      for (const c of rawEmbeddingConfigs) {
+        const key = `${c.provider || ''}::${c.baseURL || ''}::${c.model || ''}::${c.apiKey || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        embeddingConfigs.push(c);
+      }
+
+      // 兜底：如果过滤后为空，则至少保留第一个配置的 baseURL 但使用默认 embeddingModel
+      if (embeddingConfigs.length === 0 && apiKeyOrConfigs.length > 0) {
+        const first: any = apiKeyOrConfigs[0];
+        embeddingConfigs = [{
+          apiKey: first.apiKey,
+          baseURL: first.baseURL || first.baseUrl,
+          model: embeddingModel,
+          provider: first.provider,
+        }];
+      }
+      const firstConfig = embeddingConfigs[0];
 
       // 支持空 API Key
       const openaiConfig: any = {
@@ -136,6 +251,11 @@ export class RAGEngine {
     return this.knowledgeBase;
   }
 
+  // 获取向量服务
+  getEmbeddingService(): EmbeddingService {
+    return this.embeddingService;
+  }
+
   // 获取知识图谱
   getKnowledgeGraph(): KnowledgeGraph {
     return this.knowledgeGraph;
@@ -183,38 +303,151 @@ export class RAGEngine {
     // 保存到数据库
     if (this.pool) {
       try {
-        // 保存文档
-        await this.pool.execute(
-          `INSERT INTO knowledge_documents (id, knowledge_base_id, user_id, type, title, content, metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [
-            doc.id,
-            this.knowledgeBase.id,
-            userId,
-            type,
-            title,
-            content,
-            JSON.stringify(doc.metadata)
-          ]
-        );
+        // 先探测 content 列长度，动态截断避免 Data too long
+        const maxLen = await this.getContentMaxLength();
+        const safeLimit = maxLen ?? 60000; // null 表示无限制，使用大值
+        const dbContent = this.truncateForDb(content, safeLimit);
+
+        // 保存文档：兼容不同版本表结构（type/document_type/metadata/category_id/status 可能不一致）
+        const metaJson = JSON.stringify(doc.metadata);
+        const categoryId = metadata?.categoryId || null;
+
+        const insertAttempts: Array<{ sql: string; params: any[] }> = [
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, type, title, content, category_id, status, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed', metaJson],
+          },
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, document_type, title, content, category_id, status, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed', metaJson],
+          },
+          // 没有 metadata 列
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, type, title, content, category_id, status)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed'],
+          },
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, document_type, title, content, category_id, status)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed'],
+          },
+          // 没有 category_id
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, type, title, content, status, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, 'indexed', metaJson],
+          },
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, document_type, title, content, status, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, 'indexed', metaJson],
+          },
+          // 没有 status
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, type, title, content, category_id, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, metaJson],
+          },
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, document_type, title, content, category_id, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, metaJson],
+          },
+          // 最小集合（不依赖任何可选列）
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, title, content)
+                  VALUES (?, ?, ?, ?)`,
+            params: [doc.id, userId, title, dbContent],
+          },
+        ];
+
+        let inserted = false;
+        let lastInsertError: any = null;
+        let attemptIndex = 0;
+        for (const attempt of insertAttempts) {
+          try {
+            attemptIndex++;
+            console.log(`[RAG] 尝试插入 #${attemptIndex}: ${attempt.sql.substring(0, 60)}...`);
+            await this.pool.execute(attempt.sql, attempt.params);
+            inserted = true;
+            console.log(`[RAG] 插入成功 #${attemptIndex}`);
+            break;
+          } catch (e: any) {
+            lastInsertError = e;
+            const msg = String(e?.message || '');
+            console.log(`[RAG] 插入失败 #${attemptIndex}: ${msg.substring(0, 100)}`);
+            // 字段缺失或数据过长：继续降级尝试
+            if (/unknown column/i.test(msg) || /data too long/i.test(msg)) {
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        if (!inserted) {
+          throw lastInsertError || new Error('insert knowledge_documents failed');
+        }
 
         // 保存分块
         for (let i = 0; i < chunks.length; i++) {
           // 确保 embedding 存在
           const embeddingJson = embeddings[i] ? JSON.stringify(embeddings[i]) : '[]';
+          const chunkContent = chunks[i].content;
+          const chunkMetadata = JSON.stringify(chunks[i].metadata || {});
 
-          await this.pool.execute(
-            `INSERT INTO knowledge_chunks (id, document_id, chunk_index, content, embedding, metadata)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-              chunks[i].id,
-              doc.id,
-              i,
-              chunks[i].content,
-              embeddingJson,
-              JSON.stringify(chunks[i].metadata || {})
-            ]
-          );
+          // 多尝试降级插入
+          const chunkInsertAttempts: Array<{ sql: string; params: any[] }> = [
+            {
+              sql: `INSERT INTO knowledge_chunks (id, document_id, chunk_index, content, embedding, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?)`,
+              params: [chunks[i].id, doc.id, i, chunkContent, embeddingJson, chunkMetadata],
+            },
+            // 没有 metadata 列
+            {
+              sql: `INSERT INTO knowledge_chunks (id, document_id, chunk_index, content, embedding)
+                   VALUES (?, ?, ?, ?, ?)`,
+              params: [chunks[i].id, doc.id, i, chunkContent, embeddingJson],
+            },
+            // 没有 embedding 列
+            {
+              sql: `INSERT INTO knowledge_chunks (id, document_id, chunk_index, content, metadata)
+                   VALUES (?, ?, ?, ?, ?)`,
+              params: [chunks[i].id, doc.id, i, chunkContent, chunkMetadata],
+            },
+            // 最小集合
+            {
+              sql: `INSERT INTO knowledge_chunks (id, document_id, chunk_index, content)
+                   VALUES (?, ?, ?, ?)`,
+              params: [chunks[i].id, doc.id, i, chunkContent],
+            },
+          ];
+
+          let chunkInserted = false;
+          let chunkAttemptIndex = 0;
+          for (const attempt of chunkInsertAttempts) {
+            try {
+              chunkAttemptIndex++;
+              console.log(`[RAG] 分块 ${i} 尝试 #${chunkAttemptIndex}...`);
+              await this.pool.execute(attempt.sql, attempt.params);
+              chunkInserted = true;
+              console.log(`[RAG] 分块 ${i} 插入成功 #${chunkAttemptIndex}`);
+              break;
+            } catch (e: any) {
+              const msg = String(e?.message || '');
+              console.log(`[RAG] 分块 ${i} 失败 #${chunkAttemptIndex}: ${msg.substring(0, 80)}`);
+              if (/unknown column/i.test(msg) || /data too long/i.test(msg)) {
+                continue;
+              }
+              break;
+            }
+          }
+
+          if (!chunkInserted) {
+            console.warn(`[RAG] 分块 ${i} 未能插入数据库，仅在内存中保留`);
+          }
         }
 
         console.log(`[RAG] 文档已保存到数据库: ${doc.id}`);
@@ -229,6 +462,108 @@ export class RAGEngine {
     }
 
     console.log(`[RAG] 添加文档: ${title}, ${chunks.length} 个分块`);
+    return doc;
+  }
+
+  // 添加文档到知识库（不生成向量，不分块，整文档入库）
+  async addDocumentWithoutVector(
+    content: string,
+    title: string,
+    type: 'document' | 'note' | 'webpage' | 'datasource',
+    userId: string,
+    metadata?: Record<string, any>
+  ): Promise<KnowledgeDocument> {
+    // 创建文档（不分块）
+    const doc = this.knowledgeBase.addDocument({
+      userId,
+      type,
+      title,
+      content,
+      metadata: {
+        ...metadata,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        noVector: true,
+        noChunk: true, // 标记为不分块文档
+      },
+    });
+
+    // 保存到数据库
+    if (this.pool) {
+      try {
+        // 先探测 content 列长度，动态截断避免 Data too long
+        const maxLen = await this.getContentMaxLength();
+        const safeLimit = maxLen ?? 60000;
+        const dbContent = this.truncateForDb(content, safeLimit);
+
+        const metaJson = JSON.stringify({ ...doc.metadata, chunkCount: 0, noChunk: true });
+        const categoryId = metadata?.categoryId || null;
+
+        const insertAttempts: Array<{ sql: string; params: any[] }> = [
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, type, title, content, category_id, status, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed', metaJson],
+          },
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, document_type, title, content, category_id, status, metadata)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed', metaJson],
+          },
+          // 没有 metadata 列
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, type, title, content, category_id, status)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed'],
+          },
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, document_type, title, content, category_id, status)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            params: [doc.id, userId, type, title, dbContent, categoryId, 'indexed'],
+          },
+          // 最小集合（不依赖任何可选列）
+          {
+            sql: `INSERT INTO knowledge_documents (id, user_id, title, content)
+                  VALUES (?, ?, ?, ?)`,
+            params: [doc.id, userId, title, dbContent],
+          },
+        ];
+
+        let inserted = false;
+        let lastInsertError: any = null;
+        let attemptIndex = 0;
+        for (const attempt of insertAttempts) {
+          try {
+            attemptIndex++;
+            console.log(`[RAG] 尝试插入 #${attemptIndex}: ${attempt.sql.substring(0, 60)}...`);
+            await this.pool.execute(attempt.sql, attempt.params);
+            inserted = true;
+            console.log(`[RAG] 插入成功 #${attemptIndex}`);
+            break;
+          } catch (e: any) {
+            lastInsertError = e;
+            const msg = String(e?.message || '');
+            console.log(`[RAG] 插入失败 #${attemptIndex}: ${msg.substring(0, 100)}`);
+            // 字段缺失或数据过长：继续降级尝试
+            if (/unknown column/i.test(msg) || /data too long/i.test(msg)) {
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        if (!inserted) {
+          throw lastInsertError || new Error('insert knowledge_documents failed');
+        }
+
+        // 不分块：不创建 knowledge_chunks 记录
+        console.log(`[RAG] 整文档已保存到数据库（不分块）: ${doc.id}`);
+      } catch (error: any) {
+        console.error('[RAG] 保存非向量文档到数据库失败:', error.message);
+      }
+    }
+
+    console.log(`[RAG] 添加整文档（不分块）: ${title}`);
     return doc;
   }
 
@@ -285,6 +620,10 @@ export class RAGEngine {
   private async extractAndAddToGraph(doc: KnowledgeDocument): Promise<void> {
     // 使用AI提取实体和关系
     try {
+      // embedding 模型不能用于 chat.completions；若当前配置是 embedding 模型，直接跳过
+      if (this.isLikelyEmbeddingModel(this.model)) {
+        return;
+      }
       const response = await this.openai.chat.completions.create({
         model: this.model,
         messages: [
@@ -303,10 +642,11 @@ export class RAGEngine {
           },
           {
             role: 'user',
-            content: doc.content.slice(0, 3000) // 限制长度
+            content: doc.content.slice(0, 2000) // 限制长度
           }
         ],
-        temperature: 0.3,
+        temperature: 0.1,
+        response_format: { type: 'json_object' }
       });
 
       const content = response.choices[0].message.content || '{}';
@@ -341,8 +681,17 @@ export class RAGEngine {
           });
         }
       }
-    } catch (e: any) {
-      console.error('[RAG] 实体提取失败:', e.message);
+    } catch (error: any) {
+      const msg = String(error?.message || '');
+      // 常见：模型不存在 / 用错模型 / 上游不支持 chat
+      if (
+        error?.status === 400 ||
+        /模型不存在|model.*not.*found|not found/i.test(msg) ||
+        /unsupported|not supported/i.test(msg)
+      ) {
+        return;
+      }
+      console.error('[RAG] 实体提取失败:', msg);
     }
   }
 
@@ -538,6 +887,101 @@ export class RAGEngine {
       context,
       confidence,
       sources: context.sources,
+    };
+  }
+
+  // 非向量检索问答：基于全文检索 + 大模型回答（无需 embedding）
+  async answerWithoutVector(
+    query: string,
+    additionalContext?: string,
+    categoryId?: string,
+    documentId?: string
+  ): Promise<RAGResponse> {
+    console.log(`[RAG] 非向量模式问答: ${query.substring(0, 50)}...`);
+
+    // 1. 使用全文检索获取相关片段（数据库 LIKE 或内存搜索）
+    const searchResults = await this.searchChunks(query, 10);
+
+    // 2. 构建上下文文本
+    let contextText = '';
+    if (searchResults.length > 0) {
+      contextText += '### 相关知识片段:\n';
+      for (const result of searchResults.slice(0, 5)) {
+        contextText += `\n[来源: ${result.documentTitle}]\n${result.content}\n`;
+      }
+    }
+
+    // 3. 额外上下文
+    if (additionalContext) {
+      contextText += `\n### 补充信息:\n${additionalContext}\n`;
+    }
+
+    // 4. 如果没有上下文，直接用大模型回答
+    if (!contextText.trim()) {
+      console.log('[RAG] 无检索结果，直接使用大模型回答');
+    }
+
+    // 5. 生成回答
+    const response = await this.openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content: `你是一个智能知识助手。基于提供的知识上下文回答用户问题。
+
+### 回答要求：
+1. **内容优先**：优先整合知识库中的信息回答，不足时可结合你的知识补充。
+2. **结构清晰**：请使用 Markdown 格式，合理使用**粗体**、列表等增强可读性。
+3. **格式规范**：
+   - 关键点分条陈述，避免大段堆砌文字。
+4. **诚实原则**：如果无法回答，请直接说明。
+5. **引用来源**：在回答末尾可简要列出参考的文档标题。`
+        },
+        {
+          role: 'user',
+          content: contextText.trim()
+            ? `知识上下文:\n${contextText}\n\n用户问题: ${query}`
+            : `用户问题: ${query}`
+        }
+      ],
+      temperature: 0.7,
+    });
+
+    const answer = response.choices[0].message.content || '抱歉，无法回答这个问题。';
+
+    // 6. 构建 sources（用于前端展示来源）
+    const sourceIds = new Set<string>();
+    const sources: RAGSource[] = [];
+    for (const result of searchResults.slice(0, 5)) {
+      if (!sourceIds.has(result.documentId)) {
+        sourceIds.add(result.documentId);
+        sources.push({
+          documentId: result.documentId,
+          title: result.documentTitle,
+          type: 'document',
+          content: result.content,
+        });
+      }
+    }
+
+    // 7. 构建 RAGContext（兼容向量模式接口，但 chunks 为空）
+    const context: RAGContext = {
+      chunks: [], // 非向量模式，没有向量检索结果
+      sources,
+    };
+
+    // 8. 置信度：基于检索结果数量（简化计算）
+    const confidence = searchResults.length > 0
+      ? Math.min(0.5 + searchResults.length * 0.1, 0.9)
+      : 0.3;
+
+    console.log(`[RAG] 非向量模式回答完成，找到 ${searchResults.length} 个相关片段`);
+
+    return {
+      answer,
+      context,
+      confidence,
+      sources,
     };
   }
 

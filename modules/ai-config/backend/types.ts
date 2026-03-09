@@ -5,7 +5,7 @@
 export interface AIConfig {
   id: string;
   name: string;
-  provider: 'qwen' | 'zhipu' | 'siliconflow' | 'openai' | 'azure' | 'deepseek' | 'local-qwen' | 'ollama' | 'custom';
+  provider: 'qwen' | 'zhipu' | 'siliconflow' | 'openai' | 'azure' | 'deepseek' | 'coding-plan' | 'local-qwen' | 'ollama' | 'custom';
   model: string;
   embeddingModel?: string;
   apiKey: string;

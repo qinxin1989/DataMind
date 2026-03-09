@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createHash } from 'crypto';
 import { TableSchema, AIResponse } from '../types';
 import { BaseDataSource } from '../datasource';
 import { ChatMessage } from '../store/configStore';
@@ -9,6 +10,7 @@ import axios from 'axios';
 import { DashboardGenerator, DashboardResult } from './dashboard';
 import { SlideContent } from './skills/report/pptGenerator';
 import { QualityInspector, QualityReport } from './qualityInspector';
+import { SmartAnswerOptimizer } from './smartAnswerOptimizer';
 
 // Agent 执行结果
 export interface AgentResponse extends AIResponse {
@@ -240,6 +242,7 @@ export class AIAgent {
   private analyst!: AutoAnalyst;
   private dashboardGen!: DashboardGenerator;
   private qualityInspector!: QualityInspector;
+  private smartOptimizer?: SmartAnswerOptimizer;  // 智能问答优化器
   private configGetter?: AIConfigGetter;
   private allConfigs: AIConfigItem[] = [];
   private currentConfigIndex = 0;
@@ -253,11 +256,75 @@ export class AIAgent {
   private static readonly SQL_CACHE_TTL = 10 * 60 * 1000;  // 10 分钟
   private static readonly SQL_CACHE_MAX_SIZE = 200;  // 最多缓存200条
 
+  private normalizeQuestionForCache(question: string): string {
+    return (question || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  private hashSchemaContext(schemaContext: string): string {
+    const text = schemaContext || '';
+    return createHash('sha256').update(text).digest('hex').slice(0, 16);
+  }
+
+  private getRecentYearsWindow(question: string): number | null {
+    const q = (question || '').toLowerCase();
+    const m = q.match(/近\s*(\d{1,2})\s*年/);
+    if (m && m[1]) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > 0 && n <= 50) return n;
+    }
+    if (/近年来|近几年|最近|近年|近\s*一\s*段\s*时间/.test(q)) return 10;
+    return null;
+  }
+
+  private rewriteSqlForRecentYears(question: string, sql: string): string {
+    const windowN = this.getRecentYearsWindow(question);
+    if (!windowN) return sql;
+    const s = (sql || '').trim();
+    if (!/^select\b/i.test(s)) return sql;
+    if (/\bunion\b|\bintersect\b|\bexcept\b/i.test(s)) return sql;
+
+    const yearMatch = s.match(/\b(order\s+by\s+)([`"\[]?[\u4e00-\u9fa5A-Za-z_][\u4e00-\u9fa5A-Za-z0-9_]*[`"\]]?)\s+(asc|desc)\b/i);
+    const hasGroupBy = /\bgroup\s+by\b/i.test(s);
+    const hasLimit = /\blimit\s+\d+\b/i.test(s);
+    if (!hasGroupBy || !yearMatch || !hasLimit) return sql;
+
+    const yearCol = yearMatch[2];
+    // 仅对「年份列升序 + limit」这种明显不符合"近年"的情况改写
+    if (!/\basc\b/i.test(yearMatch[3])) return sql;
+    if (!/(年|year)/i.test(yearCol)) return sql;
+
+    // 提取表名（简化处理，取 FROM 后的第一个标识符）
+    const fromMatch = s.match(/\bfrom\s+([`"\[]?[\u4e00-\u9fa5A-Za-z_][\u4e00-\u9fa5A-Za-z0-9_]*[`"\]]?)/i);
+    const tableName = fromMatch ? fromMatch[1] : 'data';
+
+    // 性能优化：使用年份范围查询代替 JOIN
+    // WHERE 年份 >= (SELECT MAX(年份) FROM 表) - (N-1)
+    // 这种方式比 JOIN 子查询快得多，MySQL 也能很好优化
+    const rangeSql = s
+      .replace(new RegExp(`\\blimit\\s+\\d+\\b`, 'i'), '')
+      .replace(new RegExp(`\\border\\s+by\\s+[^;]+\\basc\\b`, 'i'), '')
+      .replace(/;\s*$/, '');
+
+    // 构建年份范围条件：取最大年份往前推 windowN-1 年
+    const whereCondition = `${yearCol} >= (SELECT MAX(${yearCol}) FROM ${tableName}) - ${windowN - 1}`;
+
+    // 检查原 SQL 是否已有 WHERE
+    const hasWhere = /\bwhere\b/i.test(rangeSql);
+    const connector = hasWhere ? ' AND ' : ' WHERE ';
+
+    // 添加年份范围条件并重新排序
+    return `${rangeSql}${connector}${whereCondition} GROUP BY ${yearCol} ORDER BY ${yearCol} ASC`;
+  }
+
   // 生成缓存key
   private getSQLCacheKey(question: string, dbType: string, schemaContext: string): string {
     // 用问题+数据库类型+schema摘要生成key
-    const schemaHash = schemaContext.length + ':' + schemaContext.slice(0, 100);
-    return `${question.trim().toLowerCase()}|${dbType}|${schemaHash}`;
+    const q = this.normalizeQuestionForCache(question);
+    const schemaHash = this.hashSchemaContext(schemaContext);
+    return `${q}|${dbType}|${schemaHash}`;
   }
 
   // 获取SQL缓存
@@ -268,6 +335,9 @@ export class AIAgent {
       this.sqlCache.delete(key);
       return null;
     }
+    // 命中时刷新为最新使用，模拟 LRU 行为
+    this.sqlCache.delete(key);
+    this.sqlCache.set(key, { ...cached, timestamp: Date.now() });
     return cached;
   }
 
@@ -303,8 +373,8 @@ export class AIAgent {
     // 支持 API Key 为空的情况
     const openaiConfig: any = {
       baseURL: config.baseURL,
-      timeout: 60000, // 60秒超时
-      maxRetries: 2,  // 最多重试2次
+      timeout: 60000, // 60 秒单次调用超时（复杂 SQL/分析可能需要较长思考时间）
+      maxRetries: 1,  // SDK 层最多重试 1 次（配合 callWithRetry 外层重试）
     };
 
     if (config.apiKey && config.apiKey.trim() !== '') {
@@ -324,6 +394,7 @@ export class AIAgent {
     this.analyst = new AutoAnalyst(config.apiKey || '', config.baseURL, config.model);
     this.dashboardGen = new DashboardGenerator(config.apiKey || '', config.baseURL, config.model);
     this.qualityInspector = new QualityInspector(this.openai, config.model);
+    this.smartOptimizer = new SmartAnswerOptimizer();
     this.initialized = true;
     console.log(`>>> 使用 AI 配置: ${config.name || 'unknown'} (${config.model})`);
   }
@@ -395,22 +466,28 @@ export class AIAgent {
     return { openai: this.openai, model: this.model };
   }
 
-  // 带自动重试的 OpenAI 调用
-  private async callWithRetry<T>(
-    fn: () => Promise<T>,
-    maxRetries: number = 3
+  // 带取消信号的 OpenAI 调用
+  private async callWithRetryWithSignal<T>(
+    fn: (signal: AbortSignal) => Promise<T>,
+    maxRetries: number = 2,
+    signal?: AbortSignal
   ): Promise<T> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
+        // 检查取消信号
+        if (signal?.aborted) {
+          throw new Error('Request cancelled');
+        }
+
         // 关键修复：如果 openai 实例丢失，强制重新初始化
         if (!this.openai) {
           console.warn(`>>> AIAgent: openai 实例未定义，尝试执行 ensureInitialized...`);
           await this.ensureInitialized();
         }
 
-        const result = await fn();
+        const result = await fn(signal!);
         // 记录 token 使用量（如果响应中包含 usage 信息）
         if (result && typeof result === 'object' && 'usage' in result) {
           const usage = (result as any).usage;
@@ -423,6 +500,13 @@ export class AIAgent {
       } catch (error: any) {
         lastError = error;
         const errorMsg = error.message || String(error);
+
+        // 如果是取消错误，直接抛出不再重试
+        if (errorMsg === 'Request cancelled' || errorMsg.includes('cancelled') || errorMsg.includes('aborted')) {
+          console.warn(`[AIAgent] 请求被取消，停止重试`);
+          throw error;
+        }
+
         console.error(`AI 调用失败 [${this.currentConfigName}]: ${errorMsg}`);
 
         // 判断是否需要切换配置的错误类型
@@ -455,6 +539,19 @@ export class AIAgent {
     }
 
     throw lastError || new Error('AI 调用失败');
+  }
+
+  // 带自动重试的 OpenAI 调用（向后兼容，不带取消信号）
+  private async callWithRetry<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 2
+  ): Promise<T> {
+    // 包装函数以适配 callWithRetryWithSignal
+    return this.callWithRetryWithSignal(
+      async () => fn(),
+      maxRetries,
+      undefined
+    );
   }
 
   // 数据质量检测入口
@@ -544,6 +641,133 @@ export class AIAgent {
     }).join('\n\n');
   }
 
+  private buildSqlIdentifierRules(schemas: TableSchema[], dbType: string): string {
+    // 强制 SQL 只能使用真实表名/字段名，避免模型用中文“别名表名”导致执行失败
+    const tableNames = schemas.map(s => s.tableName);
+    const columnNames = Array.from(new Set(schemas.flatMap(s => s.columns.map(c => c.name))));
+
+    const hasNonAsciiTable = tableNames.some(n => /[^\x00-\x7F]/.test(n));
+    const hasNonAsciiCol = columnNames.some(n => /[^\x00-\x7F]/.test(n));
+
+    // 如果数据源本身就有中文表/字段名，就不要禁止中文标识符
+    const canForbidChineseIdentifiers = !hasNonAsciiTable && !hasNonAsciiCol;
+    if (!canForbidChineseIdentifiers) return '';
+
+    // 构建可用的真实表名和字段名列表（白名单）
+    const availableTables = tableNames.map(t => `\`${t}\``).join(', ');
+    const availableColumns = columnNames.slice(0, 20).map(c => `\`${c}\``).join(', '); // 最多显示20个，避免过长
+    const moreCols = columnNames.length > 20 ? ` 等共${columnNames.length}个字段` : '';
+
+    return `\n\n【强制约束 - 必须严格遵守，违反将导致执行失败】：
+1. 【表名白名单】只能使用以下真实表名：${availableTables}
+2. 【字段白名单】只能使用以下真实字段名：${availableColumns}${moreCols}
+3. 【绝对禁止】严禁在 SQL 中使用中文作为表名、字段名或别名（错误示例：FROM 专利数据表、SELECT 申请年份）
+4. 【绝对禁止】严禁在 SQL 中使用中文拼音或中英文混合作为标识符（错误示例：FROM patent_data_zhuanli）
+5. 【允许范围】仅允许在 AS 别名中使用中文（正确示例：SELECT apply_year AS 申请年份）
+6. 【校验规则】如果生成的 SQL 包含任何非 ASCII 标识符（中文、全角符号等），必须立即使用白名单中的英文原名替换。`;
+  }
+
+  private hasNonAsciiIdentifier(sql: string): boolean {
+    // 检测 SQL 中是否包含中文汉字或其他非 ASCII 字符（可能用于表名/字段名）
+    // 注意：只检测可能作为标识符的非 ASCII 字符，不包括 AS 别名中的中文
+    // 匹配模式：中文汉字、中文标点、全角符号
+    const raw = sql || '';
+    if (!raw) return false;
+
+    // 先剥离字符串字面量，避免误伤
+    let withoutStringLiterals = raw.replace(/'[^']*'/g, "''").replace(/"[^"]*"/g, '""');
+
+    // 允许 `AS` 别名使用中文/非ASCII：剥离 AS 后面的别名部分
+    // 覆盖三种常见写法：
+    // - AS 别名
+    // - AS `别名`
+    // - AS "别名"
+    // 注：这里只处理别名本身，保留 AS 关键字和前面的表达式
+    withoutStringLiterals = withoutStringLiterals
+      .replace(/\bAS\s+`[^`]*`/gi, 'AS `__alias__`')
+      .replace(/\bAS\s+"[^"]*"/gi, 'AS "__alias__"')
+      .replace(/\bAS\s+[\u4e00-\u9fa5\w_]+/gi, 'AS __alias__');
+
+    // 如果仍然出现中文，说明中文不在 AS 别名位置（可能是表/字段/函数名等）
+    if (/[\u4e00-\u9fa5]/.test(withoutStringLiterals)) return true;
+
+    // 检测其它非 ASCII 字符（全角符号等），但排除常见 SQL 符号
+    if (/[^ -\s\(\),.;=<>!+-/*]/.test(withoutStringLiterals)) return true;
+    return false;
+  }
+
+  private shouldForbidChineseIdentifiers(schemas: TableSchema[]): boolean {
+    const tableNames = schemas.map(s => s.tableName);
+    const columnNames = Array.from(new Set(schemas.flatMap(s => s.columns.map(c => c.name))));
+    const hasNonAsciiTable = tableNames.some(n => /[^\x00-\x7F]/.test(n));
+    const hasNonAsciiCol = columnNames.some(n => /[^\x00-\x7F]/.test(n));
+    return !hasNonAsciiTable && !hasNonAsciiCol;
+  }
+
+  private async ensureSqlIdentifiersAreValid(
+    question: string,
+    sql: string,
+    schemas: TableSchema[],
+    dbType: string,
+    history: ChatMessage[],
+    noChart?: boolean
+  ): Promise<string> {
+    // 仅当 schema 本身没有中文表/字段名时，才禁止 SQL 出现中文标识符
+    if (!(dbType === 'mysql' || dbType === 'postgres')) return sql;
+    if (!this.shouldForbidChineseIdentifiers(schemas)) return sql;
+    if (!sql || !this.hasNonAsciiIdentifier(sql)) return sql;
+
+    console.warn('[AIAgent] SQL 包含非ASCII标识符，触发强制重写');
+    console.warn('[AIAgent] 原始SQL:', sql);
+
+    // 第一次重写尝试 - 使用强约束提示
+    const tableList = schemas.map(s => s.tableName).join(', ');
+    const fieldList = Array.from(new Set(schemas.flatMap(s => s.columns.map(c => c.name)))).join(', ');
+
+    const reason = `【严重错误】生成的SQL包含中文或非ASCII标识符，但数据库真实表名/字段名都是英文。
+
+【强制白名单 - 只能使用以下标识符】
+表名: ${tableList}
+字段: ${fieldList}
+
+【禁止示例】
+❌ FROM 专利数据表
+❌ SELECT 申请年份
+❌ WHERE 申请类型 = '发明'
+
+【正确示例】
+✓ FROM patent_data
+✓ SELECT apply_year AS 申请年份
+✓ WHERE apply_type = '发明'
+
+必须使用白名单中的英文原名重写，AS别名可用中文，其他位置绝对禁止中文。`;
+
+    let corrected = await this.regenerateSQL(question, schemas, dbType, history, sql, reason, noChart);
+
+    // 如果重写后的 SQL 仍包含非 ASCII 标识符，再次强制重写
+    if (corrected && this.hasNonAsciiIdentifier(corrected)) {
+      console.warn('[AIAgent] 重写后的 SQL 仍包含非ASCII标识符，再次强制重写');
+      const stricterReason = `SQL 重写后仍包含中文标识符。这是第二次尝试，必须严格遵守：
+【强制规则】只能使用以下英文标识符，绝对禁止中文：
+表名: ${schemas.map(s => s.tableName).join(', ')}
+字段: ${Array.from(new Set(schemas.flatMap(s => s.columns.map(c => c.name)))).join(', ')}
+如果再次包含中文，SQL将无法执行。`;
+      corrected = await this.regenerateSQL(question, schemas, dbType, history, corrected, stricterReason, noChart);
+    }
+
+    // 如果第二次重写仍失败，使用模板匹配生成最简 SQL
+    if (corrected && this.hasNonAsciiIdentifier(corrected)) {
+      console.error('[AIAgent] 两次重写仍包含非ASCII标识符，回退到模板生成');
+      const fallback = this.tryGenerateSQLFromTemplate(question, schemas, dbType, history, noChart);
+      if (fallback) {
+        console.log('[AIAgent] 使用模板回退SQL:', fallback.sql);
+        return fallback.sql;
+      }
+    }
+
+    return corrected || sql;
+  }
+
   // 清理技术细节，转换为自然语言
   private cleanTechnicalDetails(text: string): string {
     if (!text) return '';
@@ -619,6 +843,7 @@ export class AIAgent {
       }).join('\n');
 
       // 1. 构建提示词
+      const identifierRules = this.buildSqlIdentifierRules(schemas, dbType);
       const prompt = `你是 AI 数据助手。请根据用户问题选择最合适的工具、图表类型和图表配置。
 
 可选工具:
@@ -628,6 +853,16 @@ export class AIAgent {
 - report.comprehensive: 生成综合报告 (如: "生成销售分析报告", "写一份市场调研文档")
 - crawler.extract: 网页抓取/提取 (如: "抓取这个网站的内容", "提取网页上的价格", "从网址获取信息")
 - data.analyze: 深度分析/总结/洞察 (如: "分析这个数据源", "给出业务总结")
+- file.readFile: 读取文件内容 (如: "读取这个文件", "查看文件内容")
+- file.writeFile: 写入文件 (如: "把结果保存到文件", "导出为文件")
+- web.fetchUrl: 获取网页内容 (如: "访问这个网址", "获取API数据")
+- pdf.readPdf: 读取PDF文件 (如: "解析这个PDF", "提取PDF内容")
+- docx.readWord: 读取Word文档 (如: "读取这个Word文件")
+- docx.createWordDocument: 创建Word文档 (如: "生成一份Word报告", "导出为Word")
+- pptx.pptxInventory: 查看PPT内容 (如: "分析这个PPT", "查看幻灯片内容")
+- image_ocr.ocrImage: 图片文字识别 (如: "识别图片中的文字", "OCR这张图")
+- shell.runCommand: 执行系统命令 (如: "运行命令", "执行脚本")
+- data_analysis.executePython: Python数据分析 (如: "用Python分析", "计算统计指标")
 - chitchat: 闲聊/问候 (如: "你好", "谢谢")
 
 可选图表类型:
@@ -641,11 +876,13 @@ export class AIAgent {
 数据表结构:
 ${schemaDesc}
 
+${identifierRules}
+
 用户问题: ${question}
 
 返回JSON格式: 
 {
-  "tool": "sql" | "data.advanced_query" | "qa.expert" | "report.comprehensive" | "data.analyze" | "chitchat" | "crawler.extract", 
+  "tool": "sql" | "data.advanced_query" | "qa.expert" | "report.comprehensive" | "data.analyze" | "chitchat" | "crawler.extract" | "file.readFile" | "file.writeFile" | "web.fetchUrl" | "pdf.readPdf" | "docx.readWord" | "docx.createWordDocument" | "pptx.pptxInventory" | "image_ocr.ocrImage" | "shell.runCommand" | "data_analysis.executePython", 
   "reason": "原因",
   "url": "要抓取的网址（如果是抓取工具则必填）",
   "extractDescription": "提取需求描述（如果是抓取工具则必填）",
@@ -664,7 +901,7 @@ ${schemaDesc}
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
         response_format: { type: 'json_object' }
-      }));
+      })) as any;
 
       const content = response.choices[0].message.content || '{}';
       const result = JSON.parse(content);
@@ -716,6 +953,34 @@ ${schemaDesc}
             params: {
               datasourceId: 'current',
               table: schemas[0]?.tableName || 'unknown'
+            },
+            needChart: false
+          };
+
+        // 新增技能路由：统一通过 skill 类型分发到 skillsRegistry
+        case 'file.readFile':
+        case 'file.writeFile':
+        case 'file.searchFiles':
+        case 'web.fetchUrl':
+        case 'web.httpRequest':
+        case 'pdf.readPdf':
+        case 'pdf.mergePdf':
+        case 'docx.readWord':
+        case 'docx.createWordDocument':
+        case 'docx.generateWordReport':
+        case 'pptx.pptxInventory':
+        case 'pptx.pptxReplaceText':
+        case 'image_ocr.ocrImage':
+        case 'shell.runCommand':
+        case 'data_analysis.executePython':
+          return {
+            type: 'skill',
+            name: tool,
+            params: {
+              ...(result.args || {}),
+              question,
+              path: result.path || result.filePath,
+              url: result.url,
             },
             needChart: false
           };
@@ -775,6 +1040,12 @@ ${schemaDesc}
       /查询/, /查一下/, /列出/, /显示/, /展示/,
       /画个图/, /生成图/, /柱状图/, /饼图/, /折线图/,
       /group\s+by/i, /select/i, /count/i, /sum/i, /avg/i,
+      // 分析类问题（在数据平台上几乎都是数据查询）
+      /分析/, /特征/, /对比/, /比较/, /变化/, /波动/, /规律/,
+      /相关/, /关系/, /影响/, /因素/, /原因/,
+      /指标/, /维度/, /概况/, /情况/, /现状/,
+      /增减/, /消耗/, /营收/, /销售/, /利润/,
+      /发明/, /专利/, /申请/, /授权/, /引用/,
     ];
     return dataQueryPatterns.some(pattern => pattern.test(question));
   }
@@ -856,7 +1127,7 @@ ${schemaDesc}
         params: {
           table: firstTable,
           compareField: groupField,
-          valueField: numericField || 'COUNT(*)'
+          valueField: numericField || 'COUNT(1)'
         },
         needChart: true,
         chartType: 'pie'
@@ -1060,15 +1331,16 @@ ${schemaDesc}
       messages: [
         {
           role: 'system',
-          content: `SQL修正器(${dbType})。只返回正确SQL。
+          content: `SQL修正器(${dbType})。只返回正确SQL。统计条数用COUNT(1)不用COUNT(*)。
 表:${schemaCompact}
 错误SQL:${previousSql}
-原因:${errorReason}`
+原因:${errorReason}
+注意：请确保SQL语句中不使用中文标识符。`
         },
         { role: 'user', content: question }
       ],
       temperature: 0,
-    }));
+    })) as any;
 
     const sql = response.choices[0].message.content?.trim() || '';
     return cleanSQL(sql);
@@ -1137,7 +1409,7 @@ ${schemaDesc}
         ],
         temperature: 0,
         response_format: { type: 'json_object' }
-      }));
+      })) as any;
 
       let content = response.choices[0].message.content || '{}';
       // 清理可能的 Markdown 代码块
@@ -1373,6 +1645,7 @@ ${schemaDesc}
         // 使用 AI 生成 SQL 查询
         console.log('=== Using AI to generate SQL');
         sql = await this.generateSQL(question, schemas, dbType, history, noChart);
+        sql = await this.ensureSqlIdentifiersAreValid(question, sql, schemas, dbType, history, noChart);
         console.log('AI generated SQL:', sql);
 
         // 转义 MySQL 保留字
@@ -1422,7 +1695,9 @@ ${schemaDesc}
             schemas,
             dbType,
             openai: this.openai,
-            model: this.model
+            model: this.model,
+            workDir: process.cwd(),
+            userId: undefined,  // answer() 不携带 userId，通过 answerWithContext 调用时由上层传入
           };
 
           try {
@@ -1505,6 +1780,10 @@ ${schemaDesc}
     }
   }
 
+  // 全局超时守卫：复杂问答流程（意图识别→SQL生成→执行→验证→回答）可能涉及 3-4 次 AI 调用，
+  // 每次 30-60 秒属于正常范围，需要留足时间以保证回答正确性。
+  private static readonly ANSWER_TIMEOUT_MS = 300_000; // 300 秒（5 分钟）
+
   // 带上下文的智能问答（优化版，减少 token 使用）
   async answerWithContext(
     question: string,
@@ -1515,7 +1794,58 @@ ${schemaDesc}
       schemaContext?: string;  // 预处理的 schema 上下文（中文名称）
       ragContext?: string;     // RAG 知识库上下文
       noChart?: boolean;       // 是否禁用图表
+      signal?: AbortSignal;    // 取消信号
+      requestId?: string;      // 可选：外部传入的请求ID，用于串联日志
     }
+  ): Promise<AgentResponse> {
+    // 检查取消信号
+    if (context?.signal?.aborted) {
+      return { answer: '请求已取消', tokensUsed: 0, modelName: 'none' };
+    }
+
+    const requestId = context?.requestId || `req_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    const stage = { name: 'init' as string, startAt: Date.now() };
+
+    // 全局超时守卫：用于兜底整个流程（SQL执行/AI调用等）。
+    // 注意：回答生成阶段本身已在 generateChineseAnswer 内部做了硬超时+降级，因此这里主要防止极端卡死。
+    try {
+      console.log(`[AIAgent][${requestId}] answerWithContext start dbType=${dbType} q=${String(question).slice(0, 80)}`);
+      return await Promise.race([
+        this._answerWithContextImpl(question, dataSource, dbType, history, { ...context, requestId }, stage),
+        new Promise<AgentResponse>((_, reject) =>
+          setTimeout(() => {
+            const elapsed = Date.now() - stage.startAt;
+            console.error(`[AIAgent][${requestId}] answerWithContext timeout after ${elapsed}ms, stage=${stage.name}`);
+            reject(new Error('AI 响应超时（300s），请稍后重试或简化问题'));
+          }, AIAgent.ANSWER_TIMEOUT_MS)
+        ),
+      ]);
+    } catch (error: any) {
+      const elapsed = Date.now() - stage.startAt;
+      console.error(`[AIAgent][${requestId}] answerWithContext failed after ${elapsed}ms, stage=${stage.name}, err=${error?.message || error}`);
+      return {
+        answer: error.message?.includes('超时') ? error.message : `处理失败: ${error.message}`,
+        tokensUsed: this.lastRequestTokens,
+        modelName: this.model || 'unknown',
+      };
+    }
+  }
+
+  // answerWithContext 实际实现
+  private async _answerWithContextImpl(
+    question: string,
+    dataSource: BaseDataSource,
+    dbType: string,
+    history: ChatMessage[] = [],
+    context?: {
+      schemaContext?: string;
+      ragContext?: string;
+      noChart?: boolean;
+      signal?: AbortSignal;
+      requestId?: string;
+    }
+    ,
+    stage?: { name: string; startAt: number }
   ): Promise<AgentResponse> {
     // 重置 token 计数
     this.lastRequestTokens = 0;
@@ -1583,7 +1913,8 @@ ${schemaDesc}
       const startTime = Date.now();
 
       // 步骤1: 意图识别
-      console.log('=== 步骤1: 意图识别');
+      if (stage) stage.name = '步骤1:意图识别';
+      console.log(`=== 步骤1: 意图识别${context?.requestId ? ` [${context.requestId}]` : ''}`);
       const understandStart = Date.now();
 
       // 使用优化的 schema 上下文（如果提供）
@@ -1598,6 +1929,7 @@ ${schemaDesc}
 
       // 意图识别：判断是否为明确的数据查询，否则调用 AI 意图路由
       const isClearDataQuery = this.isClearDataQuery(q);
+      let preChartInfo: { chartType?: string; chartTitle?: string; chartConfig?: any } | undefined;
       if (!isClearDataQuery && dbType !== 'file') {
         console.log('=== 非明确数据查询，调用 AI 意图识别');
         try {
@@ -1616,7 +1948,14 @@ ${schemaDesc}
           if (plan.type === 'mcp') {
             return this.answer(question, dataSource, dbType, history, context?.noChart);
           }
-          // sql 意图：继续当前流程
+          // sql 意图：复用 planAction 的图表配置，避免 generateSQLWithContext 重复计算
+          if (plan.type === 'sql') {
+            preChartInfo = {
+              chartType: plan.chartType,
+              chartTitle: plan.chartTitle,
+              chartConfig: plan.chartConfig
+            };
+          }
         } catch (e: any) {
           console.error('意图识别失败，默认走 SQL 流程:', e.message);
         }
@@ -1636,7 +1975,7 @@ ${schemaDesc}
         // 步骤3: 执行查询
         const executionStart = Date.now();
         console.log('=== 步骤3: 执行查询');
-        const queryResult = await dataSource.executeQuery(internalSql);
+        const queryResult = await dataSource.executeQuery(internalSql, context?.signal);
         timings['执行'] = Date.now() - executionStart;
         console.log('Query result:', queryResult.success, 'rows:', queryResult.rowCount);
 
@@ -1669,11 +2008,24 @@ ${schemaDesc}
       }
 
       // 步骤2: 生成SQL
+      if (stage) stage.name = '步骤2:生成SQL';
       const planningStart = Date.now();
       console.log('=== 步骤2: 生成SQL语句');
-      const sqlPlan = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition, context?.noChart);
+      // 如果意图识别已经提供了图表配置，传入以简化 SQL 生成 prompt
+      const sqlPlan = await this.generateSQLWithContext(question, schemas, dbType, history, schemaForAI, systemPromptAddition, context?.noChart, preChartInfo);
       timings['生成SQL'] = Date.now() - planningStart;
       sql = sqlPlan.sql;
+      sql = await this.ensureSqlIdentifiersAreValid(question, sql || '', schemas, dbType, history, context?.noChart);
+      sql = this.rewriteSqlForRecentYears(question, sql || '');
+
+      // 大表性能保护：对 patent_data 的 IPC 分布类查询默认限制最近 N 年，避免 1000万级全表 GROUP BY 触发 300s 超时
+      const perfGuard = this.applyPatentIpcPerfGuard(sql || '', question);
+      if (perfGuard.changed) {
+        sql = perfGuard.sql;
+        systemPromptAddition += `\n\n提示：由于数据量较大，本次统计默认限定最近 ${perfGuard.yearRange} 年，以保证查询速度。`;
+        console.log(`[AIAgent] PerfGuard applied: yearRange=${perfGuard.yearRange}`);
+      }
+
       console.log('AI generated SQL:', sql);
 
       // 转义 MySQL 保留字
@@ -1696,9 +2048,10 @@ ${schemaDesc}
       }
 
       // 步骤3: 执行查询
+      if (stage) stage.name = '步骤3:执行查询';
       const executionStart = Date.now();
       console.log('=== 步骤3: 执行查询');
-      const queryResult = await dataSource.executeQuery(escapedSql);
+      const queryResult = await dataSource.executeQuery(escapedSql, context?.signal);
       timings['执行'] = Date.now() - executionStart;
       if (!queryResult.success) {
         return { answer: `查询失败: ${queryResult.error}`, sql, tokensUsed: this.lastRequestTokens, modelName: this.model };
@@ -1720,15 +2073,42 @@ ${schemaDesc}
         }
       }
 
-      // 根据结果生成图表
+      // 地域自适应下钻：检查是否需要下钻到更细粒度
+      const geoDrillDown = await this.executeGeoDrillDown(
+        question, dataSource, schemas, dbType, history, result, context?.noChart
+      );
+      if (geoDrillDown.wasDrillDown) {
+        console.log('=== 触发地域下钻，使用下钻结果');
+        result = geoDrillDown.result;
+        sql = geoDrillDown.sql;
+      }
+
+      // 根据结果生成图表（优先使用 sqlPlan 的图表配置，已包含 preChartInfo 复用结果）
       if (result && result.length > 1 && !context?.noChart) {
         chart = this.generateChartData(result, (sqlPlan.chartType || 'bar') as any, sqlPlan.chartTitle || question, schemas, sqlPlan.chartConfig);
       }
 
       // 步骤4: AI 生成回答
+      if (stage) stage.name = '步骤4:生成回答';
       const answerStart = Date.now();
       console.log('=== 步骤4: AI 生成回答');
-      const explanation = await this.generateChineseAnswer(question, result, history, context?.ragContext, context?.noChart, sql, schemaForAI);
+      const safeFallbackAnswer = () => {
+        try {
+          const dataArr = Array.isArray(result) ? result : (result ? [result] : []);
+          // 优先确定性总结（避免再次触发 AI）
+          return this.buildDeterministicSummary(question, dataArr);
+        } catch {
+          return Array.isArray(result) ? this.generateQuickAnswer(question, result, schemas) : '查询已完成，但生成回答超时。';
+        }
+      };
+
+      let explanation: string;
+      try {
+        explanation = await this.generateChineseAnswer(question, result, history, context?.ragContext, context?.noChart, sql, schemaForAI);
+      } catch (e: any) {
+        console.error('generateChineseAnswer unexpected error, fallback:', e?.message);
+        explanation = safeFallbackAnswer();
+      }
       timings['生成回答'] = Date.now() - answerStart;
 
       const totalTime = Date.now() - startTime;
@@ -1748,6 +2128,378 @@ ${schemaDesc}
     }
   }
 
+  // 模板匹配快速生成 SQL（跳过 LLM，毫秒级响应）
+  private tryGenerateSQLFromTemplate(
+    question: string,
+    schemas: TableSchema[],
+    dbType: string,
+    history: ChatMessage[],
+    noChart?: boolean
+  ): { sql: string; chartTitle?: string; chartType?: string; chartConfig?: { xField?: string; yField?: string } } | null {
+    const q = question.trim();
+
+    // 检查上一个问题是否和当前完全相同（重复提问）
+    const lastUserMessage = history.length > 0
+      ? history.slice().reverse().find(m => m.role === 'user')
+      : null;
+    const isRepeatQuestion = lastUserMessage && lastUserMessage.content.trim() === q;
+
+    // 有上下文对话时，如果不是完全重复的问题，不走模板
+    // 例外：如果当前问题本身是完整的查询模式（不含指代词），仍然走模板
+    const hasPronoun = /(?:那|它|这个|那个|这些|那些|他们?|她们?|它们?)/.test(q);
+    if (history.length > 0 && !isRepeatQuestion && hasPronoun) return null;
+
+    const table = schemas[0]?.tableName;
+    if (!table || schemas.length > 3) return null; // 多表场景不走模板
+
+    const allColumns = schemas.flatMap(s => s.columns);
+
+    // 辅助：在问题中查找匹配的字段名（支持字段名和 comment）
+    // 优先返回非时间维度字段（避免时间字段干扰分组统计）
+    const findFieldInQuestion = (q: string): { col: string; table: string } | null => {
+      // 第一轮：优先匹配非时间维度字段
+      for (const schema of schemas) {
+        for (const c of schema.columns) {
+          // 跳过时间维度字段
+          if (/年|year|date|时间|time/i.test(c.name)) continue;
+          if (q.includes(c.name)) return { col: c.name, table: schema.tableName };
+          if (c.comment && c.comment.length >= 2 && q.includes(c.comment)) return { col: c.name, table: schema.tableName };
+        }
+      }
+      // 第二轮：匹配所有字段
+      for (const schema of schemas) {
+        for (const c of schema.columns) {
+          if (q.includes(c.name)) return { col: c.name, table: schema.tableName };
+          if (c.comment && c.comment.length >= 2 && q.includes(c.comment)) return { col: c.name, table: schema.tableName };
+        }
+      }
+      return null;
+    };
+
+    // 辅助：查找数值字段（用于 SUM/AVG）
+    const findNumericField = (q: string): { col: string; table: string } | null => {
+      for (const schema of schemas) {
+        for (const c of schema.columns) {
+          const t = c.type.toLowerCase();
+          const isNumeric = t.includes('int') || t.includes('decimal') || t.includes('float') || t.includes('double') || t.includes('number') || t.includes('real');
+          if (!isNumeric) continue;
+          if (q.includes(c.name) || (c.comment && c.comment.length >= 2 && q.includes(c.comment))) {
+            return { col: c.name, table: schema.tableName };
+          }
+        }
+      }
+      return null;
+    };
+
+    // 辅助：查找年份字段（用于时间窗口过滤）
+    const findYearField = (): string | null => {
+      for (const c of allColumns) {
+        if (/年|year/i.test(c.name)) return c.name;
+      }
+      for (const c of allColumns) {
+        if (/日|date/i.test(c.name)) return c.name;
+      }
+      return null;
+    };
+
+    // 辅助：检测时间窗口（追问或默认近5年）
+    const detectTimeWindow = (): { field: string; condition: string; label: string } | null => {
+      const yearField = findYearField();
+      if (!yearField) return null;
+
+      // 检测追问中的时间关键词
+      const fullContext = history.map(h => h.content).join(' ') + ' ' + q;
+
+      // 明确年份范围：2020年以来、2020-2023年
+      const yearRangeMatch = fullContext.match(/(\d{4})\s*[\-~到至]\s*(\d{4})/);
+      if (yearRangeMatch) {
+        return {
+          field: yearField,
+          condition: `${yearField} >= ${yearRangeMatch[1]} AND ${yearField} <= ${yearRangeMatch[2]}`,
+          label: `${yearRangeMatch[1]}-${yearRangeMatch[2]}年`
+        };
+      }
+
+      // 近N年/最近N年
+      const recentYearMatch = fullContext.match(/(?:近|最近)\s*(\d+)\s*年/);
+      if (recentYearMatch && recentYearMatch.length > 1) {
+        const n = parseInt(recentYearMatch[1]);
+        return {
+          field: yearField,
+          condition: `${yearField} >= YEAR(CURDATE()) - ${n}`,
+          label: `近${n}年`
+        };
+      }
+
+      // 默认近N年（避免全表扫描）
+      const defaultN = (() => {
+        const n = Number(process.env.DATAMIND_TEMPLATE_DEFAULT_YEAR_RANGE ?? '10');
+        return Number.isFinite(n) && n > 0 ? Math.min(Math.max(Math.floor(n), 1), 30) : 10;
+      })();
+      return {
+        field: yearField,
+        condition: `${yearField} >= YEAR(CURDATE()) - ${defaultN}`,
+        label: `近${defaultN}年`
+      };
+    };
+
+    const chartType = noChart ? 'none' : undefined;
+
+    // 模式1: "各XX的数量" / "XX分布" / "按XX统计" / "XX有哪些类型" → GROUP BY
+    const groupByPatterns = [
+      /(?:各|每个|不同|按)(.+?)(?:的|的数量|数量|统计|分布|占比|有多少)/,
+      /(.+?)(?:分布|的分布|的数量分布|的占比)/,
+      /(?:统计|查询|查看|列出)(?:各|每个|不同|按)?(.+?)(?:的数量|数量|的统计|分布)/,
+      /(.+?)(?:有哪些|有几种|有多少种|有多少类)/,
+    ];
+
+    for (const pattern of groupByPatterns) {
+      const match = q.match(pattern);
+      if (match) {
+        const keyword = match[1].trim();
+        const field = findFieldInQuestion(keyword);
+        if (field) {
+          const sql = `SELECT ${field.col}, COUNT(1) as cnt FROM ${field.table} GROUP BY ${field.col} ORDER BY cnt DESC LIMIT 20`;
+          console.log(`=== 模板匹配成功 [GROUP BY]: "${q}" → ${sql}`);
+          return {
+            sql,
+            chartTitle: `${keyword}分布`,
+            chartType: chartType || 'bar',
+            chartConfig: { xField: field.col, yField: 'cnt' }
+          };
+        }
+      }
+    }
+
+    // 模式2: "XX最多/最高/最大的前N个" → TOP-N
+    // 1) 若是"某实体(发明人/申请人/公司...)产出最高"，本质是按实体 GROUP BY COUNT
+    // 2) 否则需要找到明确的数值字段，才能做 ORDER BY 数值字段
+    // 扩展：支持"近N年...产出"等带时间窗口的问法
+    const topNMatch = q.match(/(?:哪些|哪个)?(.+?)(?:的)?(?:最多|最高|最大|最好|最少|最小|最低)的?(?:前)?(\d+)?(?:个|条|名|者|是|专利)?/);
+    if (topNMatch || /(?:哪些|哪个).+(?:最高|最大|最多|最好)/.test(q) || /(?:近|最近)\d+年.+产出/.test(q)) {
+      const keyword = topNMatch ? topNMatch[1].trim() : '';
+      const n = topNMatch && topNMatch[2] ? parseInt(topNMatch[2]) : 10;
+
+      // 产出/发文/数量等：按“某个维度”统计数量并取 TopN
+      // 例：哪些发明人的专利产出最高？ => 按发明人 group by count
+      const isOutputQuery = /(?:产出|产量|发文|发表|数量|件数|篇数|专利数|申请量|授权量)/.test(q);
+      if (isOutputQuery) {
+        const dim = findFieldInQuestion(q) || (keyword ? findFieldInQuestion(keyword) : null);
+        if (dim) {
+          // 添加时间窗口过滤（默认近5年，支持追问指定范围）
+          const timeWindow = detectTimeWindow();
+          const whereClause = timeWindow ? ` WHERE ${timeWindow.condition}` : '';
+          const sql = `SELECT ${dim.col}, COUNT(1) as cnt FROM ${dim.table}${whereClause} GROUP BY ${dim.col} ORDER BY cnt DESC LIMIT ${n}`;
+          console.log(`=== 模板匹配成功 [TOP-N-GROUP${timeWindow ? '-' + timeWindow.label : ''}]: "${q}" → ${sql}`);
+          return {
+            sql,
+            chartTitle: `${dim.col}${timeWindow ? timeWindow.label : ''}Top${n}`,
+            chartType: chartType || 'bar',
+            chartConfig: { xField: dim.col, yField: 'cnt' }
+          };
+        }
+      }
+
+      // 非产出类：必须找到明确数值字段
+      let numField = (keyword ? (findNumericField(keyword) || findFieldInQuestion(keyword)) : null);
+      if (!numField && keyword) {
+        const cleanedKeyword = keyword.replace(/的|数量|次数|值|数量/g, '').trim();
+        if (cleanedKeyword) {
+          numField = findNumericField(cleanedKeyword) || findFieldInQuestion(cleanedKeyword);
+        }
+      }
+
+      // 若问题明显是“实体TopN”（哪些/哪个...最高），但又找不到数值字段，则不要瞎选第一个数值字段
+      // 直接放弃模板，让 LLM 处理（避免语义漂移）
+      if (!numField) {
+        return null;
+      }
+
+      // 找一个标签字段（名称或标题类字段，或除数值字段外的第一个字段）
+      const labelCol = allColumns.find(c =>
+        c.name !== numField!.col &&
+        (/名|称|标题|title|name|专利|申请号/i.test(c.name) || !c.isPrimaryKey)
+      ) || allColumns.find(c => c.name !== numField!.col);
+
+      const labelField = labelCol ? labelCol.name : numField.col;
+      const sql = `SELECT ${labelField}, ${numField.col} FROM ${numField.table} ORDER BY ${numField.col} DESC LIMIT ${n}`;
+      console.log(`=== 模板匹配成功 [TOP-N]: "${q}" → ${sql}`);
+      return {
+        sql,
+        chartTitle: `${keyword || '数据'}Top${n}`,
+        chartType: chartType || 'bar',
+        chartConfig: { xField: labelField, yField: numField.col }
+      };
+    }
+
+    // 模式3: "最长/最大/最高/最短/最小/最低" → MAX/MIN (仅单值聚合，不含排名/前N语义)
+    // 严格排除含有"哪些/前/排名/第几/列表"等排名语义的查询
+    // 扩展：支持"XX最高/最大/最小值是多少"明确极值问法
+    const isRankingQuery = /(?:哪些|前\d*|排名|第几|列表|明细|详情)/.test(q);
+    // 匹配：1) 以疑问词结尾的极值问法 2) "XX最高/最大/最小值是多少"格式
+    const extremeMatch1 = !isRankingQuery ? q.match(/(?:最)?(长|大|高|短|小|低|多|少)(?:的?是|多少|多|少|值|时间)?\s*$/) : null;
+    const extremeMatch2 = !isRankingQuery ? q.match(/(.+?)(?:最高|最大|最低|最小|最多|最少)值?(?:是|为)?多少/) : null;
+    const extremeMatch = extremeMatch1 || extremeMatch2;
+    // 特别处理：如果问题包含"最高/最大/最小"+"是多少"格式，优先匹配 EXTREME
+    const isExtremeValueQuery = q.match(/(?:最高|最大|最小|最多|最少).*(?:是多少|多少|是什么)/);
+    if ((extremeMatch || isExtremeValueQuery) && /(?:最短|最长|最大|最小|最高|最低|最多|最少)/.test(q)) {
+      // 先尝试从问题中提取具体的数值字段关键词（去掉"最X"前缀）
+      const keywordPart = q.replace(/最(?:长|大|高|短|小|低|多|少)/g, '').replace(/的?是|多少|多|少|值|时间/g, '').trim();
+      const targetField = keywordPart ? (findNumericField(keywordPart) || findFieldInQuestion(keywordPart)) : null;
+
+      // 如果找到了具体字段，生成针对该字段的MAX/MIN
+      if (targetField) {
+        const extremeKey = extremeMatch && extremeMatch.length > 1 ? String(extremeMatch[1] || '') : '';
+        const isMax = /长|大|高|多/.test(extremeKey);
+        const func = isMax ? 'MAX' : 'MIN';
+        const sql = `SELECT ${func}(${targetField.col}) AS ${isMax ? '最大' : '最小'}值 FROM ${targetField.table}`;
+        console.log(`=== 模板匹配成功 [EXTREME]: "${q}" → ${sql}`);
+        return { sql, chartType: 'none' };
+      }
+
+      // 只有找不到具体字段时，才尝试日期字段（日期差场景）
+      const extremeKey2 = extremeMatch && extremeMatch.length > 1 ? String(extremeMatch[1] || '') : '';
+      const isMax = /长|大|高|多/.test(extremeKey2);
+      const func = isMax ? 'MAX' : 'MIN';
+      const dateFields = allColumns.filter(c => {
+        const t = c.type.toLowerCase();
+        return t.includes('date') || t.includes('time') || c.name.includes('日') || c.name.includes('时间');
+      });
+
+      if (dateFields.length >= 2) {
+        const startDate = dateFields[0];
+        const endDate = dateFields[1];
+        const sql = `SELECT ${func}(DATEDIFF(${endDate.name}, ${startDate.name})) AS ${isMax ? '最大' : '最小'}天数 FROM ${table} WHERE ${endDate.name} IS NOT NULL AND ${startDate.name} IS NOT NULL`;
+        console.log(`=== 模板匹配成功 [EXTREME_DURATION]: "${q}" → ${sql}`);
+        return { sql, chartType: 'none' };
+      }
+    }
+
+    // 模式3: "总共多少条" / "一共有多少" / "XX表有多少数据" → COUNT
+    // 排除包含极端值关键词的查询，也排除包含"平均"的查询（避免和 AVG 冲突）
+    if (!/(?:最短|最长|最大|最小|最高|最低|最多|最少|平均)/.test(q) &&
+      /(?:总共|一共|共有|共计|总计)?(?:多少|几)(?:条|个|项|行|笔|条数据|数据)?/.test(q) &&
+      !/(?:各|每个|不同|按|分布|类型|类别)/.test(q)) {
+      const sql = `SELECT COUNT(1) as 总数 FROM ${table}`;
+      console.log(`=== 模板匹配成功 [COUNT]: "${q}" → ${sql}`);
+      return { sql, chartType: 'none' };
+    }
+
+    // 模式4: "平均耗时/平均时长/平均时间/平均XX" → AVG + DATEDIFF
+    // 严格匹配"耗时/时长/周期"等时间差关键词
+    const avgDurationMatch = !/(?:最短|最长|最大|最小|最多|最少)/.test(q) && q.match(/(?:平均)(.+?)(?:耗时|时长|周期|审查周期|授权周期)/);
+    if (avgDurationMatch) {
+      // 查找两个日期字段用于计算差值
+      const dateFields = allColumns.filter(c => {
+        const t = c.type.toLowerCase();
+        return t.includes('date') || t.includes('time') || c.name.includes('日') || c.name.includes('时间');
+      });
+
+      if (dateFields.length >= 2) {
+        // 通常第一个日期是开始，第二个是结束
+        const startDate = dateFields[0];
+        const endDate = dateFields[1];
+        const sql = `SELECT AVG(DATEDIFF(${endDate.name}, ${startDate.name})) AS 平均${avgDurationMatch[1]}天数 FROM ${table} WHERE ${endDate.name} IS NOT NULL AND ${startDate.name} IS NOT NULL`;
+        console.log(`=== 模板匹配成功 [AVG_DURATION]: "${q}" → ${sql}`);
+        return { sql, chartType: 'none' };
+      }
+    }
+
+    // 模式5: "总计/合计/总和/一共多少" + 数值字段 → SUM
+    const sumMatch = q.match(/(?:总计|合计|总和|一共|总共)(.+?)(?:是|为|多少|多|钱|元)?/);
+    if (sumMatch && !/(?:条|个|项|行)/.test(q)) {
+      const keyword = sumMatch[1].trim();
+      const numField = findNumericField(keyword);
+      if (numField) {
+        const sql = `SELECT SUM(${numField.col}) AS ${keyword}总和 FROM ${numField.table}`;
+        console.log(`=== 模板匹配成功 [SUM]: "${q}" → ${sql}`);
+        return { sql, chartType: 'none' };
+      }
+    }
+
+    // 模式7: "平均/均值/平均值"（不含日期差）→ AVG
+    const avgMatch = q.match(/(?:平均|均值|平均值)(.+?)(?:是|为|多少)?/);
+    if (avgMatch && !/(?:耗时|时长|时间|周期)/.test(q)) {
+      const keyword = avgMatch[1].trim();
+      const numField = findNumericField(keyword);
+      if (numField) {
+        const sql = `SELECT AVG(${numField.col}) AS ${keyword}平均值 FROM ${numField.table}`;
+        console.log(`=== 模板匹配成功 [AVG]: "${q}" → ${sql}`);
+        return { sql, chartType: 'none' };
+      }
+    }
+
+    // 模式8: "展示/显示/列出/查看 几条/前几条" → LIMIT
+    const limitMatch = q.match(/(?:展示|显示|列出|查看|查询)(?:前)?(\d+)?(?:条|行|个|笔)?/);
+    if (limitMatch && !/(?:按|各|每个|不同)/.test(q)) {
+      const n = limitMatch[1] ? parseInt(limitMatch[1]) : 10;
+      const sql = `SELECT * FROM ${table} LIMIT ${n}`;
+      console.log(`=== 模板匹配成功 [LIMIT]: "${q}" → ${sql}`);
+      return { sql, chartType: 'none' };
+    }
+
+    // 模式9: "近N年/最近N年/近N个月的趋势/走势" → 时间序列
+    // 严格排除：1) 纯追问片段 2) 分析类问题（含"分析/发展/情况"等）
+    const trendMatch = q.match(/(?:近|最近)?(\d+)?(?:年|个月|月|日|天)?的?(?:趋势|走势|变化)/);
+    // 确保不是追问格式（追问通常是"近3年的""2020年以来的"，缺少主语）
+    const isFollowUpOnly = /^(?:近|最近)\d+(?:年|个月|月)/.test(q) && q.length < 10;
+    // 排除分析类问题
+    const isAnalysisQuery = /(?:分析|发展|情况|领域|技术)/.test(q);
+    if (trendMatch && !isFollowUpOnly && !isAnalysisQuery) {
+      const timeField = allColumns.find(c => {
+        const n = c.name.toLowerCase();
+        return n.includes('时间') || n.includes('日期') || n.includes('年份') || n.includes('月份') ||
+          n.includes('date') || n.includes('time') || n.includes('year') || n.includes('month');
+      });
+      if (timeField) {
+        const sql = `SELECT ${timeField.name}, COUNT(1) as cnt FROM ${table} GROUP BY ${timeField.name} ORDER BY ${timeField.name} DESC LIMIT 20`;
+        console.log(`=== 模板匹配成功 [TREND]: "${q}" → ${sql}`);
+        return {
+          sql,
+          chartTitle: '时间趋势',
+          chartType: chartType || 'line',
+          chartConfig: { xField: timeField.name, yField: 'cnt' }
+        };
+      }
+    }
+
+    // 模式10: "最近一条/最新一条/最后一条" → ORDER BY ID/时间 DESC LIMIT 1
+    if (/(?:最近|最新|最后)(?:的|一条|一条数据|数据|记录)?/.test(q)) {
+      const timeOrIdField = allColumns.find(c => {
+        const n = c.name.toLowerCase();
+        return n.includes('时间') || n.includes('日期') || n.includes('创建') ||
+          n.includes('id') || n.includes('序号') || n.includes('no') ||
+          n.includes('date') || n.includes('time') || c.isPrimaryKey;
+      });
+      const orderField = timeOrIdField ? timeOrIdField.name : allColumns[0]?.name;
+      const sql = `SELECT * FROM ${table} ORDER BY ${orderField} DESC LIMIT 1`;
+      console.log(`=== 模板匹配成功 [LATEST]: "${q}" → ${sql}`);
+      return { sql, chartType: 'none' };
+    }
+
+    // 模式11: "唯一/不重复/不同的值" → DISTINCT
+    const distinctMatch = q.match(/(?:唯一|不重复|不同| distinct )(.+?)(?:有|是|多少|的值|的值有)?/);
+    if (distinctMatch) {
+      const keyword = distinctMatch[1].trim();
+      const field = findFieldInQuestion(keyword);
+      if (field) {
+        const sql = `SELECT DISTINCT ${field.col} FROM ${field.table} LIMIT 100`;
+        console.log(`=== 模板匹配成功 [DISTINCT]: "${q}" → ${sql}`);
+        return { sql, chartType: 'none' };
+      }
+    }
+
+    // 模式12: "是否存在/有没有/是否有" → EXISTS / COUNT with WHERE
+    const existMatch = q.match(/(?:是否|有没有|是否有|存在)(.+)/);
+    if (existMatch) {
+      const sql = `SELECT COUNT(1) as 存在数量 FROM ${table} WHERE ${allColumns[0]?.name || '1'} IS NOT NULL LIMIT 1`;
+      console.log(`=== 模板匹配成功 [EXISTS]: "${q}" → ${sql}`);
+      return { sql, chartType: 'none' };
+    }
+
+    return null;
+  }
+
   // 带上下文的 SQL 生成
   private async generateSQLWithContext(
     question: string,
@@ -1756,11 +2508,29 @@ ${schemaDesc}
     history: ChatMessage[],
     schemaContext: string,
     additionalContext: string,
-    noChart?: boolean
+    noChart?: boolean,
+    preChartInfo?: { chartType?: string; chartTitle?: string; chartConfig?: any }
   ): Promise<{ sql: string, chartTitle?: string, chartType?: string, chartConfig?: { xField?: string, yField?: string } }> {
     await this.ensureInitialized();
 
-    // SQL缓存：无上下文对话时，相同问题直接返回缓存
+    // 快速路径1: 模板匹配（0ms，完全跳过LLM）
+    const templateResult = this.tryGenerateSQLFromTemplate(question, schemas, dbType, history, noChart);
+    if (templateResult) {
+      console.log('=== 模板生成SQL，跳过LLM调用');
+      // 模板生成的SQL也需要经过中文标识符校验（虽然模板本身用真实字段名，但为了安全）
+      if (this.shouldForbidChineseIdentifiers(schemas) && this.hasNonAsciiIdentifier(templateResult.sql)) {
+        console.warn('[AIAgent] 模板SQL检测到非ASCII标识符，触发重写');
+        const reason = '模板SQL包含非ASCII标识符，必须使用真实英文表名/字段名重写';
+        const corrected = await this.regenerateSQL(question, schemas, dbType, history, templateResult.sql, reason, noChart);
+        if (corrected && !this.hasNonAsciiIdentifier(corrected)) {
+          return { ...templateResult, sql: corrected };
+        }
+      }
+      return templateResult;
+    }
+    console.log('=== 模板未匹配，继续使用LLM生成SQL');
+
+    // 快速路径2: SQL缓存（无上下文对话时，相同问题直接返回缓存）
     const hasHistory = history.length > 0;
     if (!hasHistory) {
       const cacheKey = this.getSQLCacheKey(question, dbType, schemaContext);
@@ -1769,12 +2539,16 @@ ${schemaDesc}
         console.log('=== SQL缓存命中，跳过LLM调用');
         return cached;
       }
+      console.log(`=== SQL缓存未命中，key=${cacheKey.slice(0, 50)}...`);
+    } else {
+      console.log('=== 有对话历史，跳过SQL缓存');
     }
 
     const recentContext = history.slice(-2).map(m => m.content.slice(0, 100)).join(';');
 
     // 识别维度字段（用于GROUP BY）
     const dimensionFields: string[] = [];
+    const geo = this.pickBestGeoGroupByColumns(schemas);
     for (const schema of schemas) {
       for (const col of schema.columns) {
         const name = col.name.toLowerCase();
@@ -1801,39 +2575,115 @@ ${schemaDesc}
       ? `\n维度字段:${dimensionFields.map(d => d.replace('- ', '')).join('; ')}`
       : '';
 
+    const geoHint = (() => {
+      if (!this.shouldPreferProvinceCity(question)) return '';
+      if (!(geo.province || geo.city)) return '';
+
+      const level = this.getGeoPreferredLevel(question);
+      const available = [
+        geo.province ? `省=${geo.province}` : null,
+        geo.city ? `市=${geo.city}` : null,
+        geo.country ? `国家=${geo.country}` : null,
+      ].filter(Boolean).join(', ');
+
+      const preferred = level === 'province_city'
+        ? '优先按“省+市”组合分组统计（避免同名城市混淆）'
+        : level === 'city'
+          ? '优先按“市”分组统计（必要时可加省作为辅助维度）'
+          : '默认按“省”分组统计（数据量大时更稳更快）';
+
+      return `\n地域统计自适应：${preferred}。如果出现“国家”维度值几乎都相同（例如都为中国），请改为省/市/省市统计。可用字段: ${available}`;
+    })();
+
+    const timeHint = (() => {
+      const windowN = this.getRecentYearsWindow(question);
+      if (!windowN) return '';
+      return `\n时间语义规则：用户提到“近年来/近几年/最近/近${windowN}年”时，必须聚焦最近${windowN}年数据。优先按年份降序取最近${windowN}年（ORDER BY 年份 DESC LIMIT ${windowN}），如需展示趋势再在外层按年份升序输出。不要用年份升序后 LIMIT 导致只取到最早年份。`;
+    })();
+
+    // 精简 schema 上下文：对于超长 schema，只保留与问题相关的字段
+    let effectiveSchema = schemaContext;
+    if (schemaContext.length > 2000) {
+      const qLower = question.toLowerCase();
+      const relevantLines = schemaContext.split('\n').filter(line => {
+        if (line.includes(':') && !line.includes(',')) return true; // 表名行
+        // 保留问题中提到的字段
+        const lineLower = line.toLowerCase();
+        return qLower.split('').some(ch => /[\u4e00-\u9fa5a-z]/.test(ch)) &&
+          lineLower.split(',').some(part => {
+            const fieldName = part.replace(/\(.*?\)/g, '').trim().toLowerCase();
+            return fieldName && (qLower.includes(fieldName) || fieldName.length <= 3);
+          });
+      });
+      if (relevantLines.length > 0) {
+        // 兜底：至少保留表名行 + 匹配字段，不足时回退原 schema
+        effectiveSchema = relevantLines.length >= 2 ? relevantLines.join('\n') : schemaContext.slice(0, 2000);
+        console.log(`=== Schema裁剪(SQL生成): ${schemaContext.length}字 -> ${effectiveSchema.length}字`);
+      }
+    }
+
+    // 如果图表配置已由意图识别确定，使用更简洁的 SQL-only prompt（减少思考 token）
+    const hasPreChart = preChartInfo && preChartInfo.chartType;
+    const identifierRules = this.buildSqlIdentifierRules(schemas, dbType);
+
+    const systemPrompt = hasPreChart
+      ? `SQL生成器(${dbType})。只返回一条SQL语句，不要解释。不要输出思考过程，直接输出结果。
+规则:SELECT only;统计条数用COUNT(1)不用COUNT(*);分布/趋势/对比用GROUP BY;默认LIMIT 20;聚合按值DESC${dimensionHint}${geoHint}${timeHint}
+${identifierRules}
+表结构:
+${effectiveSchema}${additionalContext}`
+      : `SQL生成器(${dbType})。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"标题","chartConfig":{"xField":"维度字段","yField":"数值字段"}}
+不要输出思考过程，直接输出JSON。
+规则:SELECT only;统计条数用COUNT(1)不用COUNT(*);分布/趋势/对比用GROUP BY;默认LIMIT 20;聚合按值DESC;观察样例数据确定字段值格式${dimensionHint}${geoHint}${timeHint}${noChart ? ';图表类型chartType设为none' : ''}
+${identifierRules}
+表结构:
+${effectiveSchema}${additionalContext}`;
+
+    console.log(`=== LLM调用开始，schema长度=${effectiveSchema.length}，hasPreChart=${hasPreChart}`);
+    const llmStartTime = Date.now();
+
     const response = await this.callWithRetry(() => this.openai.chat.completions.create({
       model: this.model,
       messages: [
-        {
-          role: 'system',
-          content: `SQL生成器(${dbType})。返回JSON:{"sql":"SELECT...","chartType":"bar|line|pie|none","chartTitle":"标题","chartConfig":{"xField":"维度字段","yField":"数值字段"}}
-规则:SELECT only;分布/趋势/对比用GROUP BY;默认LIMIT 20;聚合按值DESC;观察样例数据确定字段值格式${dimensionHint}${noChart ? ';chartType设为none' : ''}
-表结构:
-${schemaContext}${additionalContext}`
-        },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: recentContext ? `上文:${recentContext}\n问:${question}` : question }
       ],
       temperature: 0,
-    }));
+      max_tokens: 1024,
+    })) as any;
+
+    const llmDuration = Date.now() - llmStartTime;
+    console.log(`=== LLM调用完成，耗时=${llmDuration}ms`);
 
     const content = response.choices[0].message.content?.trim() || '{}';
     let result: { sql: string; chartTitle?: string; chartType?: string; chartConfig?: { xField?: string; yField?: string } };
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const json = JSON.parse(jsonMatch[0]);
-        result = {
-          sql: cleanSQL(json.sql),
-          chartTitle: json.chartTitle,
-          chartType: json.chartType,
-          chartConfig: json.chartConfig
-        };
-      } else {
+
+    if (hasPreChart) {
+      // 图表配置已由 planAction 确定，只解析 SQL
+      result = {
+        sql: cleanSQL(content),
+        chartTitle: preChartInfo!.chartTitle,
+        chartType: preChartInfo!.chartType,
+        chartConfig: preChartInfo!.chartConfig
+      };
+    } else {
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const json = JSON.parse(jsonMatch[0]);
+          result = {
+            sql: cleanSQL(json.sql),
+            chartTitle: json.chartTitle,
+            chartType: json.chartType,
+            chartConfig: json.chartConfig
+          };
+        } else {
+          result = { sql: cleanSQL(content) };
+        }
+      } catch (e) {
+        console.error('Failed to parse AI SQL plan:', e);
         result = { sql: cleanSQL(content) };
       }
-    } catch (e) {
-      console.error('Failed to parse AI SQL plan:', e);
-      result = { sql: cleanSQL(content) };
     }
 
     // 写入缓存（仅无上下文对话时）
@@ -1955,7 +2805,7 @@ ${schemaContext}${additionalContext}`
     for (const schema of schemas.slice(0, 5)) {
       try {
         const countResult = await dataSource.executeQuery(
-          `SELECT COUNT(*) as total FROM ${schema.tableName} LIMIT 1`
+          `SELECT COUNT(1) as total FROM ${schema.tableName} LIMIT 1`
         );
         dataOverview.push({
           table: schema.tableName,
@@ -2000,7 +2850,7 @@ ${schemaContext}${additionalContext}`
       ],
       temperature: 0.3,
       max_tokens: 1000
-    }));
+    })) as any;
 
     const answer = response.choices[0].message.content || '无法生成分析报告';
     const totalTime = Date.now() - startTime;
@@ -2034,7 +2884,7 @@ ${schemaContext}${additionalContext}`
       return 'generic';
     };
 
-    // 单值查询（如 COUNT(*), SUM() 等）
+    // 单值查询（如 COUNT(1), SUM() 等）
     if (count === 1 && keys.length === 1) {
       const value = data[0][keys[0]];
       const fieldType = detectFieldType(keys[0]);
@@ -2238,6 +3088,211 @@ ${schemaContext}${additionalContext}`
     return value.toLocaleString();
   }
 
+  private getAnswerLLMTimeoutMs(): number {
+    const sec = Number(process.env.DATAMIND_ANSWER_LLM_TIMEOUT_SECONDS ?? '45');
+    const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 45_000;
+    return Math.min(Math.max(ms, 5_000), 180_000);
+  }
+
+  private applyPatentIpcPerfGuard(sql: string, question: string): { changed: boolean; sql: string; yearRange: number } {
+    try {
+      const yearRange = (() => {
+        const n = Number(process.env.DATAMIND_DEFAULT_YEAR_RANGE ?? '3');
+        return Number.isFinite(n) && n > 0 ? Math.min(Math.max(Math.floor(n), 1), 20) : 3;
+      })();
+
+      const q = (question || '').toLowerCase();
+      const looksLikeDist = /分布|占比|比例|top|排名|主要|最多|最少/.test(question) || /distribution|share|ratio/.test(q);
+      if (!looksLikeDist) return { changed: false, sql, yearRange };
+
+      const normSql = (sql || '').replace(/\s+/g, ' ').trim();
+      if (!/\bfrom\s+`?patent_data`?\b/i.test(normSql)) return { changed: false, sql, yearRange };
+
+      // 仅对 IPC 分组类统计生效
+      const hasGroupByIpc = /\bgroup\s+by\b[^;]*\bipc/i.test(normSql);
+      if (!hasGroupByIpc) return { changed: false, sql, yearRange };
+
+      // 如果已经有年份过滤，则不重复注入
+      if (/\b(申请年份|公开公告年份|授权公告年份)\b/i.test(normSql)) return { changed: false, sql, yearRange };
+      if (/\b(申请日|公开公告日|授权公告日)\b/i.test(normSql)) return { changed: false, sql, yearRange };
+
+      // 优先选择「公开公告年份」其次「申请年份」再次「授权公告年份」
+      const yearFieldCandidates = ['公开公告年份', '申请年份', '授权公告年份'];
+      const wrapIdent = (name: string) => {
+        const n = String(name || '').trim();
+        if (!n) return '';
+        if (n.startsWith('`') && n.endsWith('`')) return n;
+        return `\`${n.replace(/`/g, '')}\``;
+      };
+
+      const yearField = yearFieldCandidates[0];
+      const condition = `${wrapIdent(yearField)} >= (YEAR(CURDATE()) - ${yearRange})`;
+
+      // 注入 WHERE / AND（简单 SQL 重写，适配常见模板）
+      if (/\bwhere\b/i.test(normSql)) {
+        return {
+          changed: true,
+          sql: normSql.replace(/\bwhere\b/i, (m) => `${m} (${condition}) AND`),
+          yearRange,
+        };
+      }
+
+      // 在 FROM patent_data 后插入 WHERE
+      const rewritten = normSql.replace(/\bfrom\s+(`?patent_data`?)\b/i, (m) => `${m} WHERE ${condition}`);
+      return { changed: rewritten !== normSql, sql: rewritten, yearRange };
+    } catch {
+      return { changed: false, sql, yearRange: 3 };
+    }
+  }
+
+  private buildDeterministicSummary(question: string, data: any[]): string {
+    if (!data || data.length === 0) return '抱歉，没有查询到相关数据。';
+
+    const keys = Object.keys(data[0] || {});
+    const primaryKey = keys[0];
+    const numericKey = keys.find(k => typeof data[0]?.[k] === 'number');
+
+    const preview = data.slice(0, 10).map((row, idx) => {
+      if (primaryKey && numericKey && primaryKey !== numericKey) {
+        return `${idx + 1}. ${row[primaryKey]}: ${this.formatNumber(row[numericKey])}`;
+      }
+      if (primaryKey) {
+        return `${idx + 1}. ${row[primaryKey]}`;
+      }
+      return `${idx + 1}. ${JSON.stringify(row)}`;
+    }).join('\n');
+
+    const total = data.length;
+    return `基于查询结果（共 ${total} 条）整理如下：\n\n${preview}`;
+  }
+
+  private pickBestGeoGroupByColumns(schemas: TableSchema[]): { province?: string; city?: string; country?: string } {
+    const candidates: { province?: string; city?: string; country?: string } = {};
+    for (const schema of schemas) {
+      for (const col of schema.columns) {
+        const n = col.name.toLowerCase();
+        const c = (col.comment || '').toLowerCase();
+        const text = `${n} ${c}`;
+
+        if (!candidates.province && /(省|省份|province)/.test(text)) candidates.province = col.name;
+        if (!candidates.city && /(市|城市|city)/.test(text)) candidates.city = col.name;
+        if (!candidates.country && /(国家|国别|country)/.test(text)) candidates.country = col.name;
+      }
+    }
+    return candidates;
+  }
+
+  private shouldTriggerGeoDrillDown(result: any[], geoCol: string): { shouldDrill: boolean; reason?: string } {
+    if (!result || result.length === 0) return { shouldDrill: false };
+    const data = Array.isArray(result) ? result : [result];
+    if (data.length < 2) return { shouldDrill: false };
+
+    // 统计地理维度的唯一值
+    const uniqueValues = new Set(data.map(r => r[geoCol]).filter(v => v !== null && v !== undefined));
+    const totalRows = data.length;
+    const uniqueCount = uniqueValues.size;
+
+    // 如果唯一值太少（如只有1个国家），建议下钻
+    if (uniqueCount === 1) {
+      const singleValue = Array.from(uniqueValues)[0];
+      return {
+        shouldDrill: true,
+        reason: `查询结果中所有${uniqueCount}条数据的${geoCol}都是"${singleValue}"，过于单一，建议下钻到更细粒度（省/市）查看分布`
+      };
+    }
+
+    // 如果数据集中在某一个值（占比超过80%），也建议下钻
+    const valueCounts = new Map<string, number>();
+    for (const row of data) {
+      const v = row[geoCol];
+      if (v !== null && v !== undefined) {
+        valueCounts.set(v, (valueCounts.get(v) || 0) + 1);
+      }
+    }
+
+    for (const [value, count] of valueCounts) {
+      const ratio = count / totalRows;
+      if (ratio > 0.8 && uniqueCount <= 3) {
+        return {
+          shouldDrill: true,
+          reason: `查询结果中${count}/${totalRows}条数据（${(ratio * 100).toFixed(1)}%）的${geoCol}为"${value}"，分布过于集中，建议下钻查看其他维度`
+        };
+      }
+    }
+
+    return { shouldDrill: false };
+  }
+
+  private async executeGeoDrillDown(
+    question: string,
+    dataSource: BaseDataSource,
+    schemas: TableSchema[],
+    dbType: string,
+    history: ChatMessage[],
+    originalResult: any[],
+    noChart?: boolean
+  ): Promise<{ result: any[]; sql: string; wasDrillDown: boolean }> {
+    const geo = this.pickBestGeoGroupByColumns(schemas);
+
+    // 策略1: 有国家字段且值单一 → 下钻到省
+    if (geo.country && geo.province) {
+      const drillCheck = this.shouldTriggerGeoDrillDown(originalResult, geo.country);
+      if (drillCheck.shouldDrill) {
+        console.log(`[GeoDrillDown] ${drillCheck.reason}`);
+        console.log(`[GeoDrillDown] 触发下钻: ${geo.country} -> ${geo.province}`);
+
+        const drillSql = `SELECT ${geo.province}, COUNT(1) as cnt FROM ${schemas[0]?.tableName || 'data'} GROUP BY ${geo.province} ORDER BY cnt DESC LIMIT 20`;
+        const drillResult = await dataSource.executeQuery(drillSql);
+
+        if (drillResult.success && drillResult.data && drillResult.data.length > 0) {
+          return { result: drillResult.data, sql: drillSql, wasDrillDown: true };
+        }
+      }
+    }
+
+    // 策略2: 有省字段但值单一 → 下钻到市
+    if (geo.province && geo.city) {
+      const drillCheck = this.shouldTriggerGeoDrillDown(originalResult, geo.province);
+      if (drillCheck.shouldDrill) {
+        console.log(`[GeoDrillDown] ${drillCheck.reason}`);
+        console.log(`[GeoDrillDown] 触发下钻: ${geo.province} -> ${geo.city}`);
+
+        const drillSql = `SELECT ${geo.city}, COUNT(1) as cnt FROM ${schemas[0]?.tableName || 'data'} GROUP BY ${geo.city} ORDER BY cnt DESC LIMIT 20`;
+        const drillResult = await dataSource.executeQuery(drillSql);
+
+        if (drillResult.success && drillResult.data && drillResult.data.length > 0) {
+          return { result: drillResult.data, sql: drillSql, wasDrillDown: true };
+        }
+      }
+    }
+
+    // 策略3: 省市组合下钻（当省市都有且用户问的是分布）
+    if (geo.province && geo.city && this.shouldPreferProvinceCity(question)) {
+      const drillSql = `SELECT ${geo.province}, ${geo.city}, COUNT(1) as cnt FROM ${schemas[0]?.tableName || 'data'} GROUP BY ${geo.province}, ${geo.city} ORDER BY cnt DESC LIMIT 20`;
+      const drillResult = await dataSource.executeQuery(drillSql);
+
+      if (drillResult.success && drillResult.data && drillResult.data.length > 0) {
+        console.log(`[GeoDrillDown] 触发省市组合下钻`);
+        return { result: drillResult.data, sql: drillSql, wasDrillDown: true };
+      }
+    }
+
+    return { result: originalResult, sql: '', wasDrillDown: false };
+  }
+
+  private shouldPreferProvinceCity(question: string): boolean {
+    return /(地区|区域|哪里|分布|集中在|主要在|地域|省|市)/.test(question);
+  }
+
+  private getGeoPreferredLevel(question: string): 'province' | 'city' | 'province_city' {
+    const q = question || '';
+    // 明确提到“市/城市”或“省市”时，按更细粒度统计
+    if (/(省市|省\/市|省和市|省\s*市)/.test(q)) return 'province_city';
+    if (/(城市|市级|按市|到市|市)/.test(q) && !/(上市|市值)/.test(q)) return 'city';
+    // 默认：地域分布类问题，优先省级（量大更稳、更快）
+    return 'province';
+  }
+
   // AI 生成符合中国人回答习惯的自然语言回答
   private async generateChineseAnswer(
     question: string,
@@ -2257,8 +3312,8 @@ ${schemaContext}${additionalContext}`
     const keys = Object.keys(data[0] || {});
 
     // 快速路径：简单结果 + 非分析性问题 → 模板
-    // 分析性问题（趋势/对比/原因/建议）即使数据简单也必须走 AI
-    const needsAnalysis = /趋势|增长|下降|变化|对比|比较|原因|为什么|是否|怎么样|如何|分析|洞察|建议|预测|评价|总结/.test(question);
+    // 分析性问题（趋势/对比/原因/建议/统计类问题）即使数据简单也必须走 AI
+    const needsAnalysis = /趋势|增长|下降|变化|对比|比较|原因|为什么|是否|怎么样|如何|分析|洞察|建议|预测|评价|总结|耗时|平均|统计|最大|最小|最高|最低|最多|最少|分布|占比|比例|最长|最短/.test(question);
     const isSimpleResult = !needsAnalysis && (
       (totalCount === 1 && keys.length <= 3) ||
       (totalCount <= 10 && keys.length <= 2)
@@ -2285,7 +3340,7 @@ ${schemaContext}${additionalContext}`
         /(\u5730\u533a|\u533a\u57df|\u7701\u4efd|\u57ce\u5e02|\u7c7b\u578b|\u7c7b\u522b|\u65f6\u95f4|\u65e5\u671f|region|area|province|city|type|category|date|time)/i.test(key)
       );
 
-    let systemPrompt = `你是一位专业的数据分析师，请根据查询结果生成一段符合中国人语言习惯的回答。
+    let systemPrompt = `你是一位专业的数据分析师，请根据查询结果生成一段符合中国人语言习惯的回答。不要输出思考过程，直接给出回答。回答简洁有力，不超过300字。
 
 **回答风格要求**:
 1. 像一位专业分析师在回答提问，语气客观、专业。不要使用任何称呼（如“亲”、“老王”等）或问候语
@@ -2314,17 +3369,29 @@ ${schemaContext}${additionalContext}`
     }
 
     try {
-      const response = await this.callWithRetry(() => this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `问题:${question}\n查询结果${dataSummary}:${resultStr}` }
-        ],
-        temperature: 0.3,
-        max_tokens: 2000,
-      }));
+      const timeoutMs = this.getAnswerLLMTimeoutMs();
+      const response = await Promise.race([
+        this.callWithRetry(() => this.openai.chat.completions.create({
+          model: this.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `问题:${question}\n查询结果${dataSummary}:${resultStr}` }
+          ],
+          temperature: 0.3,
+          max_tokens: 2048,
+        })),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`answer llm timeout ${timeoutMs}ms`)), timeoutMs)),
+      ]) as any;
 
-      return response.choices[0].message.content || '查询完成，但无法生成详细说明。';
+      // 处理带 <think> 标签的模型响应（如 Qwen3、DeepSeek）：移除思考内容，取实际回答
+      let answer = response.choices[0].message.content || '';
+      answer = answer.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      // 如果模型只输出了未闭合的 <think> 标签（token 截断），则回退到模板
+      if (!answer || answer.startsWith('<think>')) {
+        console.warn('generateChineseAnswer: AI 回答为空或被 think 截断，回退模板');
+        return this.buildDeterministicSummary(question, data);
+      }
+      return answer;
     } catch (error: any) {
       console.error('generateChineseAnswer: AI call failed:', error.message);
       // 准确性第一：多行复杂数据尝试一次简化 AI 调用（短超时），而非直接退回模板
@@ -2332,6 +3399,7 @@ ${schemaContext}${additionalContext}`
         try {
           const briefData = JSON.stringify(data.slice(0, 10));
           // 用独立的短超时 OpenAI 实例，避免 AI 服务挂掉时双倍等待
+          const timeoutMs = Math.min(15_000, this.getAnswerLLMTimeoutMs());
           const retryResponse = await Promise.race([
             this.callWithRetry(() => this.openai.chat.completions.create({
               model: this.model,
@@ -2342,7 +3410,7 @@ ${schemaContext}${additionalContext}`
               temperature: 0.3,
               max_tokens: 500,
             }), 1),  // maxRetries=1，不多次重试
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('retry timeout')), 15000))  // 15秒硬超时
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('retry timeout')), timeoutMs))
           ]) as any;
           const retryAnswer = retryResponse.choices[0].message.content;
           if (retryAnswer) return retryAnswer;
@@ -2350,8 +3418,8 @@ ${schemaContext}${additionalContext}`
           console.error('generateChineseAnswer: retry also failed:', retryError.message);
         }
       }
-      // 最终兜底：模板回答
-      return this.generateQuickAnswer(question, data);
+      // 最终兜底：确定性总结，保证接口永远有可用输出
+      return this.buildDeterministicSummary(question, data);
     }
   }
 
@@ -2372,7 +3440,7 @@ ${schemaContext}${additionalContext}`
     const keys = Object.keys(data[0] || {});
 
     // 快速路径：简单结果 + 非分析性问题 → 模板（与 generateChineseAnswer 保持一致）
-    const needsAnalysis = /趋势|增长|下降|变化|对比|比较|原因|为什么|是否|怎么样|如何|分析|洞察|建议|预测|评价|总结/.test(question);
+    const needsAnalysis = /趋势|增长|下降|变化|对比|比较|原因|为什么|是否|怎么样|如何|分析|洞察|建议|预测|评价|总结|耗时|平均|统计|最大|最小|最高|最低|最多|最少|分布|占比|比例|最长|最短/.test(question);
     const isSimpleResult = !needsAnalysis && (
       (totalCount === 1 && keys.length <= 3) ||
       (totalCount <= 10 && keys.length <= 2)
@@ -2428,8 +3496,8 @@ ${schemaContext}${additionalContext}`
           { role: 'user', content: `问题:${question}\n结果${dataSummary}:${resultStr}` }
         ],
         temperature: 0.3,
-        max_tokens: 800,  // 限制回复长度，加快响应
-      }));
+        max_tokens: 4096,
+      })) as any;
 
       return response.choices[0].message.content || '无法解读结果';
     } catch (error: any) {
@@ -2450,6 +3518,13 @@ ${schemaContext}${additionalContext}`
     additionalContext: string,
     noChart?: boolean
   ): Promise<{ sql: string; chartType?: string; chartTitle?: string; chartConfig?: { xField?: string; yField?: string } }> {
+    // 快速路径: 模板匹配（跳过 LLM）
+    const templateResult = this.tryGenerateSQLFromTemplate(question, schemas, 'file', history, noChart);
+    if (templateResult) {
+      console.log('=== [文件] 模板生成SQL，跳过LLM调用');
+      return templateResult;
+    }
+
     await this.ensureInitialized();
 
     // 识别维度字段
@@ -2469,9 +3544,9 @@ ${schemaContext}${additionalContext}`
     // 构建维度字段示例
     const dimensionExamples = dimensionFields.length > 0
       ? `\n**示例**:
-- 问"参赛地区分布" → SELECT 参赛地区, COUNT(*) as count FROM table GROUP BY 参赛地区 ORDER BY count DESC LIMIT 20
-- 问"类型分布" → SELECT 类型, COUNT(*) as count FROM table GROUP BY 类型 ORDER BY count DESC LIMIT 20
-- 问"时间趋势" → SELECT 时间, COUNT(*) as count FROM table GROUP BY 时间 ORDER BY 时间 ASC LIMIT 100`
+- 问"参赛地区分布" → SELECT 参赛地区, COUNT(1) as count FROM table GROUP BY 参赛地区 ORDER BY count DESC LIMIT 20
+- 问"类型分布" → SELECT 类型, COUNT(1) as count FROM table GROUP BY 类型 ORDER BY count DESC LIMIT 20
+- 问"时间趋势" → SELECT 时间, COUNT(1) as count FROM table GROUP BY 时间 ORDER BY 时间 ASC LIMIT 100`
       : '';
 
     const dimensionHint = dimensionFields.length > 0
@@ -2487,7 +3562,7 @@ ${schemaContext}${additionalContext}`
 
 **核心规则**:
 1. 【强制】用户问"分布""趋势""对比""最多""最少"等分析时，必须使用维度字段GROUP BY，禁止说"无法分析"
-2. 【强制】地域/类型/时间分析时，必须 SELECT 维度字段, COUNT(*) GROUP BY 维度字段
+2. 【强制】地域/类型/时间分析时，必须 SELECT 维度字段, COUNT(1) GROUP BY 维度字段
 3. 聚合查询优先，按值DESC排序，LIMIT 20（时间序列可增加到100）
 4. 必须检查sampleData确定字段真实值，严禁猜测
 5. 图表配置: xField=维度字段, yField=数值字段, 颜色区分不同维度${dimensionHint}
@@ -2500,7 +3575,8 @@ ${schemaContext}${additionalContext}`
         { role: 'user', content: question }
       ],
       temperature: 0.1,
-    }));
+      max_tokens: 4096,
+    })) as any;
 
     const content = response.choices[0].message.content || '{}';
     try {
@@ -2512,7 +3588,7 @@ ${schemaContext}${additionalContext}`
       console.error('Failed to parse AI query plan:', e);
     }
 
-    return { sql: `SELECT COUNT(*) as total FROM ${schemas[0]?.tableName || 'data'}`, chartType: 'none' };
+    return { sql: `SELECT COUNT(1) as total FROM ${schemas[0]?.tableName || 'data'}`, chartType: 'none' };
   }
 
   // 不带上下文的文件查询规划 (调用带上下文的版本)
@@ -2706,49 +3782,57 @@ ${schemaContext}${additionalContext}`
     }
 
     // 如果数据超过显示限制，合并剩余数据为"其他"
-    const maxItems = chartType === 'pie' ? 8 : 15; // 饼图最多8项，其他图表最多15项
+    // 修复：柱状图直接显示前10，不需要"其他"；饼图才需要合并剩余为"其他"
+    const maxItems = chartType === 'pie' ? 8 : 10; // 饼图8项+其他，柱状图直接显示前10
     let chartData = sortedData;
 
     if (sortedData.length > maxItems) {
-      const topItems = sortedData.slice(0, maxItems - 1);
-      const otherItems = sortedData.slice(maxItems - 1);
-
-      // 判断是否是平均值或比例类的数据（通过字段名或标题判断），这类数据聚合时应使用平均值而非求和
-      const yFieldLower = yField.toLowerCase();
-      const isAverage = yFieldLower.includes('avg') ||
-        yFieldLower.includes('rate') ||
-        yFieldLower.includes('percentage') ||
-        yFieldLower.includes('ratio') ||
-        yFieldLower.includes('percapita') ||       // 人均类
-        yFieldLower.includes('per_capita') ||
-        yFieldLower.includes('expectancy') ||       // 平均寿命
-        yFieldLower.includes('density') ||           // 密度
-        yFieldLower.includes('average') ||
-        title.includes('平均') ||
-        title.includes('均值') ||
-        title.includes('人均') ||
-        title.includes('比例') ||
-        title.includes('占比') ||
-        title.includes('密度') ||
-        title.includes('率');
-
-      let otherValue: number;
-      if (isAverage) {
-        // 平均值类：计算其他项的平均值
-        otherValue = otherItems.reduce((sum, item) => sum + (Number(item[yField]) || 0), 0) / otherItems.length;
+      // 柱状图：直接取前10，不合并"其他"
+      if (chartType !== 'pie') {
+        chartData = sortedData.slice(0, maxItems);
+        console.log(`[generateChartData] 柱状图截取前${maxItems}项，不合并其他`);
       } else {
-        // 计数/求和类：计算其他项的总和
-        otherValue = otherItems.reduce((sum, item) => sum + (Number(item[yField]) || 0), 0);
+        // 饼图：合并剩余项为"其他"，但只合并非尾部的小占比项
+        const topItems = sortedData.slice(0, maxItems - 1);
+        const otherItems = sortedData.slice(maxItems - 1);
+
+        // 判断是否是平均值或比例类的数据（通过字段名或标题判断），这类数据聚合时应使用平均值而非求和
+        const yFieldLower = yField.toLowerCase();
+        const isAverage = yFieldLower.includes('avg') ||
+          yFieldLower.includes('rate') ||
+          yFieldLower.includes('percentage') ||
+          yFieldLower.includes('ratio') ||
+          yFieldLower.includes('percapita') ||       // 人均类
+          yFieldLower.includes('per_capita') ||
+          yFieldLower.includes('expectancy') ||       // 平均寿命
+          yFieldLower.includes('density') ||           // 密度
+          yFieldLower.includes('average') ||
+          title.includes('平均') ||
+          title.includes('均值') ||
+          title.includes('人均') ||
+          title.includes('比例') ||
+          title.includes('占比') ||
+          title.includes('密度') ||
+          title.includes('率');
+
+        let otherValue: number;
+        if (isAverage) {
+          // 平均值类：计算其他项的平均值
+          otherValue = otherItems.reduce((sum, item) => sum + (Number(item[yField]) || 0), 0) / otherItems.length;
+        } else {
+          // 计数/求和类：计算其他项的总和
+          otherValue = otherItems.reduce((sum, item) => sum + (Number(item[yField]) || 0), 0);
+        }
+
+        // 创建"其他"项，标签注明聚合方式
+        const otherItem: any = {};
+        otherItem[xField] = isAverage
+          ? `其他(${otherItems.length}项均值)`
+          : `其他(${otherItems.length}项)`;
+        otherItem[yField] = isAverage ? Number(otherValue.toFixed(2)) : otherValue;
+
+        chartData = [...topItems, otherItem];
       }
-
-      // 创建"其他"项，标签注明聚合方式
-      const otherItem: any = {};
-      otherItem[xField] = isAverage
-        ? `其他(${otherItems.length}项均值)`
-        : `其他(${otherItems.length}项)`;
-      otherItem[yField] = isAverage ? Number(otherValue.toFixed(2)) : otherValue;
-
-      chartData = [...topItems, otherItem];
     }
 
     // 智能生成单位元信息
@@ -2872,8 +3956,9 @@ ${schemaContext}${additionalContext}`
           { role: 'user', content: JSON.stringify(schemaForAI) }
         ],
         temperature: 0.2,
+        max_tokens: 4000,
         response_format: { type: 'json_object' }
-      }));
+      })) as any;
 
       const content = response.choices[0].message.content || '{}';
       try {
@@ -2951,7 +4036,7 @@ ${schemaContext}${additionalContext}`
             temperature: 0.1,
             max_tokens: 4000,
             response_format: { type: 'json_object' }
-          }));
+          })) as any;
 
           const content = response.choices[0].message.content || '{}';
           try {

@@ -6,7 +6,7 @@
 export type DocumentType = 'datasource' | 'document' | 'webpage' | 'note';
 
 // 检索模式
-export type RetrieveMode = 'vector' | 'agentic' | 'hybrid';
+export type RetrieveMode = 'vector' | 'agentic' | 'hybrid' | 'no-vector';
 
 // 知识文档
 export interface KnowledgeDocument {

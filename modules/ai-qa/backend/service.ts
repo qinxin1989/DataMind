@@ -4,10 +4,13 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 import { PoolConnection } from 'mysql2/promise';
 import { createDataSource, BaseDataSource } from '../../../src/datasource';
 import { AIAgent, skillsRegistry, mcpRegistry, AgentResponse } from '../../../src/agent';
+import { runAgentLoop, AgentSSEEvent } from '../../../src/agent/agentLoop';
 import { RAGEngine } from '../../rag-service/backend/ragEngine';
+import { AgenticRetriever } from '../../rag-service/backend/agenticRetriever';
 import { ConfigStore, ChatSession, ChatMessage, SchemaAnalysis } from '../../../src/store/configStore';
 import { dataMasking } from '../../../src/services/dataMasking';
 import { dataSourceManager } from '../../datasource-management/backend/manager';
@@ -45,6 +48,27 @@ export class AIQAService {
   private readonly MAX_CONCURRENT_TASKS = 2;
   private readonly MAX_STORED_TASKS = 50;
 
+  private qaJobs: Map<string, {
+    id: string;
+    userId: string;
+    datasourceId: string;
+    question: string;
+    normalizedQuestion: string;
+    sessionId?: string;
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+    progress?: string;
+    resultId?: string;
+    error?: string;
+    createdAt: number;
+    updatedAt: number;
+    cancelRequested: boolean;
+    abortController?: AbortController;
+  }> = new Map();
+
+  private qaActiveCount = 0;
+  private qaWaitingQueue: string[] = [];
+  private readonly QA_MAX_CONCURRENT = 2;
+
   constructor(private db: any) {
     this.configStore = new ConfigStore();
   }
@@ -57,6 +81,7 @@ export class AIQAService {
     await this.configStore.initChatTable();
     await this.configStore.initSchemaAnalysisTable();
     await this.initKnowledgeChunksTable();
+    await this.initQAResultTables();
     await this.initAIAgent();
   }
 
@@ -79,6 +104,474 @@ export class AIQAService {
       `);
     } catch (error: any) {
       console.warn('初始化知识库分类表时出错:', error.message);
+    }
+  }
+
+  private async initQAResultTables(): Promise<void> {
+    try {
+      await this.db.execute(`
+        CREATE TABLE IF NOT EXISTS ai_qa_charts (
+          id VARCHAR(36) PRIMARY KEY,
+          user_id VARCHAR(36) NOT NULL,
+          datasource_id VARCHAR(36) NOT NULL,
+          chart_hash VARCHAR(64) NOT NULL,
+          chart_json JSON NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_user_ds_hash (user_id, datasource_id, chart_hash),
+          INDEX idx_user_ds (user_id, datasource_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+
+      await this.db.execute(`
+        CREATE TABLE IF NOT EXISTS ai_qa_results (
+          id VARCHAR(36) PRIMARY KEY,
+          user_id VARCHAR(36) NOT NULL,
+          datasource_id VARCHAR(36) NOT NULL,
+          question TEXT NOT NULL,
+          normalized_question TEXT NOT NULL,
+          answer LONGTEXT,
+          sql_text LONGTEXT,
+          result_json JSON,
+          chart_id VARCHAR(36) DEFAULT NULL,
+          chart_json JSON,
+          meta_json JSON,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_user_ds (user_id, datasource_id),
+          INDEX idx_ds_normq (datasource_id(36), normalized_question(191)),
+          INDEX idx_updated_at (updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+
+      await this.db.execute(`
+        CREATE TABLE IF NOT EXISTS ai_qa_jobs (
+          id VARCHAR(36) PRIMARY KEY,
+          user_id VARCHAR(36) NOT NULL,
+          datasource_id VARCHAR(36) NOT NULL,
+          question TEXT NOT NULL,
+          normalized_question TEXT NOT NULL,
+          session_id VARCHAR(36) DEFAULT NULL,
+          status VARCHAR(20) NOT NULL,
+          progress VARCHAR(255) DEFAULT NULL,
+          result_id VARCHAR(36) DEFAULT NULL,
+          error TEXT DEFAULT NULL,
+          cancel_requested TINYINT(1) DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_user_status (user_id, status),
+          INDEX idx_ds_normq (datasource_id(36), normalized_question(191))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (error: any) {
+      console.warn('初始化问答缓存/任务表时出错:', error.message);
+    }
+  }
+
+  private stableStringify(obj: any): string {
+    if (obj === null || obj === undefined) return '';
+    if (typeof obj !== 'object') return String(obj);
+    if (Array.isArray(obj)) return `[${obj.map(v => this.stableStringify(v)).join(',')}]`;
+    const keys = Object.keys(obj).sort();
+    const parts = keys.map(k => `${JSON.stringify(k)}:${this.stableStringify(obj[k])}`);
+    return `{${parts.join(',')}}`;
+  }
+
+  private async upsertChart(userId: string, datasourceId: string, chart: any): Promise<string> {
+    const json = this.stableStringify(chart);
+    const hash = crypto.createHash('sha256').update(json).digest('hex');
+
+    try {
+      const [rows] = await this.db.execute(
+        `SELECT id FROM ai_qa_charts WHERE user_id = ? AND datasource_id = ? AND chart_hash = ? LIMIT 1`,
+        [userId, datasourceId, hash]
+      ) as any[];
+      const exist = (rows as any[])[0];
+      if (exist?.id) return exist.id;
+    } catch {
+      // ignore
+    }
+
+    const id = uuidv4();
+    try {
+      await this.db.execute(
+        `INSERT INTO ai_qa_charts (id, user_id, datasource_id, chart_hash, chart_json)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
+        [id, userId, datasourceId, hash, JSON.stringify(chart)]
+      );
+
+      // 若被并发插入打败（命中 duplicate），需要取已存在的 id
+      const [rows2] = await this.db.execute(
+        `SELECT id FROM ai_qa_charts WHERE user_id = ? AND datasource_id = ? AND chart_hash = ? LIMIT 1`,
+        [userId, datasourceId, hash]
+      ) as any[];
+      const r2 = (rows2 as any[])[0];
+      return r2?.id || id;
+    } catch {
+      return id;
+    }
+  }
+
+  async getChartById(chartId: string, userId: string): Promise<any | null> {
+    try {
+      const [rows] = await this.db.execute(
+        `SELECT id, user_id, datasource_id, chart_json
+         FROM ai_qa_charts
+         WHERE id = ?
+         LIMIT 1`,
+        [chartId]
+      ) as any[];
+      const r = (rows as any[])[0];
+      if (!r) return null;
+      if (r.user_id !== userId) return null;
+      const chart = r.chart_json ? (typeof r.chart_json === 'string' ? JSON.parse(r.chart_json) : r.chart_json) : undefined;
+      return { id: r.id, datasourceId: r.datasource_id, chart };
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeQuestion(question: string): string {
+    return (question || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  private async getCachedQAResult(userId: string, datasourceId: string, normalizedQuestion: string): Promise<any | null> {
+    try {
+      const [rows] = await this.db.execute(
+        `SELECT id, answer, sql_text, result_json, chart_id, chart_json, meta_json
+         FROM ai_qa_results
+         WHERE user_id = ? AND datasource_id = ? AND normalized_question = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [userId, datasourceId, normalizedQuestion]
+      ) as any[];
+      const r = (rows as any[])[0];
+      if (!r) return null;
+
+      let chart: any = undefined;
+      if (r.chart_id) {
+        const c = await this.getChartById(r.chart_id, userId);
+        chart = c?.chart;
+      } else {
+        chart = r.chart_json ? (typeof r.chart_json === 'string' ? JSON.parse(r.chart_json) : r.chart_json) : undefined;
+      }
+
+      return {
+        id: r.id,
+        answer: r.answer,
+        sql: r.sql_text,
+        data: r.result_json ? (typeof r.result_json === 'string' ? JSON.parse(r.result_json) : r.result_json) : undefined,
+        chartId: r.chart_id || undefined,
+        chart,
+        meta: r.meta_json ? (typeof r.meta_json === 'string' ? JSON.parse(r.meta_json) : r.meta_json) : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async saveQAResult(params: {
+    userId: string;
+    datasourceId: string;
+    question: string;
+    normalizedQuestion: string;
+    answer?: string;
+    sql?: string;
+    data?: any;
+    chart?: any;
+    meta?: any;
+  }): Promise<string> {
+    const id = uuidv4();
+
+    const chartId = params.chart ? await this.upsertChart(params.userId, params.datasourceId, params.chart) : null;
+    await this.db.execute(
+      `INSERT INTO ai_qa_results (id, user_id, datasource_id, question, normalized_question, answer, sql_text, result_json, chart_id, chart_json, meta_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        params.userId,
+        params.datasourceId,
+        params.question,
+        params.normalizedQuestion,
+        params.answer || null,
+        params.sql || null,
+        params.data ? JSON.stringify(params.data) : null,
+        chartId,
+        params.chart ? JSON.stringify(params.chart) : null,
+        params.meta ? JSON.stringify(params.meta) : null,
+      ]
+    );
+    return id;
+  }
+
+  private async getQAResultById(resultId: string): Promise<any | null> {
+    try {
+      const [rows] = await this.db.execute(
+        `SELECT id, user_id, datasource_id, answer, sql_text, result_json, chart_id, chart_json, meta_json
+         FROM ai_qa_results
+         WHERE id = ?
+         LIMIT 1`,
+        [resultId]
+      ) as any[];
+      const r = (rows as any[])[0];
+      if (!r) return null;
+
+      let chart: any = undefined;
+      if (r.chart_id) {
+        const c = await this.getChartById(r.chart_id, r.user_id);
+        chart = c?.chart;
+      } else {
+        chart = r.chart_json ? (typeof r.chart_json === 'string' ? JSON.parse(r.chart_json) : r.chart_json) : undefined;
+      }
+
+      return {
+        id: r.id,
+        userId: r.user_id,
+        datasourceId: r.datasource_id,
+        answer: r.answer,
+        sql: r.sql_text,
+        data: r.result_json ? (typeof r.result_json === 'string' ? JSON.parse(r.result_json) : r.result_json) : undefined,
+        chartId: r.chart_id || undefined,
+        chart,
+        meta: r.meta_json ? (typeof r.meta_json === 'string' ? JSON.parse(r.meta_json) : r.meta_json) : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async persistJob(job: any): Promise<void> {
+    await this.db.execute(
+      `INSERT INTO ai_qa_jobs (id, user_id, datasource_id, question, normalized_question, session_id, status, progress, result_id, error, cancel_requested)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         status = VALUES(status),
+         progress = VALUES(progress),
+         result_id = VALUES(result_id),
+         error = VALUES(error),
+         cancel_requested = VALUES(cancel_requested)`,
+      [
+        job.id,
+        job.userId,
+        job.datasourceId,
+        job.question,
+        job.normalizedQuestion,
+        job.sessionId || null,
+        job.status,
+        job.progress || null,
+        job.resultId || null,
+        job.error || null,
+        job.cancelRequested ? 1 : 0,
+      ]
+    );
+  }
+
+  /**
+   * 问答：优先命中缓存，否则提交后台任务生成（前端可轮询/取消）
+   */
+  async askCached(datasourceId: string, question: string, sessionId: string | undefined, userId: string): Promise<{ hit: boolean; jobId?: string; result?: AskResponse }> {
+    const normalizedQuestion = this.normalizeQuestion(question);
+    const cached = await this.getCachedQAResult(userId, datasourceId, normalizedQuestion);
+    if (cached) {
+      return {
+        hit: true,
+        result: {
+          answer: cached.answer,
+          sql: cached.sql,
+          data: cached.data,
+          chart: cached.chart,
+          sessionId: sessionId || uuidv4(),
+          skillUsed: cached.meta?.skillUsed,
+          toolUsed: cached.meta?.toolUsed,
+          visualization: cached.meta?.visualization,
+        }
+      };
+    }
+
+    const jobId = uuidv4();
+    const job = {
+      id: jobId,
+      userId,
+      datasourceId,
+      question,
+      normalizedQuestion,
+      sessionId,
+      status: 'queued' as const,
+      progress: '已进入队列',
+      resultId: undefined as string | undefined,
+      error: undefined as string | undefined,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      cancelRequested: false,
+    };
+    this.qaJobs.set(jobId, job);
+    await this.persistJob(job);
+    this.qaWaitingQueue.push(jobId);
+    this.kickoffQAWorkers();
+    return { hit: false, jobId };
+  }
+
+  getQAJob(jobId: string, userId: string): any {
+    const j = this.qaJobs.get(jobId);
+    if (j && j.userId === userId) return j;
+    return null;
+  }
+
+  async getQAJobWithResult(jobId: string, userId: string): Promise<any | null> {
+    const j = this.qaJobs.get(jobId);
+    if (!j || j.userId !== userId) return null;
+    if (j.status !== 'completed' || !j.resultId) return j;
+    const r = await this.getQAResultById(j.resultId);
+    if (!r || r.userId !== userId) return j;
+    return {
+      ...j,
+      result: {
+        answer: r.answer,
+        sql: r.sql,
+        data: r.data,
+        chart: r.chart,
+        chartId: r.chartId,
+        sessionId: j.sessionId || uuidv4(),
+        skillUsed: r.meta?.skillUsed,
+        toolUsed: r.meta?.toolUsed,
+        visualization: r.meta?.visualization,
+      }
+    };
+  }
+
+  async cancelQAJob(jobId: string, userId: string): Promise<boolean> {
+    const j = this.qaJobs.get(jobId);
+    if (!j || j.userId !== userId) return false;
+    if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') return true;
+    
+    j.cancelRequested = true;
+    j.status = 'cancelled';
+    j.progress = '已取消';
+    j.updatedAt = Date.now();
+    
+    // 触发 AbortController 来中止正在进行的调用
+    if (j.abortController) {
+      console.log(`[AIQAService] 触发任务 ${jobId} 的 AbortController`);
+      j.abortController.abort();
+    }
+    
+    await this.persistJob(j);
+    return true;
+  }
+
+  private kickoffQAWorkers() {
+    while (this.qaActiveCount < this.QA_MAX_CONCURRENT && this.qaWaitingQueue.length > 0) {
+      const jobId = this.qaWaitingQueue.shift();
+      if (!jobId) break;
+      const job = this.qaJobs.get(jobId);
+      if (!job) continue;
+      if (job.cancelRequested) continue;
+      this.qaActiveCount++;
+      this.processQAJob(jobId).finally(() => {
+        this.qaActiveCount--;
+        this.kickoffQAWorkers();
+      });
+    }
+  }
+
+  private async processQAJob(jobId: string): Promise<void> {
+    const job = this.qaJobs.get(jobId);
+    if (!job) return;
+
+    // 创建 AbortController 用于取消
+    const abortController = new AbortController();
+    job.abortController = abortController;
+    const signal = abortController.signal;
+
+    const update = async (patch: Partial<typeof job>) => {
+      Object.assign(job, patch);
+      job.updatedAt = Date.now();
+      await this.persistJob(job);
+    };
+
+    try {
+      await update({ status: 'running', progress: '准备中...' });
+      if (job.cancelRequested || signal.aborted) {
+        await update({ status: 'cancelled', progress: '已取消' });
+        return;
+      }
+
+      const ds = dataSourceManager.get(job.datasourceId);
+      if (!ds || !this.canAccessDataSource(ds, job.userId)) {
+        await update({ status: 'failed', error: 'Datasource not found or access denied', progress: '失败' });
+        return;
+      }
+
+      // schema context (可选)
+      let schemaContext: string | undefined;
+      try {
+        const cachedAnalysis = await this.configStore.getSchemaAnalysis(job.datasourceId, job.userId);
+        if (cachedAnalysis && cachedAnalysis.tables) {
+          schemaContext = this.buildSchemaContextFromAnalysis(cachedAnalysis);
+        }
+      } catch {
+        // ignore
+      }
+
+      await update({ progress: '正在生成 SQL / 执行查询 / 生成回答...' });
+
+      // 检查取消状态
+      if (job.cancelRequested || signal.aborted) {
+        await update({ status: 'cancelled', progress: '已取消' });
+        return;
+      }
+
+      // 使用支持取消的 answerWithContext 方法
+      const response = await this.getAIAgent().answerWithContext(
+        job.question,
+        ds.instance,
+        ds.config.type,
+        [],
+        { schemaContext, signal }
+      );
+
+      if (job.cancelRequested || signal.aborted) {
+        await update({ status: 'cancelled', progress: '已取消' });
+        return;
+      }
+
+      // 存缓存结果
+      const maskedData = response.data && Array.isArray(response.data) ? dataMasking.maskData(response.data) : response.data;
+      const maskedAnswer = response.answer ? dataMasking.maskText(response.answer) : response.answer;
+
+      const resultId = await this.saveQAResult({
+        userId: job.userId,
+        datasourceId: job.datasourceId,
+        question: job.question,
+        normalizedQuestion: job.normalizedQuestion,
+        answer: maskedAnswer,
+        sql: response.sql,
+        data: maskedData,
+        chart: response.chart,
+        meta: {
+          skillUsed: response.skillUsed,
+          toolUsed: response.toolUsed,
+          visualization: response.visualization,
+          tokensUsed: response.tokensUsed,
+          modelName: response.modelName,
+        },
+      });
+
+      await update({ status: 'completed', progress: '已完成', resultId });
+    } catch (e: any) {
+      // 如果是取消错误，标记为已取消
+      if (e.message?.includes('cancelled') || e.message?.includes('aborted')) {
+        await update({ status: 'cancelled', progress: '已取消', error: '用户取消' });
+      } else {
+        await update({ status: 'failed', progress: '失败', error: e.message || String(e) });
+      }
+    } finally {
+      // 清理 AbortController
+      job.abortController = undefined;
     }
   }
 
@@ -579,6 +1072,346 @@ export class AIQAService {
       lines.push(`${tableName}(${table.tableName}):${cols}`);
     }
     return lines.join('\n');
+  }
+
+  /**
+   * 流式问答（SSE 模式）
+   * 内部调用 runAgentLoop()，通过回调输出 SSE 事件
+   * 适用于复杂多步任务（生成报告、文件处理等）
+   */
+  async askStream(
+    datasourceId: string,
+    question: string,
+    sessionId: string | undefined,
+    userId: string,
+    onEvent: (event: AgentSSEEvent) => void | Promise<void>
+  ): Promise<void> {
+    const ds = dataSourceManager.get(datasourceId);
+    if (!ds || !this.canAccessDataSource(ds, userId)) {
+      throw new Error('Datasource not found or access denied');
+    }
+
+    // 获取会话历史
+    let history: Array<{ role: string; content: string }> = [];
+    if (sessionId) {
+      const existing = await this.configStore.getChatSession(sessionId, userId);
+      if (existing) {
+        history = existing.messages.map(m => ({ role: m.role, content: m.content || '' }));
+      }
+    }
+
+    // 获取 schema 上下文
+    let schemaContext = '';
+    try {
+      const cachedAnalysis = await this.configStore.getSchemaAnalysis(datasourceId, userId);
+      if (cachedAnalysis && cachedAnalysis.tables) {
+        schemaContext = this.buildSchemaContextFromAnalysis(cachedAnalysis);
+      }
+    } catch { /* ignore */ }
+
+    // 获取 OpenAI 实例
+    const { openai, model } = await this.getAIAgent().getOpenAIInstance();
+
+    // 调用 Agent Loop
+    const result = await runAgentLoop({
+      userMessage: question + (schemaContext ? `\n\n[数据源上下文]\n${schemaContext}` : ''),
+      history: history as any,
+      dataSource: ds.instance,
+      dbType: ds.config.type,
+      openai,
+      model,
+      workDir: process.cwd(),
+      userId,
+      onEvent,
+    });
+
+    // 保存到会话
+    let session: ChatSession;
+    if (sessionId) {
+      const existing = await this.configStore.getChatSession(sessionId, userId);
+      session = existing || { id: sessionId, datasourceId, messages: [] as ChatMessage[], createdAt: Date.now() };
+    } else {
+      session = { id: uuidv4(), datasourceId, messages: [] as ChatMessage[], createdAt: Date.now() };
+    }
+
+    session.messages.push({ role: 'user', content: question, timestamp: Date.now() });
+    session.messages.push({ role: 'assistant', content: result.content, timestamp: Date.now() });
+    await this.configStore.saveChatSession(session, userId);
+  }
+
+  /**
+   * RAG 渐进式检索问答（SSE 模式）
+   * 目标：先快速召回 → 扩召回 → (可选) Agentic 补召回 → 最终生成回答
+   */
+  async ragAskStream(
+    question: string,
+    userId: string,
+    opts: {
+      datasourceId?: string;
+      categoryId?: string;
+      documentId?: string;
+      topK1?: number;
+      topK2?: number;
+      mode?: 'hybrid' | 'vector' | 'agentic' | 'agent-only';
+    },
+    onEvent: (event: AgentSSEEvent) => void | Promise<void>
+  ): Promise<void> {
+    const topK1 = Number.isFinite(Number(opts.topK1)) ? Math.max(1, Math.min(50, Number(opts.topK1))) : 5;
+    const topK2 = Number.isFinite(Number(opts.topK2)) ? Math.max(1, Math.min(100, Number(opts.topK2))) : 20;
+    const mode = opts.mode || 'hybrid';
+
+    const emit = async (stage: string, data: any) => {
+      await onEvent({ type: 'rag', stage, data } as any);
+    };
+
+    await emit('start', { question, mode, topK1, topK2 });
+
+    // ====== agent-only 模式：完全绕过向量模型 ======
+    if (mode === 'agent-only') {
+      await this.ragAskStreamAgentOnly(question, userId, opts, emit);
+      return;
+    }
+
+    // 1) 获取 RAGEngine（原有逻辑）
+    const ragEngine = await this.getRAGEngine(userId);
+
+    // 2) Step1：轻量召回
+    await emit('retrieve:lite:start', { query: question, topK: topK1 });
+    const liteStart = Date.now();
+    const lite = await ragEngine.retrieve(question, topK1, opts.categoryId, opts.documentId);
+    await emit('retrieve:lite:done', {
+      elapsedMs: Date.now() - liteStart,
+      chunks: lite.chunks.map((c: any) => ({
+        chunkId: c.chunk?.id,
+        score: c.score,
+        title: (c.chunk?.metadata as any)?.title,
+        documentId: (c.chunk?.metadata as any)?.documentId,
+        preview: (c.chunk?.content || '').slice(0, 200),
+      }))
+    });
+
+    // 3) Step2：扩召回（同 query 但更高 topK，后续可替换为 query rewrite）
+    await emit('retrieve:expand:start', { query: question, topK: topK2 });
+    const expandStart = Date.now();
+    const expanded = await ragEngine.retrieve(question, topK2, opts.categoryId, opts.documentId);
+    await emit('retrieve:expand:done', {
+      elapsedMs: Date.now() - expandStart,
+      chunks: expanded.chunks.map((c: any) => ({
+        chunkId: c.chunk?.id,
+        score: c.score,
+        title: (c.chunk?.metadata as any)?.title,
+        documentId: (c.chunk?.metadata as any)?.documentId,
+        preview: (c.chunk?.content || '').slice(0, 200),
+      }))
+    });
+
+    // 4) Step3：可选 Agentic 补召回（当向量命中少/置信度低时）
+    let agenticSources: any[] = [];
+    const needAgentic = mode === 'agentic' || (mode === 'hybrid' && (expanded.chunks?.length || 0) < 8);
+    if (needAgentic) {
+      await emit('retrieve:agentic:start', { query: question });
+      const agenticStart = Date.now();
+      try {
+        const knowledgePath = process.cwd() + '/knowledge';
+        const retriever = new AgenticRetriever(knowledgePath);
+        const out = await retriever.retrieve(question);
+        agenticSources = (out.sources || []).slice(0, 10).map((s: any) => ({
+          file: s.file,
+          relevance: s.relevance,
+          preview: (s.content || '').slice(0, 200),
+        }));
+        await emit('retrieve:agentic:done', { elapsedMs: Date.now() - agenticStart, sources: agenticSources });
+      } catch (e: any) {
+        await emit('retrieve:agentic:error', { elapsedMs: Date.now() - agenticStart, error: e?.message || String(e) });
+      }
+    }
+
+    // 5) Step4：最终回答（hybridAnswer 会内部构造上下文并生成答案）
+    await emit('answer:start', { query: question });
+    const answerStart = Date.now();
+
+    let dataContext: any;
+    if (opts.datasourceId) {
+      const ds = dataSourceManager.get(opts.datasourceId);
+      if (ds && this.canAccessDataSource(ds, userId)) {
+        try {
+          const resp = await this.getAIAgent().answer(question, ds.instance, ds.config.type, []);
+          dataContext = { sql: resp.sql, data: resp.data };
+          await emit('answer:datacontext', { sql: resp.sql, rowCount: resp.data?.length || 0 });
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const result = await ragEngine.hybridAnswer(question, dataContext, opts.categoryId, opts.documentId);
+    await emit('answer:done', {
+      elapsedMs: Date.now() - answerStart,
+      answer: result.answer,
+      confidence: result.confidence,
+      sources: (result.sources || []).map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        type: s.type,
+        relevance: s.relevance,
+        preview: (s.content || '').slice(0, 200),
+      })),
+      agenticSources,
+    });
+  }
+
+  /**
+   * 纯 Agent 渐进式检索（不依赖向量模型）
+   * 步骤：关键词提取 → 领域定位 → 文件检索 → 内容读取 → 重排 → LLM生成
+   */
+  private async ragAskStreamAgentOnly(
+    question: string,
+    userId: string,
+    opts: any,
+    emit: (stage: string, data: any) => Promise<void>
+  ): Promise<void> {
+    const knowledgePath = process.cwd() + '/knowledge';
+    const retriever = new AgenticRetriever(knowledgePath);
+
+    // Step 1: 关键词提取
+    await emit('agent:keywords:start', { query: question });
+    const keywordsStart = Date.now();
+    const keywords = this.extractKeywords(question);
+    await emit('agent:keywords:done', { elapsedMs: Date.now() - keywordsStart, keywords });
+
+    // Step 2: 领域定位（目录索引）
+    await emit('agent:locate:start', { query: question, keywords });
+    const locateStart = Date.now();
+    const domains = await retriever['locateDomain'](question, keywords);
+    await emit('agent:locate:done', { elapsedMs: Date.now() - locateStart, domains: domains.map((d: any) => d.path) });
+
+    // Step 3: 文件检索（grep搜索）
+    await emit('agent:search:start', { keywords, scope: domains.length > 0 ? 'targeted' : 'global' });
+    const searchStart = Date.now();
+    const allSources: any[] = [];
+    const searchHistory: string[] = [];
+
+    for (const domain of domains.length > 0 ? domains : [{ path: knowledgePath, description: '根目录' }]) {
+      const files = await retriever['grepSearch'](domain.path, keywords);
+      searchHistory.push(`在 ${domain.path} 找到 ${files.length} 个相关文件`);
+
+      // 读取文件内容
+      for (const file of files.slice(0, 5)) {
+        const content = await retriever['readFileContent'](file.path, keywords);
+        if (content) {
+          allSources.push({
+            file: file.path,
+            content: content.substring(0, 2000),
+            relevance: file.score,
+            matches: file.matches
+          });
+        }
+      }
+    }
+    await emit('agent:search:done', { elapsedMs: Date.now() - searchStart, sourceCount: allSources.length, history: searchHistory });
+
+    // Step 4: 扩展召回（如果没有找到，尝试改写关键词）
+    let expandedSources: any[] = [];
+    if (allSources.length === 0) {
+      await emit('agent:expand:start', { query: question });
+      const expandStart = Date.now();
+      const altKeywords = this.generateAlternativeKeywords(keywords, 1);
+      const files = await retriever['grepSearch'](knowledgePath, altKeywords);
+      for (const file of files.slice(0, 5)) {
+        const content = await retriever['readFileContent'](file.path, altKeywords);
+        if (content) {
+          expandedSources.push({
+            file: file.path,
+            content: content.substring(0, 2000),
+            relevance: file.score * 0.8, // 降低重试结果的相关度
+            matches: file.matches
+          });
+        }
+      }
+      await emit('agent:expand:done', { elapsedMs: Date.now() - expandStart, sourceCount: expandedSources.length });
+    }
+
+    // Step 5: 重排/去重
+    await emit('agent:rerank:start', { totalSources: allSources.length + expandedSources.length });
+    const rerankStart = Date.now();
+    const combinedSources = [...allSources, ...expandedSources];
+    // 按文件去重，取最高相关度
+    const uniqueSources = new Map<string, any>();
+    for (const src of combinedSources) {
+      if (!uniqueSources.has(src.file) || uniqueSources.get(src.file).relevance < src.relevance) {
+        uniqueSources.set(src.file, src);
+      }
+    }
+    // 按相关度排序
+    const rankedSources = Array.from(uniqueSources.values())
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 8); // 取前8个
+    await emit('agent:rerank:done', { elapsedMs: Date.now() - rerankStart, rankedCount: rankedSources.length });
+
+    // Step 6: 生成回答（使用 LLM）
+    await emit('answer:start', { query: question });
+    const answerStart = Date.now();
+
+    // 构建上下文
+    const contextText = rankedSources.map((s, idx) =>
+      `[来源${idx + 1}: ${s.file.split('/').pop()}]\n${s.content.substring(0, 1500)}`
+    ).join('\n\n---\n\n');
+
+    // 调用 LLM 生成答案
+    const { openai, model } = await this.getAIAgent().getOpenAIInstance();
+    const response = await openai.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `你是一个智能知识助手。基于提供的参考文档回答用户问题。
+
+### 回答要求：
+1. **内容优先**：优先整合参考文档中的信息回答
+2. **诚实原则**：如果参考文档无法回答，请直接说明
+3. **引用来源**：在回答中标注引用来源编号，如[来源1]、[来源2]`
+        },
+        {
+          role: 'user',
+          content: `参考文档:\n${contextText}\n\n用户问题: ${question}`
+        }
+      ],
+      temperature: 0.7,
+    });
+
+    const answer = response.choices[0].message.content || '抱歉，无法回答这个问题。';
+    const confidence = rankedSources.length > 0 ? rankedSources[0].relevance : 0.3;
+
+    await emit('answer:done', {
+      elapsedMs: Date.now() - answerStart,
+      answer,
+      confidence,
+      sources: rankedSources.map(s => ({
+        id: s.file,
+        title: s.file.split('/').pop(),
+        type: 'document',
+        relevance: s.relevance,
+        preview: s.content.substring(0, 200)
+      })),
+      agenticSources: [],
+      searchHistory
+    });
+  }
+
+  // 辅助方法：提取关键词
+  private extractKeywords(query: string): string[] {
+    const stopWords = ['的', '是', '在', '有', '和', '与', '或', '了', '吗', '呢', '啊', '什么', '怎么', '如何', '为什么'];
+    const words = query.split(/[\s,，。？！、]+/).filter(w => w.length > 1 && !stopWords.includes(w));
+    return [...new Set(words)].slice(0, 5);
+  }
+
+  // 辅助方法：生成替代关键词
+  private generateAlternativeKeywords(keywords: string[], retryCount: number): string[] {
+    // 简单实现：截断关键词或使用同义词
+    if (retryCount === 1) {
+      return keywords.slice(0, 3); // 使用更宽泛的关键词
+    }
+    return keywords;
   }
 
   async executeQuery(datasourceId: string, sql: string, userId: string): Promise<QueryResult> {

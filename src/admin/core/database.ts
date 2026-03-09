@@ -665,12 +665,41 @@ export async function syncSystemMenus(connection: mysql.PoolConnection): Promise
     if (Array.isArray(orphanMenus) && orphanMenus.length > 0) {
       console.log(`发现 ${orphanMenus.length} 个孤儿菜单，正在修复...`);
       for (const orphan of orphanMenus as any[]) {
-        // 将孤儿菜单的 parent_id 设为 NULL，使其成为一级菜单
-        await connection.execute(
-          'UPDATE sys_menus SET parent_id = NULL WHERE id = ?',
-          [orphan.id]
-        );
-        console.log(`已修复孤儿菜单: ${orphan.title} (${orphan.id})，原 parent_id: ${orphan.parent_id}`);
+        // 兼容历史遗留：旧的“知识库”菜单（rag-knowledge）不应存在，避免重启后反复出现
+        if (orphan.id === 'rag-knowledge') {
+          await connection.execute('DELETE FROM sys_menus WHERE id = ?', [orphan.id]);
+          console.log('已删除历史遗留菜单: 知识库 (rag-knowledge)');
+          continue;
+        }
+
+        // 知识库菜单特殊处理：设置为 ai-center 的子菜单
+        if (orphan.id === 'knowledge-base') {
+          // 确保 ai-center 存在
+          const [aiCenter] = await connection.execute(
+            "SELECT id FROM sys_menus WHERE id = 'ai-center'"
+          );
+          if ((aiCenter as any[]).length > 0) {
+            await connection.execute(
+              "UPDATE sys_menus SET parent_id = 'ai-center' WHERE id = ?",
+              [orphan.id]
+            );
+            console.log(`已修复知识库菜单: ${orphan.title} (${orphan.id})，设置为 ai-center 的子菜单`);
+          } else {
+            // ai-center 不存在，暂时设为 NULL 但记录警告
+            await connection.execute(
+              'UPDATE sys_menus SET parent_id = NULL WHERE id = ?',
+              [orphan.id]
+            );
+            console.log(`警告: ${orphan.title} 的父菜单 ai-center 不存在，已设为一级菜单`);
+          }
+        } else {
+          // 其他孤儿菜单：设为一级菜单
+          await connection.execute(
+            'UPDATE sys_menus SET parent_id = NULL WHERE id = ?',
+            [orphan.id]
+          );
+          console.log(`已修复孤儿菜单: ${orphan.title} (${orphan.id})，原 parent_id: ${orphan.parent_id}`);
+        }
       }
     }
   } catch (e: any) {

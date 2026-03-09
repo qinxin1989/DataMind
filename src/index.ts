@@ -650,7 +650,7 @@ app.post('/api/agent/chat', authMiddleware, async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // 先初始化数据源，再启动服务
 initDataSources().then(() => {

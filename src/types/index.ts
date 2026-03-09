@@ -119,6 +119,7 @@ export interface QueryResult {
   sql?: string;
   error?: string;
   rowCount?: number;
+  cancelled?: boolean;
 }
 
 // AI响应

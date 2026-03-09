@@ -48,6 +48,7 @@ try {
 let ocrRoutes: any = null;
 let skillsRoutes: any = null;
 let ragRoutes: any = null;
+let templateOptimizerRoutes: any = null;
 
 // 辅助函数：尝试加载模块路由
 function loadModuleRoutes(moduleName: string, relativePath: string) {
@@ -93,6 +94,7 @@ function loadModuleRoutes(moduleName: string, relativePath: string) {
 ocrRoutes = loadModuleRoutes('ocr-service', '../../modules/ocr-service/backend/routes');
 skillsRoutes = loadModuleRoutes('skills-service', '../../modules/skills-service/backend/routes');
 ragRoutes = loadModuleRoutes('rag-service', '../../modules/rag-service/backend/routes');
+templateOptimizerRoutes = loadModuleRoutes('template-optimizer', '../../modules/template-optimizer/backend/routes');
 
 // 创建服务单例
 const aiConfigServiceInstance = new AIConfigService(pool);
@@ -162,6 +164,12 @@ export function createAdminRouter(pool?: any): Router {
   if (ragRoutes) {
     router.use('/rag', ragRoutes);
   }
+  if (templateOptimizerRoutes) {
+    router.use('/template-optimizer', templateOptimizerRoutes);
+    console.log('[Admin] Template optimizer routes registered');
+  } else {
+    console.warn('[Admin] Template optimizer routes NOT loaded');
+  }
 
   // 健康检查端点
   router.get('/health', (req, res) => {
@@ -174,7 +182,7 @@ export function createAdminRouter(pool?: any): Router {
         modules: [
           'users', 'roles', 'menus', 'audit', 'ai', 'system',
           'notifications', 'datasources', 'ai-qa', 'dashboard',
-          'crawler', 'file-tools', 'ocr', 'skills', 'rag'
+          'crawler', 'file-tools', 'ocr', 'skills', 'rag', 'template-optimizer'
         ]
       },
     });

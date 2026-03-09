@@ -9,7 +9,7 @@ import { KnowledgeDocument, KnowledgeChunk, DocumentType } from './knowledgeBase
 import { v4 as uuidv4 } from 'uuid';
 
 // 支持的文件类型
-export type SupportedFileType = 'txt' | 'md' | 'json' | 'csv' | 'html' | 'pdf';
+export type SupportedFileType = 'txt' | 'md' | 'json' | 'csv' | 'html' | 'pdf' | 'docx' | 'xlsx';
 
 export interface ProcessedDocument {
   title: string;
@@ -28,6 +28,15 @@ export class DocumentProcessor {
     // PDF 需要特殊处理（二进制文件）
     if (ext === 'pdf') {
       return this.processPdf(filePath, fileName);
+    }
+
+    // Office 文档需要特殊处理（二进制文件）
+    if (ext === 'docx') {
+      return this.processDocx(filePath, fileName);
+    }
+
+    if (ext === 'xlsx') {
+      return this.processXlsx(filePath, fileName);
     }
 
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -213,6 +222,92 @@ export class DocumentProcessor {
         originalLength: content.length,
       },
     };
+  }
+
+  // 处理 Word 文档 (docx)
+  private async processDocx(filePath: string, fileName: string): Promise<ProcessedDocument> {
+    try {
+      // 动态加载 mammoth 库
+      const mammoth = await import('mammoth');
+      const dataBuffer = fs.readFileSync(filePath);
+      
+      const result = await mammoth.extractRawText({ buffer: dataBuffer });
+      const content = result.value || '';
+      
+      return {
+        title: fileName.replace(/\.docx$/i, ''),
+        content: content.trim(),
+        metadata: {
+          fileType: 'docx',
+          charCount: content.length,
+          wordCount: content.split(/\s+/).filter(w => w.length > 0).length,
+        },
+      };
+    } catch (error: any) {
+      console.error('DOCX 解析失败:', error.message);
+      // 降级处理：返回错误信息而不是乱码
+      return {
+        title: fileName.replace(/\.docx$/i, ''),
+        content: `[无法解析此 Word 文档: ${error.message}]`,
+        metadata: {
+          fileType: 'docx',
+          error: error.message,
+        },
+      };
+    }
+  }
+
+  // 处理 Excel 文档 (xlsx)
+  private async processXlsx(filePath: string, fileName: string): Promise<ProcessedDocument> {
+    try {
+      // 动态加载 xlsx 库
+      const xlsx = await import('xlsx');
+      const workbook = xlsx.readFile(filePath);
+      
+      let allContent: string[] = [];
+      
+      // 遍历所有工作表
+      for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = xlsx.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        
+        if (jsonData.length === 0) continue;
+        
+        allContent.push(`[工作表: ${sheetName}]`);
+        
+        // 转换表格为可读文本
+        for (const row of jsonData.slice(0, 100)) { // 限制行数避免过大
+          if (row && row.length > 0) {
+            const rowText = row.map(cell => String(cell || '')).join(' | ');
+            allContent.push(rowText);
+          }
+        }
+        allContent.push(''); // 空行分隔
+      }
+      
+      const content = allContent.join('\n');
+      
+      return {
+        title: fileName.replace(/\.xlsx$/i, ''),
+        content: content.trim(),
+        metadata: {
+          fileType: 'xlsx',
+          sheetCount: workbook.SheetNames.length,
+          charCount: content.length,
+        },
+      };
+    } catch (error: any) {
+      console.error('XLSX 解析失败:', error.message);
+      // 降级处理：返回错误信息而不是乱码
+      return {
+        title: fileName.replace(/\.xlsx$/i, ''),
+        content: `[无法解析此 Excel 文档: ${error.message}]`,
+        metadata: {
+          fileType: 'xlsx',
+          error: error.message,
+        },
+      };
+    }
   }
 
   // 处理网页内容

@@ -19,6 +19,7 @@ export class EmbeddingService {
   private openai!: OpenAI;
   private model!: string;
   private dimension!: number;
+  private baseURL?: string;
 
   constructor(models: EmbeddingModelConfig | EmbeddingModelConfig[]) {
     this.models = Array.isArray(models) ? models : [models];
@@ -29,15 +30,17 @@ export class EmbeddingService {
   private initCurrentModel(): void {
     const config = this.models[this.currentIndex];
     
-    // 支持 API Key 为空的情况
+    this.baseURL = config.baseURL;
+
+    // OpenAI SDK 通常要求 apiKey；即便上游网关不校验，也建议提供占位值，避免 SDK 在内部走到异常分支
+    const apiKey = (config.apiKey && config.apiKey.trim() !== '') ? config.apiKey.trim() : 'DUMMY_API_KEY';
+
     const openaiConfig: any = {
+      apiKey,
       baseURL: config.baseURL,
+      timeout: 60_000,
     };
-    
-    if (config.apiKey && config.apiKey.trim() !== '') {
-      openaiConfig.apiKey = config.apiKey;
-    }
-    
+
     this.openai = new OpenAI(openaiConfig);
     this.model = config.model;
     this.dimension = this.getModelDimension(config.model);
@@ -62,6 +65,8 @@ export class EmbeddingService {
       'text-embedding-3-large': 3072,
       'text-embedding-v1': 1024,  // 通义千问
       'text-embedding-v2': 1536,  // 通义千问
+      'text-embedding-v3': 1024,  // 通义千问 embedding-v3
+      'embedding-v3': 1024,  // 智谱 embedding-v3
       'BAAI/bge-large-zh-v1.5': 1024,  // SiliconFlow
     };
     return dimensions[model] || 1536;
@@ -89,11 +94,26 @@ export class EmbeddingService {
         console.error(`[EmbeddingService] 模型 ${this.model} 生成嵌入失败:`, error.message);
         console.error('[EmbeddingService] 错误详情:', {
           model: this.model,
+          baseURL: this.baseURL,
           statusCode: error.status || error.code,
           errorType: error.type
         });
         
-        if (error.status === 403 || error.status === 401 || error.status === 429 || error.status === 413 || error.status === 503) {
+        const shouldSwitch =
+          error.status === 403 ||
+          error.status === 401 ||
+          error.status === 429 ||
+          error.status === 413 ||
+          error.status === 503 ||
+          error.status === 404 || // 模型或端点不存在，尝试切换
+          error.status === 400 || // API 调用参数有误（如使用非嵌入模型），尝试切换
+          // 网络/连接类错误：也尝试切换模型或 baseURL
+          error.code === 'ECONNRESET' ||
+          error.code === 'ETIMEDOUT' ||
+          error.code === 'ENOTFOUND' ||
+          /connection/i.test(error.message || '');
+
+        if (shouldSwitch) {
           console.error(`[EmbeddingService] ${error.status} 错误: API Key 无效、没有权限、速率限制、请求过大或服务不可用`);
           console.error('[EmbeddingService] 尝试切换到下一个模型...');
           
@@ -140,11 +160,25 @@ export class EmbeddingService {
         console.error('[EmbeddingService] 批量生成嵌入失败:', error.message);
         console.error('[EmbeddingService] 错误详情:', {
           model: this.model,
+          baseURL: this.baseURL,
           statusCode: error.status || error.code,
           batchSize: batch.length
         });
-        
-        if (error.status === 413 || error.status === 503) {
+
+        const shouldSwitch =
+          error.status === 413 ||
+          error.status === 503 ||
+          error.status === 401 ||
+          error.status === 403 ||
+          error.status === 429 ||
+          error.status === 404 || // 模型或端点不存在，尝试切换
+          error.status === 400 || // API 调用参数有误（如使用非嵌入模型），尝试切换
+          error.code === 'ECONNRESET' ||
+          error.code === 'ETIMEDOUT' ||
+          error.code === 'ENOTFOUND' ||
+          /connection/i.test(error.message || '');
+
+        if (shouldSwitch) {
           console.error(`[EmbeddingService] ${error.status} 错误: 请求体过大或服务不可用，尝试切换到下一个模型...`);
           try {
             this.switchToNextModel();
