@@ -275,11 +275,13 @@ defineExpose({
   flex: 1;
   position: relative;
   overflow: hidden;
+  width: 100%;
 }
 
 .iframe-container iframe {
   width: 100%;
   height: 100%;
   border: none;
+  display: block;
 }
 </style>

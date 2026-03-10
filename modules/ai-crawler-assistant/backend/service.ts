@@ -234,7 +234,7 @@ export class CrawlerAssistantService {
     try {
       console.log(`[CrawlerAssistant] 5. Starting preview extraction...`);
       const previewStart = Date.now();
-      preview = await this.previewExtraction(url, selectors);
+      preview = await this.previewExtraction(url, selectors, undefined, htmlContent);
       console.log(`[CrawlerAssistant] 6. Preview extraction completed in ${Date.now() - previewStart}ms (${preview?.length || 0} rows)`);
     } catch (error) {
       console.error('[CrawlerAssistant] Preview failed:', error);
@@ -338,10 +338,13 @@ export class CrawlerAssistantService {
     aiConfig: any
   ): Promise<any> {
     try {
+      if (!aiConfig?.baseUrl) {
+        throw new Error('AI 配置 baseUrl 为空：当前会默认请求 api.openai.com，通常会超时。请在“AI模型配置”中为该模型设置可访问的 baseUrl（OpenAI 兼容接口）。');
+      }
       const OpenAI = require('openai').default;
       const openai = new OpenAI({
         apiKey: aiConfig.apiKey,
-        baseURL: aiConfig.baseUrl || undefined
+        baseURL: aiConfig.baseUrl
       });
       const model = aiConfig.model || 'gpt-4o';
 
@@ -415,7 +418,7 @@ JSON 格式:
   /**
    * 预览抓取效果（使用 Python 引擎，支持动态渲染）
    */
-  public async previewExtraction(url: string, selectors: CrawlerSelectors, paginationConfig?: any): Promise<any[]> {
+  public async previewExtraction(url: string, selectors: CrawlerSelectors, paginationConfig?: any, htmlOverride?: string): Promise<any[]> {
     console.log(`[DEBUG-FIXED] previewExtraction called for URL: ${url}`);
 
     const { exec } = require('child_process');
@@ -440,8 +443,25 @@ JSON 格式:
       let baseUrlArg = '';
       let tempFilePath = '';
 
+      // 如果上游已经拿到了 HTML，就直接写入临时文件用于预览，避免二次网络抓取
+      if (htmlOverride && typeof htmlOverride === 'string' && htmlOverride.length > 0) {
+        try {
+          const tempDir = os.tmpdir();
+          tempFilePath = path.join(tempDir, `preview_${Date.now()}.html`);
+          fs.writeFileSync(tempFilePath, htmlOverride);
+          sourceArg = tempFilePath;
+          baseUrlArg = url;
+          console.log(`[CrawlerAssistant] Preview using cached HTML: ${tempFilePath}`);
+        } catch (e: any) {
+          console.warn(`[CrawlerAssistant] Failed to write cached HTML for preview: ${e.message}`);
+        }
+      }
+
       // 2. 尝试使用动态引擎获取内容
       try {
+        if (sourceArg !== url) {
+          throw new Error('skip_dynamic_fetch');
+        }
         const { DynamicEngine } = require('./skills/dynamic_engine');
         console.log(`[CrawlerAssistant] Fetching dynamic HTML for preview...`);
         // Use container selector as waitSelector to ensure content is loaded
@@ -456,7 +476,11 @@ JSON 格式:
         baseUrlArg = url;
         console.log(`[CrawlerAssistant] Dynamic preview source saved to: ${tempFilePath}`);
       } catch (err: any) {
+        if (err?.message === 'skip_dynamic_fetch') {
+          // 已有缓存 HTML，跳过动态抓取
+        } else {
         console.warn(`[CrawlerAssistant] Preview dynamic fetch failed (${err.message}), using static URL.`);
+        }
       }
 
       // 3. 使用 spawn 替代 exec

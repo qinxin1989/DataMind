@@ -122,12 +122,13 @@ export class CrawlerManagementService {
         ]
       );
 
-      // 插入字段
-      const fields = Object.entries(data.selectors.fields);
+      // 插入字段（过滤空值）
+      const fields = Object.entries(data.selectors.fields)
+        .filter(([_, selector]) => selector != null && selector !== '');
       for (const [name, selector] of fields) {
         await connection.execute(
           'INSERT INTO crawler_template_fields (id, template_id, field_name, field_selector) VALUES (?, ?, ?, ?)',
-          [uuidv4(), id, name, selector]
+          [uuidv4(), id, name, String(selector)]
         );
       }
 

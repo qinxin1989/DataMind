@@ -371,9 +371,29 @@ const inputMessage = ref('')
 const isAnalyzing = ref(false)
 const messagesContainer = ref<HTMLElement>()
 
-// 生成唯一ID
+const isSending = ref(false)
+let currentChatAbortController: AbortController | null = null
+
+// 最近分析的 URL 缓存（避免 10 秒内重复分析）
+const recentAnalysisCache = new Map<string, number>()
+const ANALYSIS_CACHE_TTL = 10000 // 10秒
+
+// 清理过期缓存
+function cleanAnalysisCache() {
+  const now = Date.now()
+  for (const [url, timestamp] of recentAnalysisCache.entries()) {
+    if (now - timestamp > ANALYSIS_CACHE_TTL) {
+      recentAnalysisCache.delete(url)
+    }
+  }
+}
+
+// 生成唯一ID（使用更高精度的时间戳和随机数）
 function generateId(): string {
-  return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  const timestamp = Date.now()
+  const random = Math.random().toString(36).substring(2, 11)
+  const random2 = Math.random().toString(36).substring(2, 5)
+  return `msg_${timestamp}_${random}_${random2}`
 }
 
 // 预览相关
@@ -385,6 +405,9 @@ const previewData = ref<any[]>([])
 const previewColumns = ref<any[]>([])
 const targetUrl = ref('')
 const webpagePreviewRef = ref(null)
+
+// 预览防重锁
+const isPreviewing = ref(false)
 
 // 编辑相关
 const editModalVisible = ref(false)
@@ -561,8 +584,35 @@ function handleLinkClick(e: MouseEvent) {
 
 // 发送消息
 async function handleSend(parentMsgId?: string) {
+  if (isSending.value) return
   const content = inputMessage.value.trim()
   if (!content) return
+
+  // 清理过期缓存
+  cleanAnalysisCache()
+
+  // 检查是否是重复分析（10秒内同一URL）
+  const urlMatches = content.match(/https?:\/\/[^\s]+/)
+  if (urlMatches && urlMatches[0]) {
+    const url = urlMatches[0]
+    const lastAnalysisTime = recentAnalysisCache.get(url)
+    if (lastAnalysisTime && Date.now() - lastAnalysisTime < ANALYSIS_CACHE_TTL) {
+      message.warning('该网址刚刚分析过，请稍等 10 秒后再试')
+      return
+    }
+    // 记录本次分析时间
+    recentAnalysisCache.set(url, Date.now())
+  }
+
+  isSending.value = true
+
+  if (currentChatAbortController) {
+    try {
+      currentChatAbortController.abort()
+    } catch (e) {
+    }
+    currentChatAbortController = null
+  }
 
   // 确保有当前对话ID
   if (!currentConversationId.value) {
@@ -580,9 +630,9 @@ async function handleSend(parentMsgId?: string) {
   }
 
   // 尝试从输入中提取URL以更新预览
-  const urlMatches = content.match(/https?:\/\/[^\s]+/)
-  if (urlMatches && urlMatches[0]) {
-    targetUrl.value = urlMatches[0]
+  const urlMatchForPreview = content.match(/https?:\/\/[^\s]+/)
+  if (urlMatchForPreview && urlMatchForPreview[0]) {
+    targetUrl.value = urlMatchForPreview[0]
   }
 
   const userMsgId = generateId()
@@ -630,12 +680,14 @@ async function handleSend(parentMsgId?: string) {
 
     // 调用智能爬虫对话接口 (流式输出，逐个确认)
     const token = userStore.token || localStorage.getItem('token')
+    currentChatAbortController = new AbortController()
     const response = await fetch('/api/admin/ai/crawler/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
+      signal: currentChatAbortController.signal,
       body: JSON.stringify({
         messages: contextMessages,
         stream: true
@@ -804,12 +856,14 @@ async function handleSend(parentMsgId?: string) {
       id: generateId(),
       role: 'ai',
       type: 'error',
-      content: `系统异常: ${error.message || '未知错误'}`,
+      content: error?.name === 'AbortError' ? '请求已取消' : `系统异常: ${error.message || '未知错误'}`,
       parentId: userMsgId,
       timestamp: Date.now()
     })
   } finally {
     isAnalyzing.value = false
+    isSending.value = false
+    currentChatAbortController = null
     nextTick(() => {
       const container = document.querySelector('.messages-container')
       if (container) container.scrollTop = container.scrollHeight
@@ -870,6 +924,9 @@ function handleSaveEditedSelectors() {
 
 // 预览选择器效果
 async function handlePreviewSelectors(content: any) {
+  if (isPreviewing.value) return
+  isPreviewing.value = true
+  
   try {
     // 确保有URL
     const url = content.url || targetUrl.value
@@ -949,6 +1006,8 @@ async function handlePreviewSelectors(content: any) {
   } catch (error: any) {
     console.error('预览异常:', error)
     message.error('预览失败: ' + (error.message || '未知错误'))
+  } finally {
+    isPreviewing.value = false
   }
 }
 
@@ -1297,10 +1356,12 @@ function scrollToBottom() {
 
 .preview-panel :deep(.ant-tabs-tabpane) {
   height: 100%;
+  width: 100%;
 }
 
 .webpage-preview {
   height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
 }

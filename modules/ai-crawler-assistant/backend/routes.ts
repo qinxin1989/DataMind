@@ -794,9 +794,11 @@ router.put('/crawler-conversations/:id', requirePermission('ai:view'), async (re
           data: msg.content || msg
         };
 
+        // 使用 ON DUPLICATE KEY UPDATE 处理重复 ID（如快速点击导致的前端重复）
         await pool.execute(
           `INSERT INTO crawler_assistant_messages (id, conversation_id, role, content) 
-           VALUES (?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE role = VALUES(role), content = VALUES(content)`,
           [
             msgId,
             req.params.id,

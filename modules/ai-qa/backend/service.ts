@@ -1007,13 +1007,40 @@ export class AIQAService {
 
     // 调用 AI Agent
     console.log(`🤖 正在调用 AI Agent...`);
-    const response = await this.getAIAgent().answerWithContext(
-      question,
-      ds.instance,
-      ds.config.type,
-      session.messages,
-      { schemaContext }
-    );
+    let response: AgentResponse;
+    try {
+      response = await this.getAIAgent().answerWithContext(
+        question,
+        ds.instance,
+        ds.config.type,
+        session.messages,
+        { schemaContext }
+      );
+    } catch (aiError: any) {
+      console.error('AI 调用失败:', aiError);
+      const errorMsg = aiError.message || '';
+      if (errorMsg.includes('没有可用的 AI 配置') || errorMsg.includes('未配置')) {
+        return {
+          answer: '⚠️ AI 服务未配置：请在【系统管理 → AI 配置】中配置有效的 AI 服务（如 DashScope、OpenAI 等）',
+          sessionId: session.id,
+          sql: undefined,
+          data: undefined,
+          skillUsed: 'none',
+          toolUsed: 'none',
+          visualization: false
+        };
+      }
+      // 其他 AI 错误，返回具体错误信息
+      return {
+        answer: `❌ AI 处理失败：${errorMsg}`,
+        sessionId: session.id,
+        sql: undefined,
+        data: undefined,
+        skillUsed: 'none',
+        toolUsed: 'none',
+        visualization: false
+      };
+    }
 
     // 记录AI响应
     console.log(`\n========== AI 响应 ==========`);

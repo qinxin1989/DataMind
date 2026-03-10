@@ -129,7 +129,17 @@ const extractWebData: SkillDefinition = {
             let baseUrlArg = '';
             let tempFilePath = '';
 
-            // 动态渲染逻辑暂略，保持简单稳定
+            // 动态渲染：使用 DynamicEngine 获取完整 HTML
+            console.log(`[ModularCrawler] 使用 DynamicEngine 获取动态 HTML...`);
+            const { DynamicEngine } = require('./dynamic_engine');
+            const htmlContent = await DynamicEngine.fetchHtml(url, '', 30000);
+            
+            // 写入临时文件
+            tempFilePath = path.join(os.tmpdir(), `crawler_${Date.now()}.html`);
+            fs.writeFileSync(tempFilePath, htmlContent, 'utf8');
+            sourceArg = tempFilePath;
+            baseUrlArg = url;
+            console.log(`[ModularCrawler] 动态 HTML 已保存到: ${tempFilePath}`);
 
             const result: any = await new Promise((resolve) => {
                 const args = [enginePath, sourceArg, JSON.stringify(selectors), baseUrlArg, JSON.stringify(paginationConfig)];
@@ -148,10 +158,22 @@ const extractWebData: SkillDefinition = {
                 });
                 child.on('close', code => {
                     if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-                    if (code !== 0) resolve({ success: false, error: stderr });
+                    console.log(`[ModularCrawler] Python exit code: ${code}`);
+                    console.log(`[ModularCrawler] stdout length: ${stdout.length}, content preview: ${stdout.substring(0, 200)}`);
+                    if (code !== 0) {
+                        console.log(`[ModularCrawler] stderr: ${stderr}`);
+                        resolve({ success: false, error: stderr });
+                    }
                     else {
-                        try { resolve(JSON.parse(stdout)); }
-                        catch (e) { resolve({ success: false, error: 'JSON Parse Error: ' + stdout }); }
+                        try {
+                            const parsed = JSON.parse(stdout);
+                            console.log(`[ModularCrawler] Parsed result success: ${parsed.success}, data count: ${parsed.data?.length}`);
+                            resolve(parsed);
+                        }
+                        catch (e: any) {
+                            console.log(`[ModularCrawler] JSON parse error: ${e.message}`);
+                            resolve({ success: false, error: 'JSON Parse Error: ' + stdout });
+                        }
                     }
                 });
             });
