@@ -23,6 +23,7 @@ import { pptxSkills } from './pptx';
 import { canvasDesignSkills } from './canvas_design';
 import { docCoauthoringSkills } from './doc_coauthoring';
 import { dataAnalysisSkills } from './data_analysis';
+import { excelSkills } from './excel';
 
 // 注册所有技能
 export function registerAllSkills() {
@@ -98,6 +99,10 @@ export function registerAllSkills() {
   skillsRegistry.registerAll(dataAnalysisSkills);
   console.log(`[Skills] Registered ${dataAnalysisSkills.length} data_analysis skills`);
 
+  // 注册 Excel 技能
+  skillsRegistry.registerAll(excelSkills);
+  console.log(`[Skills] Registered ${excelSkills.length} excel skills`);
+
   console.log(`[Skills] Total skills registered: ${skillsRegistry.getAll().length}`);
 }
 
@@ -130,6 +135,7 @@ export {
   canvasDesignSkills,
   docCoauthoringSkills,
   dataAnalysisSkills,
+  excelSkills,
 };
 
 // 默认导出注册中心

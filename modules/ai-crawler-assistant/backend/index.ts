@@ -46,14 +46,19 @@ export default {
     console.log('[ai-crawler-assistant] beforeUninstall: 准备卸载AI爬虫助手模块...');
 
     // 检查是否有依赖此模块的其他模块
-    const modules = context.registry.getAllModules();
-    const dependentModules = modules.filter(m =>
+    const modules = context.registry.getAllModules() as Array<{
+      manifest: {
+        dependencies?: Record<string, unknown> | string[];
+        displayName?: string;
+      };
+    }>;
+    const dependentModules = modules.filter((m) =>
       m.manifest.dependencies &&
       'ai-crawler-assistant' in m.manifest.dependencies
     );
 
     if (dependentModules.length > 0) {
-      const names = dependentModules.map(m => m.manifest.displayName).join(', ');
+      const names = dependentModules.map((m) => m.manifest.displayName || '未知模块').join(', ');
       throw new Error(`无法卸载AI爬虫助手模块，以下模块依赖它: ${names}`);
     }
   },

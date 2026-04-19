@@ -24,8 +24,8 @@
       "title": "OCR 识别",
       "path": "/ai/ocr",
       "icon": "ScanOutlined",
-      "parentId": "tools-center",
-      "sortOrder": 130,
+      "parentId": "ai-center",
+      "sortOrder": 50,
       "permission": "ocr:view"
     }
   ],

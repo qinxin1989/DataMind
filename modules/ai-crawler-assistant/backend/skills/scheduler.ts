@@ -1,7 +1,7 @@
-import { pool } from '../../../admin/core/database';
+import { pool } from '../../../../src/admin/core/database';
 import { crawlerService } from './service';
 import { crawlerSkills } from './index';
-import { SkillContext } from '../registry';
+import type { SkillContext } from '../../../../src/agent/skills/registry';
 
 export class CrawlerScheduler {
     private interval: NodeJS.Timeout | null = null;

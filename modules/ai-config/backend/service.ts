@@ -271,65 +271,52 @@ export class AIConfigService {
    * 验证 API Key
    */
   async validateApiKey(data: ValidateApiKeyRequest): Promise<ValidateApiKeyResponse> {
-    const { provider, apiKey, apiEndpoint, model } = data;
+    const { provider, apiKey, apiEndpoint } = data;
+    const normalizedProvider = provider.trim().toLowerCase();
+    const trimmedApiKey = apiKey.trim();
+    const trimmedEndpoint = apiEndpoint?.trim();
+    const endpointRequiredProviders = new Set(['azure', 'custom']);
+    const knownProviders = new Set([
+      'qwen',
+      'zhipu',
+      'siliconflow',
+      'openai',
+      'azure',
+      'deepseek',
+      'coding-plan',
+      'local-qwen',
+      'ollama',
+      'custom',
+    ]);
 
-    // 基本格式验证
-    if (!apiKey || apiKey.length < 10) {
+    if (!trimmedApiKey || trimmedApiKey.length < 10) {
       return { valid: false, message: 'API Key 格式不正确' };
     }
 
-    // 根据提供商设置默认 endpoint
-    const endpoints: Record<string, string> = {
-      qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-      siliconflow: 'https://api.siliconflow.cn/v1',
-      openai: 'https://api.openai.com/v1',
-      deepseek: 'https://api.deepseek.com/v1',
-    };
-
-    const baseURL = apiEndpoint || endpoints[provider];
-
-    // 默认模型
-    const defaultModels: Record<string, string> = {
-      qwen: 'qwen-plus',
-      zhipu: 'glm-4-flash',
-      siliconflow: 'Qwen/Qwen2.5-7B-Instruct',
-      openai: 'gpt-3.5-turbo',
-      deepseek: 'deepseek-chat',
-    };
-
-    try {
-      const OpenAI = require('openai').default;
-      const openai = new OpenAI({
-        apiKey,
-        baseURL,
-        timeout: 15000,
-      });
-
-      const modelToUse = model || defaultModels[provider] || 'gpt-3.5-turbo';
-
-      await openai.chat.completions.create({
-        model: modelToUse,
-        messages: [{ role: 'user', content: 'Hi' }],
-        max_tokens: 5,
-      });
-
-      return { valid: true, message: '验证成功' };
-    } catch (error: any) {
-      const msg = error.message || String(error);
-
-      if (msg.includes('401')) {
-        return { valid: false, message: 'API Key 无效' };
-      } else if (msg.includes('429')) {
-        return { valid: false, message: '余额不足或请求限制' };
-      } else if (msg.includes('Connection') || msg.includes('ECONNREFUSED')) {
-        return { valid: false, message: '连接失败，请检查 API Endpoint' };
-      } else if (msg.includes('model')) {
-        return { valid: true, message: '验证成功（API Key 有效）' };
-      }
-
-      return { valid: false, message: `验证失败: ${msg.substring(0, 100)}` };
+    if (!knownProviders.has(normalizedProvider)) {
+      return { valid: false, message: '不支持的 AI 提供商' };
     }
+
+    if (normalizedProvider === 'openai' && !trimmedApiKey.startsWith('sk-')) {
+      return { valid: false, message: 'OpenAI API Key 格式不正确' };
+    }
+
+    if (endpointRequiredProviders.has(normalizedProvider) && !trimmedEndpoint) {
+      return { valid: false, message: '该提供商需要填写 API Endpoint' };
+    }
+
+    if (trimmedEndpoint) {
+      try {
+        const parsed = new URL(trimmedEndpoint);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          return { valid: false, message: 'API Endpoint 必须使用 http 或 https 协议' };
+        }
+      } catch {
+        return { valid: false, message: 'API Endpoint 格式不正确' };
+      }
+    }
+
+    return { valid: true, message: '格式验证通过' };
   }
 
   /**

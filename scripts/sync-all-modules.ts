@@ -75,12 +75,12 @@ async function syncModules() {
                 // Update or Insert into sys_menus
                 try {
                     await connection.execute(
-                        `INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, is_system, permission_code) 
-             VALUES (?, ?, ?, ?, ?, ?, TRUE, TRUE, ?) 
+                        `INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, is_system, permission_code, module_name, menu_type) 
+             VALUES (?, ?, ?, ?, ?, ?, TRUE, FALSE, ?, ?, 'internal') 
              ON DUPLICATE KEY UPDATE 
              title = VALUES(title), path = VALUES(path), icon = VALUES(icon), 
              parent_id = VALUES(parent_id), sort_order = VALUES(sort_order),
-             permission_code = VALUES(permission_code)`,
+             permission_code = VALUES(permission_code), module_name = VALUES(module_name), menu_type = VALUES(menu_type), is_system = VALUES(is_system)`,
                         [
                             menu.id,
                             menu.title,
@@ -88,7 +88,8 @@ async function syncModules() {
                             menu.icon || null,
                             menu.parentId || null,
                             menu.sortOrder || 0,
-                            menu.permission || null
+                            menu.permission || null,
+                            manifest.name
                         ]
                     );
                 } catch (e: any) {

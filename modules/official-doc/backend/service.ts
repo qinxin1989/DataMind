@@ -41,6 +41,12 @@ export class OfficialDocService {
     this.aiConfigService = aiConfigService;
   }
 
+  private isMissingTableError(error: any, tableName: string): boolean {
+    return error?.code === 'ER_NO_SUCH_TABLE'
+      || String(error?.message || '').includes(tableName)
+      || String(error?.sqlMessage || '').includes(tableName);
+  }
+
   /**
    * 生成公文
    */
@@ -446,29 +452,42 @@ export class OfficialDocService {
       queryParams.push(`%${keyword}%`, `%${keyword}%`);
     }
 
-    // 获取总数
-    const countQuery = `SELECT COUNT(*) as total FROM official_doc_templates ${whereClause}`;
-    const [countRows]: any = await this.db.execute(countQuery, queryParams);
-    const total = countRows[0].total;
+    try {
+      // 获取总数
+      const countQuery = `SELECT COUNT(*) as total FROM official_doc_templates ${whereClause}`;
+      const [countRows]: any = await this.db.execute(countQuery, queryParams);
+      const total = countRows[0].total;
 
-    // 获取数据
-    const offset = (page - 1) * pageSize;
-    const dataQuery = `
-      SELECT * FROM official_doc_templates 
-      ${whereClause}
-      ORDER BY is_system DESC, created_at DESC
-      LIMIT ? OFFSET ?
-    `;
-    const [rows]: any = await this.db.execute(dataQuery, [...queryParams, pageSize, offset]);
+      // 获取数据
+      const offset = (page - 1) * pageSize;
+      const dataQuery = `
+        SELECT * FROM official_doc_templates 
+        ${whereClause}
+        ORDER BY is_system DESC, created_at DESC
+        LIMIT ? OFFSET ?
+      `;
+      const [rows]: any = await this.db.execute(dataQuery, [...queryParams, pageSize, offset]);
 
-    const items = rows.map((row: any) => this.mapTemplateRow(row));
+      const items = rows.map((row: any) => this.mapTemplateRow(row));
 
-    return {
-      total,
-      page,
-      pageSize,
-      items
-    };
+      return {
+        total,
+        page,
+        pageSize,
+        items
+      };
+    } catch (error: any) {
+      if (this.isMissingTableError(error, 'official_doc_templates')) {
+        console.warn('[OfficialDoc] 模板表不存在，返回空模板列表');
+        return {
+          total: 0,
+          page,
+          pageSize,
+          items: []
+        };
+      }
+      throw error;
+    }
   }
 
   /**
@@ -481,18 +500,26 @@ export class OfficialDocService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    await this.db.execute(query, [
-      history.id,
-      history.userId,
-      history.templateId || null,
-      history.type,
-      history.style,
-      history.points,
-      history.result,
-      history.status,
-      history.errorMessage || null,
-      new Date(history.createdAt)
-    ]);
+    try {
+      await this.db.execute(query, [
+        history.id,
+        history.userId,
+        history.templateId || null,
+        history.type,
+        history.style,
+        history.points,
+        history.result,
+        history.status,
+        history.errorMessage || null,
+        new Date(history.createdAt)
+      ]);
+    } catch (error: any) {
+      if (this.isMissingTableError(error, 'official_doc_history')) {
+        console.warn('[OfficialDoc] 历史表不存在，跳过历史写入');
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -519,7 +546,15 @@ export class OfficialDocService {
 
     values.push(id);
     const query = `UPDATE official_doc_history SET ${fields.join(', ')} WHERE id = ?`;
-    await this.db.execute(query, values);
+    try {
+      await this.db.execute(query, values);
+    } catch (error: any) {
+      if (this.isMissingTableError(error, 'official_doc_history')) {
+        console.warn('[OfficialDoc] 历史表不存在，跳过历史更新');
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -548,29 +583,42 @@ export class OfficialDocService {
       queryParams.push(endDate);
     }
 
-    // 获取总数
-    const countQuery = `SELECT COUNT(*) as total FROM official_doc_history ${whereClause}`;
-    const [countRows]: any = await this.db.execute(countQuery, queryParams);
-    const total = countRows[0].total;
+    try {
+      // 获取总数
+      const countQuery = `SELECT COUNT(*) as total FROM official_doc_history ${whereClause}`;
+      const [countRows]: any = await this.db.execute(countQuery, queryParams);
+      const total = countRows[0].total;
 
-    // 获取数据
-    const offset = (page - 1) * pageSize;
-    const dataQuery = `
-      SELECT * FROM official_doc_history 
-      ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
-    `;
-    const [rows]: any = await this.db.execute(dataQuery, [...queryParams, pageSize, offset]);
+      // 获取数据
+      const offset = (page - 1) * pageSize;
+      const dataQuery = `
+        SELECT * FROM official_doc_history 
+        ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      `;
+      const [rows]: any = await this.db.execute(dataQuery, [...queryParams, pageSize, offset]);
 
-    const items = rows.map((row: any) => this.mapHistoryRow(row));
+      const items = rows.map((row: any) => this.mapHistoryRow(row));
 
-    return {
-      total,
-      page,
-      pageSize,
-      items
-    };
+      return {
+        total,
+        page,
+        pageSize,
+        items
+      };
+    } catch (error: any) {
+      if (this.isMissingTableError(error, 'official_doc_history')) {
+        console.warn('[OfficialDoc] 历史表不存在，返回空历史列表');
+        return {
+          total: 0,
+          page,
+          pageSize,
+          items: []
+        };
+      }
+      throw error;
+    }
   }
 
   /**

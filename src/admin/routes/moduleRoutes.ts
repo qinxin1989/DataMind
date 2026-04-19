@@ -27,7 +27,8 @@ router.get('/', async (req: Request, res: Response) => {
       status: m.status,
       error: m.error || null,
       hasBackend: !!m.manifest.backend,
-      hasFrontend: !!m.manifest.frontend,
+      hasFrontend: !!m.manifest.frontend?.entry,
+      frontendIntegration: m.manifest.frontend?.integration || (m.manifest.frontend?.entry ? 'module' : null),
       menuCount: m.manifest.menus?.length || 0,
       permissionCount: m.manifest.permissions?.length || 0,
       apiCount: m.manifest.api?.endpoints?.length || 0,
@@ -72,7 +73,13 @@ router.get('/:name', async (req: Request, res: Response) => {
         permissions: moduleInfo.manifest.permissions,
         api: moduleInfo.manifest.api,
         backend: moduleInfo.manifest.backend ? { entry: moduleInfo.manifest.backend.entry, routesPrefix: moduleInfo.manifest.backend.routes?.prefix } : null,
-        frontend: moduleInfo.manifest.frontend ? { entry: moduleInfo.manifest.frontend.entry } : null,
+        frontend: moduleInfo.manifest.frontend
+          ? {
+              entry: moduleInfo.manifest.frontend.entry,
+              routes: moduleInfo.manifest.frontend.routes,
+              integration: moduleInfo.manifest.frontend.integration || 'module',
+            }
+          : null,
       }
     });
   } catch (error: any) {

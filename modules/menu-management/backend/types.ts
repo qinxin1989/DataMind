@@ -19,6 +19,7 @@ export interface Menu {
   externalUrl?: string;
   openMode: 'current' | 'blank' | 'iframe';
   moduleCode?: string;
+  moduleSource?: string;
   // 兼容字段
   external: boolean;
   target: string;

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/**/*.ts",
+    "modules/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "admin-ui",
+    "tests",
+    "src/**/*.test.ts",
+    "modules/**/frontend/**/*"
+  ]
+}

@@ -56,6 +56,8 @@ request.interceptors.response.use(
         case 401:
           message.error('登录已过期，请重新登录')
           localStorage.removeItem('token')
+          localStorage.removeItem('currentUser')
+          localStorage.removeItem('permissions')
           window.location.href = '/login'
           break
         case 403:
@@ -92,6 +94,8 @@ aiRequest.interceptors.response.use(
         case 401:
           message.error('登录已过期，请重新登录')
           localStorage.removeItem('token')
+          localStorage.removeItem('currentUser')
+          localStorage.removeItem('permissions')
           window.location.href = '/login'
           break
         case 403:

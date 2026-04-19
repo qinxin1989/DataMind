@@ -33,8 +33,7 @@
     "entry": "./frontend/index.ts",
     "routes": "./frontend/routes.ts",
     "components": {
-      "ExampleList": "./frontend/views/ExampleList.vue",
-      "ExampleForm": "./frontend/views/ExampleForm.vue"
+      "ExampleList": "./frontend/views/ExampleList.vue"
     }
   },
   

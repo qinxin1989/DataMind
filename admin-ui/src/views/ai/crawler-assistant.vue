@@ -1072,11 +1072,11 @@ async function handleConfirmSaveTemplate() {
           <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-left: 3px solid #1890ff; border-radius: 4px;">
             <div style="margin-bottom: 8px;">📋 您可以在以下位置管理此模板：</div>
             <div style="display: flex; gap: 8px;">
-              <a href="javascript:;" data-path="/ai/crawler-template-config" style="color: #1890ff; text-decoration: none; font-weight: 500;">
+              <a href="javascript:;" data-path="/collection/templates" style="color: #1890ff; text-decoration: none; font-weight: 500;">
                 → 采集模板配置
               </a>
               <span style="color: #999;">|</span>
-              <a href="javascript:;" data-path="/ai/crawler" style="color: #1890ff; text-decoration: none; font-weight: 500;">
+              <a href="javascript:;" data-path="/collection/crawlers" style="color: #1890ff; text-decoration: none; font-weight: 500;">
                 → 爬虫管理
               </a>
             </div>

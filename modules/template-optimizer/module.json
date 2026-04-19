@@ -19,9 +19,10 @@
     {
       "id": "template-optimizer",
       "title": "模板优化",
-      "path": "/template-optimizer",
+      "path": "/system/template-optimizer",
       "icon": "ThunderboltOutlined",
       "permission": "template:optimize",
+      "parentId": "system-management",
       "sortOrder": 200
     }
   ],

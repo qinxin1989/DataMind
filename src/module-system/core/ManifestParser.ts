@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { ModuleManifest } from '../types';
 import semver from 'semver';
+import { ROOT_MENU_DEFINITIONS } from './menuRoots';
 
 export class ManifestParser {
   /**
@@ -166,10 +167,31 @@ export class ManifestParser {
       if (typeof manifest.frontend !== 'object') {
         errors.push('Field "frontend" must be an object');
       } else {
+        if (
+          manifest.frontend.integration !== undefined &&
+          !['module', 'admin-ui'].includes(manifest.frontend.integration)
+        ) {
+          errors.push('Field "frontend.integration" must be one of: module, admin-ui');
+        }
+
         if (!manifest.frontend.entry) {
           errors.push('Field "frontend.entry" is required when frontend is specified');
         } else if (typeof manifest.frontend.entry !== 'string') {
           errors.push('Field "frontend.entry" must be a string');
+        }
+
+        if (
+          manifest.frontend.routes !== undefined &&
+          typeof manifest.frontend.routes !== 'string'
+        ) {
+          errors.push('Field "frontend.routes" must be a string');
+        }
+
+        if (
+          manifest.frontend.components !== undefined &&
+          (typeof manifest.frontend.components !== 'object' || Array.isArray(manifest.frontend.components))
+        ) {
+          errors.push('Field "frontend.components" must be an object');
         }
       }
     }
@@ -179,11 +201,71 @@ export class ManifestParser {
       if (!Array.isArray(manifest.menus)) {
         errors.push('Field "menus" must be an array');
       } else {
+        const rootMenuIds = new Set(ROOT_MENU_DEFINITIONS.map((item) => item.id));
+        const declaredMenuIds = new Set<string>();
+        const declaredPaths = new Map<string, number>();
+
         manifest.menus.forEach((menu: any, index: number) => {
           if (!menu.id) errors.push(`Menu[${index}]: Missing required field "id"`);
           if (!menu.title) errors.push(`Menu[${index}]: Missing required field "title"`);
           if (!menu.path) errors.push(`Menu[${index}]: Missing required field "path"`);
           if (menu.sortOrder === undefined) errors.push(`Menu[${index}]: Missing required field "sortOrder"`);
+
+          if (menu.id !== undefined && typeof menu.id !== 'string') {
+            errors.push(`Menu[${index}]: Field "id" must be a string`);
+          }
+          if (menu.title !== undefined && typeof menu.title !== 'string') {
+            errors.push(`Menu[${index}]: Field "title" must be a string`);
+          }
+          if (menu.path !== undefined && typeof menu.path !== 'string') {
+            errors.push(`Menu[${index}]: Field "path" must be a string`);
+          }
+          if (menu.icon !== undefined && typeof menu.icon !== 'string') {
+            errors.push(`Menu[${index}]: Field "icon" must be a string`);
+          }
+          if (menu.permission !== undefined && typeof menu.permission !== 'string') {
+            errors.push(`Menu[${index}]: Field "permission" must be a string`);
+          }
+          if (menu.parentId !== undefined && menu.parentId !== null && typeof menu.parentId !== 'string') {
+            errors.push(`Menu[${index}]: Field "parentId" must be a string`);
+          }
+          if (menu.sortOrder !== undefined && (!Number.isFinite(menu.sortOrder) || !Number.isInteger(menu.sortOrder))) {
+            errors.push(`Menu[${index}]: Field "sortOrder" must be an integer`);
+          }
+
+          if (typeof menu.id === 'string') {
+            if (declaredMenuIds.has(menu.id)) {
+              errors.push(`Menu[${index}]: Duplicate menu id "${menu.id}"`);
+            } else {
+              declaredMenuIds.add(menu.id);
+            }
+          }
+
+          if (typeof menu.path === 'string') {
+            const existingIndex = declaredPaths.get(menu.path);
+            if (existingIndex !== undefined) {
+              errors.push(`Menu[${index}]: Duplicate menu path "${menu.path}" (already used by Menu[${existingIndex}])`);
+            } else {
+              declaredPaths.set(menu.path, index);
+            }
+          }
+        });
+
+        manifest.menus.forEach((menu: any, index: number) => {
+          if (!menu.parentId || typeof menu.parentId !== 'string') {
+            return;
+          }
+
+          if (menu.parentId === menu.id) {
+            errors.push(`Menu[${index}]: parentId cannot reference itself`);
+            return;
+          }
+
+          if (!rootMenuIds.has(menu.parentId) && !declaredMenuIds.has(menu.parentId)) {
+            errors.push(
+              `Menu[${index}]: parentId "${menu.parentId}" must reference a root menu or another declared menu`
+            );
+          }
         });
       }
     }

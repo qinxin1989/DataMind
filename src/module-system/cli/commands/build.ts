@@ -6,6 +6,7 @@
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs/promises';
 
 const execAsync = promisify(exec);
 
@@ -18,25 +19,30 @@ export async function buildModule(moduleName: string, options: BuildOptions): Pr
   console.log(`Building module: ${moduleName}`);
 
   const modulePath = path.join(process.cwd(), 'modules', moduleName);
-  const outputDir = options.output || 'dist';
 
   try {
-    // 编译 TypeScript
-    console.log('Compiling TypeScript...');
-    await execAsync(`tsc --project ${modulePath}/tsconfig.json --outDir ${modulePath}/${outputDir}`, {
-      cwd: modulePath
-    });
+    await fs.access(modulePath);
+    console.log('当前仓库采用工作区级构建，开始执行 npm run build ...');
 
-    // 打包前端资源（如果有）
-    console.log('Building frontend assets...');
-    try {
-      await execAsync('npm run build', { cwd: path.join(modulePath, 'frontend') });
-    } catch {
-      console.log('No frontend build script found, skipping...');
+    let command = 'npm run build';
+    if (options.watch) {
+      command = 'npm run dev';
     }
 
-    console.log(`✅ Module ${moduleName} built successfully`);
-    console.log(`Output directory: ${modulePath}/${outputDir}`);
+    const { stdout, stderr } = await execAsync(command, {
+      cwd: process.cwd(),
+      maxBuffer: 1024 * 1024 * 10,
+    });
+
+    if (stdout) {
+      console.log(stdout);
+    }
+
+    if (stderr) {
+      console.error(stderr);
+    }
+
+    console.log(`✅ Module ${moduleName} build verification completed`);
   } catch (error) {
     console.error(`❌ Build failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);

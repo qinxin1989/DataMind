@@ -4,10 +4,52 @@
  * 核心：桥接数据源上下文（dataSource, schemas, dbType）到每个工具调用
  */
 
+import * as path from 'path';
 import { skillsRegistry, SkillContext, SkillResult } from './skills';
+import type { SkillDefinition } from './skills';
 import { mcpRegistry } from './mcp';
+import { DeclarativeSkillRegistry } from './runtime/declarativeRegistry';
 import { BaseDataSource } from '../datasource';
 import { TableSchema } from '../types';
+
+const declarativeRegistry = new DeclarativeSkillRegistry(path.join(process.cwd(), 'skills'));
+const MAX_DECLARATIVE_BODY_LENGTH = 1200;
+const MAX_DECLARATIVE_DESCRIPTION_TOTAL = 18000;
+
+const SKILL_ALIAS_MAP: Record<string, string[]> = {
+  data_analysis: ['dataAnalysis'],
+  dataanalysis: ['dataAnalysis'],
+  dataAnalysis: ['dataAnalysis'],
+  image_ocr: ['imageOcr'],
+  imageocr: ['imageOcr'],
+  imageOcr: ['imageOcr'],
+  doc_coauthoring: ['docCoauthoring'],
+  'doc-coauthoring': ['docCoauthoring'],
+  doccoauthoring: ['docCoauthoring'],
+  docCoauthoring: ['docCoauthoring'],
+  canvas_design: ['canvas'],
+  'canvas-design': ['canvas'],
+  canvasdesign: ['canvas'],
+  canvas: ['canvas'],
+  architecture_diagram: ['diagram'],
+  'architecture-diagram': ['diagram'],
+  architecturediagram: ['diagram'],
+  diagram: ['diagram'],
+  word: ['docx'],
+  docx: ['docx'],
+  excel: ['excel'],
+  pdf: ['pdf'],
+  pptx: ['pptx'],
+  file: ['file'],
+  shell: ['shell'],
+  web: ['web'],
+  data: ['data'],
+  report: ['report'],
+  qa: ['qa'],
+  crawler: ['crawler'],
+  document: ['document'],
+  media: ['media'],
+};
 
 // ========== run_skill 统一入口 Schema ==========
 
@@ -58,16 +100,24 @@ export function getExecuteSqlToolSchema(): any {
 /**
  * 获取 Agent Loop 使用的完整工具列表（run_skill + execute_sql）
  */
-export function getAgentTools(): any[] {
-  return [
-    getRunSkillToolSchema(),
-    getExecuteSqlToolSchema(),
-  ];
+export interface ToolExecutionPolicy {
+  allowSql?: boolean;
+  allowedSkills?: string[];
+  allowedSkillPrefixes?: string[];
+  allowedMcpServers?: string[];
+}
+
+export function getAgentTools(policy?: ToolExecutionPolicy): any[] {
+  const tools = [getRunSkillToolSchema()];
+  if (policy?.allowSql !== false) {
+    tools.push(getExecuteSqlToolSchema());
+  }
+  return tools;
 }
 
 // ========== 工具执行分发 ==========
 
-export interface ToolExecutionContext {
+export interface ToolExecutionContext extends ToolExecutionPolicy {
   dataSource?: BaseDataSource;
   schemas?: TableSchema[];
   dbType?: string;
@@ -93,11 +143,23 @@ export async function executeRunSkill(
     return 'Error: run_skill.action must be a non-empty string';
   }
 
+  const requestedSkillName = `${skill}.${action}`;
+  const resolution = resolveRegisteredSkill(skill, action);
+  const permissionCandidates = resolution
+    ? [requestedSkillName, ...resolution.candidates]
+    : [requestedSkillName];
+
+  if (!permissionCandidates.some(candidate => isSkillAllowed(candidate, ctx))) {
+    return `Error: 当前业务模式不允许调用技能: ${requestedSkillName}`;
+  }
+
   // 1. 尝试 SkillsRegistry（格式：category.name 如 data.query）
-  const skillName = `${skill}.${action}`;
-  const registeredSkill = skillsRegistry.get(skillName) || skillsRegistry.get(skill);
+  const registeredSkill = resolution?.skill
+    || skillsRegistry.get(requestedSkillName)
+    || skillsRegistry.get(skill);
 
   if (registeredSkill) {
+    const normalizedArgs = normalizeSkillArgs(registeredSkill, args || {});
     const skillCtx: SkillContext = {
       dataSource: ctx.dataSource,
       schemas: ctx.schemas,
@@ -111,7 +173,7 @@ export async function executeRunSkill(
     try {
       const result: SkillResult = await skillsRegistry.execute(
         registeredSkill.name,
-        { ...args },
+        normalizedArgs,
         skillCtx
       );
 
@@ -127,6 +189,10 @@ export async function executeRunSkill(
   }
 
   // 2. 尝试 MCPRegistry（格式：server__tool）
+  if (!isMcpServerAllowed(skill, ctx)) {
+    return `Error: 当前业务模式不允许调用 MCP 服务: ${skill}`;
+  }
+
   const mcpKey = `${skill}__${action}`;
   const allMcpTools = mcpRegistry.getAllTools();
   const mcpMatch = allMcpTools.find(t => `${t.serverName}__${t.tool.name}` === mcpKey);
@@ -156,6 +222,10 @@ export async function executeSql(
   payload: { sql: string; explain?: string },
   ctx: ToolExecutionContext
 ): Promise<string> {
+  if (ctx.allowSql === false) {
+    return 'Error: 当前业务模式不允许执行 SQL';
+  }
+
   if (!ctx.dataSource) {
     return 'Error: 数据源未配置，无法执行 SQL';
   }
@@ -269,10 +339,20 @@ export function buildAgentSystemPrompt(options: {
   dbType?: string;
   skillDescriptions?: string;
   mcpDescriptions?: string;
+  assistantName?: string;
+  assistantDescription?: string;
+  extraInstructions?: string;
+  sessionContext?: string;
 }): string {
   const lines: string[] = [];
 
-  lines.push(`你是一个智能数据助手，能够帮助用户完成各种数据分析和处理任务。你可以使用提供的工具来完成任务。`);
+  lines.push(`你是一个智能助手，能够帮助用户完成不同业务场景下的分析和处理任务。你可以使用提供的工具来完成任务。`);
+  if (options.assistantName) {
+    lines.push(`当前激活助手: ${options.assistantName}`);
+  }
+  if (options.assistantDescription) {
+    lines.push(`助手职责: ${options.assistantDescription}`);
+  }
   lines.push('');
   lines.push('使用工具的原则：');
   lines.push('1. 仔细理解用户的需求，选择合适的工具');
@@ -292,10 +372,26 @@ export function buildAgentSystemPrompt(options: {
 
   // 可用工具说明
   lines.push('工具调用协议：');
+  lines.push('- 任何真实操作（读写文件、处理网页、修改文档、生成图表、批量分析）都应优先通过工具完成，不要只停留在口头建议。');
   lines.push('- 你可以通过 run_skill 调用技能：{ skill: "类别", action: "动作", args: {...} }');
-  lines.push('- 你可以通过 execute_sql 直接对数据源执行 SQL 查询');
+  lines.push('- 只有当前模式允许时，才可以通过 execute_sql 直接对数据源执行 SQL 查询');
   lines.push('- 对于 array/object 类型参数：直接传 JSON 数组/对象');
+  lines.push('- 兼容旧技能命名，例如 data_analysis.execute_python、word.read_word、pptx.pptx_inventory 也可以直接调用');
+  lines.push('- 如果用户目标是得到结果文件、批注结果、修订结果、图表或提取内容，就继续调用工具直到拿到可交付结果');
+  lines.push('- 工具返回成功后，必须基于返回结果决定下一步，而不是忽略结果直接结束');
   lines.push('');
+
+  if (options.extraInstructions) {
+    lines.push('业务模式要求：');
+    lines.push(options.extraInstructions);
+    lines.push('');
+  }
+
+  if (options.sessionContext) {
+    lines.push('当前会话摘要 / 长期上下文：');
+    lines.push(options.sessionContext);
+    lines.push('');
+  }
 
   // 数据源上下文
   if (options.dbType) {
@@ -328,4 +424,264 @@ export function buildAgentSystemPrompt(options: {
   }
 
   return lines.join('\n');
+}
+
+export function getAllowedSkillDefinitions(policy?: ToolExecutionPolicy): SkillDefinition[] {
+  const allSkills = skillsRegistry.getAll();
+  return allSkills.filter(skill => isSkillAllowed(skill.name, policy));
+}
+
+export function getAllowedSkillDescriptions(policy?: ToolExecutionPolicy): string {
+  const descriptions: string[] = [];
+  const skills = getAllowedSkillDefinitions(policy);
+
+  for (const skill of skills) {
+    const params = skill.parameters
+      .map(p => `${p.name}(${p.type}${p.required ? ',必填' : ''}): ${p.description}`)
+      .join('; ');
+    descriptions.push(`- ${skill.name}: ${skill.description}`);
+    descriptions.push(`  参数: ${params}`);
+  }
+
+  const declarativeDescriptions = getAllowedDeclarativeSkillDescriptions(policy);
+  if (declarativeDescriptions) {
+    descriptions.push('');
+    descriptions.push('声明式技能工作流：');
+    descriptions.push(declarativeDescriptions);
+  }
+
+  return descriptions.join('\n');
+}
+
+export function isSkillAllowed(skillName: string, policy?: ToolExecutionPolicy): boolean {
+  const allowedSkills = policy?.allowedSkills;
+  const allowedSkillPrefixes = policy?.allowedSkillPrefixes;
+
+  if ((!allowedSkills || allowedSkills.length === 0) && (!allowedSkillPrefixes || allowedSkillPrefixes.length === 0)) {
+    return true;
+  }
+
+  if (allowedSkills?.includes(skillName)) {
+    return true;
+  }
+
+  return (allowedSkillPrefixes || []).some(prefix => skillName.startsWith(prefix));
+}
+
+function isMcpServerAllowed(serverName: string, policy?: ToolExecutionPolicy): boolean {
+  if (!policy?.allowedMcpServers || policy.allowedMcpServers.length === 0) {
+    return true;
+  }
+  return policy.allowedMcpServers.includes(serverName);
+}
+
+function resolveRegisteredSkill(skill: string, action: string): {
+  skill: SkillDefinition;
+  candidates: string[];
+} | null {
+  const candidates = buildSkillCandidates(skill, action);
+
+  for (const candidate of candidates) {
+    const registered = skillsRegistry.get(candidate);
+    if (registered) {
+      return {
+        skill: registered,
+        candidates,
+      };
+    }
+  }
+
+  return null;
+}
+
+function buildSkillCandidates(skill: string, action: string): string[] {
+  const skillVariants = expandSkillAliases(skill);
+  const actionVariants = expandActionAliases(skill, action);
+  const candidates = new Set<string>([`${skill}.${action}`]);
+
+  for (const skillVariant of skillVariants) {
+    for (const actionVariant of actionVariants) {
+      candidates.add(`${skillVariant}.${actionVariant}`);
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function expandSkillAliases(skill: string): string[] {
+  const raw = (skill || '').trim();
+  const normalized = raw.replace(/\s+/g, '');
+  const normalizedKey = normalized.toLowerCase();
+  const variants = new Set<string>();
+
+  for (const value of [raw, normalized, normalized.replace(/-/g, '_'), normalized.replace(/_/g, '-')]) {
+    if (value) {
+      variants.add(value);
+      variants.add(toCamelCase(value));
+    }
+  }
+
+  const aliases = SKILL_ALIAS_MAP[raw]
+    || SKILL_ALIAS_MAP[normalized]
+    || SKILL_ALIAS_MAP[normalizedKey]
+    || [];
+
+  aliases.forEach(alias => variants.add(alias));
+
+  return Array.from(variants).filter(Boolean);
+}
+
+function expandActionAliases(skill: string, action: string): string[] {
+  const raw = (action || '').trim();
+  const normalized = raw.replace(/\s+/g, '');
+  const variants = new Set<string>();
+
+  for (const value of [raw, normalized, normalized.replace(/-/g, '_'), normalized.replace(/_/g, '-')]) {
+    if (value) {
+      variants.add(value);
+      variants.add(toCamelCase(value));
+    }
+  }
+
+  const normalizedSkillNames = expandSkillAliases(skill)
+    .map(item => item.toLowerCase().replace(/[.\-]/g, '_'));
+
+  for (const skillName of normalizedSkillNames) {
+    const prefix = `${skillName}_`;
+    const normalizedAction = normalized.toLowerCase().replace(/[.\-]/g, '_');
+    if (normalizedAction.startsWith(prefix)) {
+      const stripped = normalizedAction.slice(prefix.length);
+      if (stripped) {
+        variants.add(stripped);
+        variants.add(toCamelCase(stripped));
+      }
+    }
+  }
+
+  return Array.from(variants).filter(Boolean);
+}
+
+function normalizeSkillArgs(skill: SkillDefinition, args: Record<string, any>): Record<string, any> {
+  const normalizedArgs: Record<string, any> = { ...(args || {}) };
+  const paramNames = new Set(skill.parameters.map(param => param.name));
+
+  for (const [key, value] of Object.entries(args || {})) {
+    if (paramNames.has(key)) {
+      continue;
+    }
+
+    const candidateKeys = new Set<string>([
+      toCamelCase(key),
+      key.replace(/^pdfPath$/i, 'path'),
+      key.replace(/^pptxPath$/i, 'path'),
+      key.replace(/^docPath$/i, 'path'),
+      key.replace(/^inputPath$/i, 'path'),
+      key.replace(/^outputPath$/i, 'path'),
+    ]);
+
+    for (const candidateKey of candidateKeys) {
+      if (paramNames.has(candidateKey) && normalizedArgs[candidateKey] === undefined) {
+        normalizedArgs[candidateKey] = value;
+        break;
+      }
+    }
+  }
+
+  if (skill.name === 'docx.generateWordReport') {
+    if (normalizedArgs.title === undefined && normalizedArgs.report_title !== undefined) {
+      normalizedArgs.title = normalizedArgs.report_title;
+    }
+    if (normalizedArgs.outputPath === undefined && normalizedArgs.output_path !== undefined) {
+      normalizedArgs.outputPath = normalizedArgs.output_path;
+    }
+  }
+
+  return normalizedArgs;
+}
+
+function getAllowedDeclarativeSkillDescriptions(policy?: ToolExecutionPolicy): string {
+  let totalLength = 0;
+  const lines: string[] = [];
+
+  for (const skill of declarativeRegistry.listSkills().sort((a, b) => a.name.localeCompare(b.name))) {
+    const allowedActions = skill.actions.filter(action =>
+      buildSkillCandidates(skill.name, action.name).some(candidate => isSkillAllowed(candidate, policy))
+    );
+
+    if (allowedActions.length === 0) {
+      continue;
+    }
+
+    const summaryLines = [`- ${skill.name}: ${skill.description || '暂无描述'}`];
+
+    for (const action of allowedActions) {
+      const actionParts = [`  - ${action.name}${action.description ? `: ${action.description}` : ''}`];
+      const params = getRegisteredActionParameters(skill.name, action.name);
+      if (params) {
+        actionParts.push(`参数: ${params}`);
+      }
+      summaryLines.push(actionParts.join(' | '));
+    }
+
+    const compactBody = compactDeclarativeBody(skill.body);
+    if (compactBody) {
+      summaryLines.push(`  工作流: ${compactBody}`);
+    }
+
+    const joined = summaryLines.join('\n');
+    if (totalLength + joined.length > MAX_DECLARATIVE_DESCRIPTION_TOTAL) {
+      break;
+    }
+
+    lines.push(joined);
+    totalLength += joined.length;
+  }
+
+  return lines.join('\n');
+}
+
+function compactDeclarativeBody(body?: string): string {
+  if (!body) {
+    return '';
+  }
+
+  const compact = body
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .join(' ');
+
+  if (!compact) {
+    return '';
+  }
+
+  return compact.length > MAX_DECLARATIVE_BODY_LENGTH
+    ? `${compact.slice(0, MAX_DECLARATIVE_BODY_LENGTH)}...`
+    : compact;
+}
+
+function toCamelCase(value: string): string {
+  return value.replace(/[-_]+([a-zA-Z0-9])/g, (_, char: string) => char.toUpperCase());
+}
+
+function getRegisteredActionParameters(skill: string, action: string): string {
+  const parts = new Set<string>();
+
+  for (const candidate of buildSkillCandidates(skill, action)) {
+    const registered = skillsRegistry.get(candidate);
+    if (!registered || !registered.parameters?.length) {
+      continue;
+    }
+
+    for (const parameter of registered.parameters) {
+      parts.add(
+        `${parameter.name}(${parameter.type}${parameter.required ? ',必填' : ''})${parameter.description ? `: ${parameter.description}` : ''}`
+      );
+    }
+  }
+
+  return Array.from(parts).join('; ');
 }

@@ -312,6 +312,150 @@ export class ModuleRegistry {
   }
 
   /**
+   * 同步模块清单到数据库，确保数据库配置与源码 module.json 保持一致
+   */
+  async syncManifest(manifest: ModuleManifest): Promise<void> {
+    this.validateManifest(manifest);
+
+    const existingInfo = await this.getModule(manifest.name);
+    if (!existingInfo) {
+      await this.register(manifest);
+      return;
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.execute(
+        `UPDATE sys_modules
+         SET display_name = ?,
+             version = ?,
+             description = ?,
+             author = ?,
+             license = ?,
+             type = ?,
+             category = ?,
+             manifest = ?,
+             updated_at = NOW()
+         WHERE name = ?`,
+        [
+          manifest.displayName,
+          manifest.version,
+          manifest.description || null,
+          manifest.author || null,
+          manifest.license || null,
+          manifest.type || null,
+          manifest.category || null,
+          JSON.stringify(manifest),
+          manifest.name
+        ]
+      );
+
+      await connection.execute('DELETE FROM sys_module_tags WHERE module_name = ?', [manifest.name]);
+      await connection.execute('DELETE FROM sys_module_dependencies WHERE module_name = ?', [manifest.name]);
+      await connection.execute('DELETE FROM sys_module_permissions WHERE module_name = ?', [manifest.name]);
+      await connection.execute('DELETE FROM sys_module_menus WHERE module_name = ?', [manifest.name]);
+      await connection.execute('DELETE FROM sys_module_backend WHERE module_name = ?', [manifest.name]);
+      await connection.execute('DELETE FROM sys_module_frontend WHERE module_name = ?', [manifest.name]);
+      await connection.execute('DELETE FROM sys_module_api_endpoints WHERE module_name = ?', [manifest.name]);
+
+      if (manifest.tags && Array.isArray(manifest.tags)) {
+        for (const tag of manifest.tags) {
+          await connection.execute(
+            `INSERT INTO sys_module_tags (id, module_name, tag) VALUES (?, ?, ?)`,
+            [uuidv4(), manifest.name, tag]
+          );
+        }
+      }
+
+      if (manifest.dependencies) {
+        for (const [depName, versionRange] of Object.entries(manifest.dependencies)) {
+          if (['uuid', 'openai', 'mysql2', 'express', 'axios', 'fs', 'path'].includes(depName)) {
+            console.warn(`[ModuleRegistry] Stability Fix: Ignoring invalid dependency '${depName}' for module '${manifest.name}'`);
+            continue;
+          }
+
+          await connection.execute(
+            `INSERT INTO sys_module_dependencies (id, module_name, dependency_name, version_range) VALUES (?, ?, ?, ?)`,
+            [uuidv4(), manifest.name, depName, versionRange]
+          );
+        }
+      }
+
+      if (manifest.permissions && Array.isArray(manifest.permissions)) {
+        for (const perm of manifest.permissions) {
+          if (typeof perm === 'string') {
+            const pStr = perm as string;
+            const parts = pStr.split(':');
+            const code = pStr;
+            const name = parts[1] ? `${parts[0]} ${parts[1]}` : pStr;
+            const description = `Permission to ${name}`;
+            await connection.execute(
+              `INSERT INTO sys_module_permissions (id, module_name, code, name, description) VALUES (?, ?, ?, ?, ?)`,
+              [uuidv4(), manifest.name, code, name, description]
+            );
+          } else if (typeof perm === 'object' && (perm as any).code) {
+            const pObj = perm as any;
+            await connection.execute(
+              `INSERT INTO sys_module_permissions (id, module_name, code, name, description) VALUES (?, ?, ?, ?, ?)`,
+              [uuidv4(), manifest.name, pObj.code, pObj.name, pObj.description || null]
+            );
+          }
+        }
+      }
+
+      if (manifest.menus && Array.isArray(manifest.menus)) {
+        for (const menu of manifest.menus) {
+          await connection.execute(
+            `INSERT INTO sys_module_menus (id, module_name, menu_id, title, path, icon, parent_id, sort_order, permission_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [uuidv4(), manifest.name, menu.id, menu.title, menu.path, menu.icon || null, menu.parentId || null, menu.sortOrder || 0, menu.permission || null]
+          );
+        }
+      }
+
+      if (manifest.backend) {
+        await connection.execute(
+          `INSERT INTO sys_module_backend (module_name, entry_file, routes_prefix, routes_file) VALUES (?, ?, ?, ?)`,
+          [manifest.name, manifest.backend.entry, manifest.backend.routes?.prefix || null, manifest.backend.routes?.file || null]
+        );
+      }
+
+      if (manifest.frontend) {
+        await connection.execute(
+          `INSERT INTO sys_module_frontend (module_name, entry_file, routes_file) VALUES (?, ?, ?)`,
+          [manifest.name, manifest.frontend.entry, manifest.frontend.routes || null]
+        );
+      }
+
+      if (manifest.api?.endpoints && Array.isArray(manifest.api.endpoints)) {
+        for (const endpoint of manifest.api.endpoints) {
+          await connection.execute(
+            `INSERT INTO sys_module_api_endpoints (id, module_name, method, path, description, permission_code) VALUES (?, ?, ?, ?, ?, ?)`,
+            [uuidv4(), manifest.name, endpoint.method, endpoint.path, endpoint.description || null, endpoint.permission || null]
+          );
+        }
+      }
+
+      await connection.commit();
+
+      this.moduleCache.set(manifest.name, {
+        manifest,
+        status: existingInfo.status,
+        error: existingInfo.error,
+        loadedAt: new Date()
+      });
+
+      console.log(`Module ${manifest.name} manifest synced successfully`);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  /**
    * 注销模块
    */
   async unregister(moduleName: string): Promise<void> {

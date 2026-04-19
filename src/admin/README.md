@@ -1,41 +1,36 @@
 # Admin Backend Module
 
-后台管理模块，提供用户管理、权限控制、系统配置以及 AI 服务的后台支撑接口。
+`src/admin/` 现在只承担两类职责：
 
-## 📦 功能模块
+1. 管理后台的核心基础设施：数据库初始化、权限中间件、通用响应工具。
+2. 少量兼容层：为了兼容旧接口而保留的适配代码，例如旧字段映射、旧服务包装。
 
-### 1. 核心模块 (core/)
-- **auth/**: JWT 认证、权限中间件
-- **database.ts**: 数据库连接池、初始化脚本
-- **utils/**: 通用工具函数
+## 边界约束
 
-### 2. 业务模块 (modules/)
-- **ai/**: AI 配置管理、聊天记录、知识库
-- **datasource/**: 数据源管理（连接测试、Schema同步）
-- **system/**: 系统配置、菜单管理、角色管理
-- **user/**: 用户管理
+- 新的业务功能不要再落到 `src/admin/modules/*`。
+- 新的业务能力统一创建到 `modules/<module-name>/`。
+- 如果必须兼容旧接口，只在 `src/admin/modules/*` 保留一层薄适配，真实业务逻辑仍放在 `modules/*`。
 
-## 🗄️ 数据库表结构
+## 当前目录职责
 
-主要数据表（均以 `sys_` 开头）：
+### `core/`
+- 数据库连接池、初始化脚本、模块注册辅助
 
-| 表名 | 说明 |
-|------|------|
-| `sys_users` | 用户信息 |
-| `sys_roles` | 角色定义 |
-| `sys_menus` | 系统菜单 |
-| `sys_ai_configs` | AI 模型配置 |
-| `sys_datasource_config` | 数据源配置 |
-| `sys_chat_history` | AI 问答历史 |
-| `sys_schema_analysis` | 数据库 Schema 分析缓存 |
+### `middleware/`
+- 权限校验、审计等后台中间件
 
-## 🚀 常用命令
+### `utils/`
+- 通用响应和工具函数
 
-### 初始化数据库
-应用启动时会自动检测并初始化表结构。如需手动重置，可调用 `initAdminTables()` 函数。
+### `modules/`
+- 仅保留兼容层，不再新增真实业务实现
 
-### 添加新模块
-1. 在 `modules/` 下创建新文件夹
-2. 创建 `service.ts` 处理业务逻辑
-3. 创建 `controller.ts` 处理 HTTP 请求
-4. 在 `router.ts` 中注册路由
+## 模块化开发
+
+建议直接使用模块脚手架命令创建新模块：
+
+```bash
+npm run module:create -- your-module-name --display-name 你的模块名
+```
+
+更多约定见 `docs/module-development.md`。

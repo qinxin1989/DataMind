@@ -28,17 +28,14 @@
     }
   },
   "frontend": {
-    "entry": "./frontend/index.ts",
-    "routes": "./frontend/routes.ts",
-    "components": {
-      "CrawlerAssistant": "./frontend/views/CrawlerAssistant.vue"
-    }
+    "integration": "admin-ui",
+    "entry": "./frontend/index.ts"
   },
   "menus": [
     {
       "id": "ai-crawler-assistant",
       "title": "AI 爬虫助手",
-      "path": "/ai/crawler-assistant",
+      "path": "/collection/assistant",
       "icon": "RobotOutlined",
       "parentId": "data-collection",
       "sortOrder": 1,

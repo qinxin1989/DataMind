@@ -2,8 +2,24 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '@/types'
 
+const USER_STORAGE_KEY = 'currentUser'
+
+function readStoredUser(): User | null {
+  const raw = localStorage.getItem(USER_STORAGE_KEY)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return JSON.parse(raw) as User
+  } catch {
+    localStorage.removeItem(USER_STORAGE_KEY)
+    return null
+  }
+}
+
 export const useUserStore = defineStore('user', () => {
-  const currentUser = ref<User | null>(null)
+  const currentUser = ref<User | null>(readStoredUser())
   const token = ref<string | null>(localStorage.getItem('token'))
 
   const isLoggedIn = computed(() => !!token.value && !!currentUser.value)
@@ -12,6 +28,7 @@ export const useUserStore = defineStore('user', () => {
 
   function setUser(user: User) {
     currentUser.value = user
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user))
   }
 
   function setToken(newToken: string) {
@@ -23,6 +40,7 @@ export const useUserStore = defineStore('user', () => {
     currentUser.value = null
     token.value = null
     localStorage.removeItem('token')
+    localStorage.removeItem(USER_STORAGE_KEY)
   }
 
   return {

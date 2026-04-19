@@ -21,14 +21,14 @@
     }
   },
   "frontend": {
-    "entry": "./frontend/index.ts",
-    "routes": "./frontend/routes.ts"
+    "integration": "admin-ui",
+    "entry": "./frontend/index.ts"
   },
   "menus": [
     {
       "id": "notification-main",
       "title": "通知中心",
-      "path": "/notification",
+      "path": "/system/notification",
       "icon": "BellOutlined",
       "parentId": "system-management",
       "sortOrder": 904,

@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { authApi, normalizeAuthUser, normalizePermissions } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 import { usePermissionStore } from '@/stores/permission'
+import { ensureModuleRoutesReady } from './moduleRoutes'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -11,6 +13,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
+    name: 'AdminRoot',
     component: () => import('@/layouts/AdminLayout.vue'),
     redirect: '/workbench',
     children: [
@@ -30,8 +33,15 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'ai',
         name: 'AIManagement',
+        redirect: '/ai/chat',
         meta: { title: 'AI创新中心', icon: 'RobotOutlined' },
         children: [
+          {
+            path: '/ai/assistant',
+            name: 'UnifiedAssistant',
+            component: () => import('@/views/ai/assistant.vue'),
+            meta: { title: '智能助手工作台' },
+          },
           {
             path: '/ai/chat',
             name: 'AIChat',
@@ -90,30 +100,6 @@ const routes: RouteRecordRaw[] = [
             meta: { title: '对话历史' },
           },
           {
-            path: '/ai/crawler',
-            name: 'AICrawler',
-            component: () => import('@/views/ai/crawler.vue'),
-            meta: { title: '爬虫管理' },
-          },
-          {
-            path: '/ai/crawler-results',
-            name: 'AICrawlerResults',
-            component: () => import('@/views/ai/crawler-results.vue'),
-            meta: { title: '采集结果库' },
-          },
-          {
-            path: '/ai/crawler-template-config',
-            name: 'CrawlerTemplateConfig',
-            component: () => import('@/views/ai/crawler-template-config.vue'),
-            meta: { title: '采集模板配置' },
-          },
-          {
-            path: '/ai/crawler-assistant',
-            name: 'AICrawlerAssistant',
-            component: () => import('@/views/ai/crawler-assistant.vue'),
-            meta: { title: 'AI爬虫助手' },
-          },
-          {
             path: '/ai/ocr',
             name: 'AIOCR',
             component: () => import('@/views/ai/ocr.vue'),
@@ -122,29 +108,63 @@ const routes: RouteRecordRaw[] = [
         ],
       },
       {
-        path: 'tools',
-        name: 'Tools',
-        meta: { title: '工具箱', icon: 'ToolOutlined' },
+        path: 'data',
+        name: 'DataCenter',
+        redirect: '/data/sources',
+        meta: { title: '数据资源中心', icon: 'DatabaseOutlined' },
         children: [
           {
-            path: '/tools/file',
-            name: 'FileTools',
-            component: () => import('@/views/tools/file/index.vue'),
-            meta: { title: '文件工具' },
+            path: 'sources',
+            name: 'DatasourceManagement',
+            component: () => import('@/views/datasource/index.vue'),
+            meta: { title: '数据源管理', icon: 'DatabaseOutlined' },
           },
           {
-            path: '/tools/efficiency',
-            name: 'EfficiencyTools',
-            component: () => import('@/views/tools/efficiency/index.vue'),
-            meta: { title: '效率工具' },
+            path: 'approval',
+            name: 'DatasourceApproval',
+            component: () => import('@/views/datasource/approval.vue'),
+            meta: { title: '数据源审核', icon: 'AuditOutlined' },
+          },
+        ],
+      },
+      {
+        path: 'collection',
+        name: 'DataCollectionCenter',
+        redirect: '/collection/assistant',
+        meta: { title: '数据采集中心', icon: 'FileSearchOutlined' },
+        children: [
+          {
+            path: 'assistant',
+            name: 'AICrawlerAssistant',
+            component: () => import('@/views/ai/crawler-assistant.vue'),
+            meta: { title: 'AI爬虫助手' },
           },
           {
-            path: '/tools/official-doc',
-            name: 'OfficialDoc',
-            component: () => import('@/views/tools/official-doc/index.vue'),
-            meta: { title: '公文写作' },
+            path: 'templates',
+            name: 'CrawlerTemplateConfig',
+            component: () => import('@/views/ai/crawler-template-config.vue'),
+            meta: { title: '采集模板配置' },
           },
-        ]
+          {
+            path: 'crawlers',
+            name: 'AICrawler',
+            component: () => import('@/views/ai/crawler.vue'),
+            meta: { title: '爬虫管理' },
+          },
+          {
+            path: 'results',
+            name: 'AICrawlerResults',
+            component: () => import('@/views/ai/crawler-results.vue'),
+            meta: { title: '采集结果库' },
+          },
+        ],
+      },
+      {
+        path: 'tools',
+        name: 'Tools',
+        redirect: '/tools/file',
+        meta: { title: '工具箱', icon: 'ToolOutlined' },
+        children: []
       },
       {
         path: 'data-processing',
@@ -153,25 +173,23 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '数据处理', icon: 'BarChartOutlined' },
       },
       {
-        path: 'datasource',
-        meta: { title: '数据源管理', icon: 'DatabaseOutlined' },
+        path: 'ops',
+        name: 'OpsManagement',
+        redirect: '/ops/monitoring',
+        meta: { title: '运维管理', icon: 'DashboardOutlined' },
         children: [
           {
-            path: '',
-            name: 'DatasourceManagement',
-            component: () => import('@/views/datasource/index.vue'),
+            path: 'monitoring',
+            name: 'SystemMonitoring',
+            component: () => import('@/views/system/monitoring.vue'),
+            meta: { title: '系统监控' },
           },
-          {
-            path: 'approval',
-            name: 'DatasourceApproval',
-            component: () => import('@/views/datasource/approval.vue'),
-            meta: { title: '数据源审核', icon: 'AuditOutlined' },
-          },
-        ]
+        ],
       },
       {
         path: 'system',
         name: 'SystemManagement',
+        redirect: '/system/users',
         meta: { title: '系统管理', icon: 'SettingOutlined' },
         children: [
           {
@@ -196,19 +214,13 @@ const routes: RouteRecordRaw[] = [
             path: '/system/config',
             name: 'SystemConfig',
             component: () => import('@/views/system/config.vue'),
-            meta: { title: '系统配置', permission: 'system:config:view' },
+            meta: { title: '系统配置', permission: 'system-config:view' },
           },
           {
             path: '/system/status',
             name: 'SystemStatus',
             component: () => import('@/views/system/status.vue'),
-            meta: { title: '系统状态', permission: 'system:status:view' },
-          },
-          {
-            path: '/system/monitoring',
-            name: 'SystemMonitoring',
-            component: () => import('@/views/system/monitoring.vue'),
-            meta: { title: '系统监控' },
+            meta: { title: '系统状态', permission: 'system-config:view' },
           },
           {
             path: '/system/audit',
@@ -220,7 +232,7 @@ const routes: RouteRecordRaw[] = [
             path: '/system/backup',
             name: 'SystemBackup',
             component: () => import('@/views/system/backup.vue'),
-            meta: { title: '备份恢复', permission: 'system:backup:view' },
+            meta: { title: '备份恢复', permission: 'system-backup:view' },
           },
           {
             path: '/system/modules',
@@ -234,13 +246,53 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/system/templateOptimizer.vue'),
             meta: { title: '模板优化', permission: 'template:optimize' },
           },
+          {
+            path: 'notification',
+            name: 'NotificationCenter',
+            component: () => import('@/views/notification/index.vue'),
+            meta: { title: '通知中心', icon: 'BellOutlined', permission: 'notification:view' },
+          },
         ],
       },
       {
-        path: 'notification',
-        name: 'NotificationCenter',
-        component: () => import('@/views/notification/index.vue'),
-        meta: { title: '通知中心', icon: 'BellOutlined' },
+        path: '/notification',
+        name: 'NotificationLegacyRedirect',
+        redirect: '/system/notification',
+      },
+      {
+        path: '/datasource',
+        name: 'DatasourceLegacyRedirect',
+        redirect: '/data/sources',
+      },
+      {
+        path: '/datasource/approval',
+        name: 'DatasourceApprovalLegacyRedirect',
+        redirect: '/data/approval',
+      },
+      {
+        path: '/ai/crawler-assistant',
+        name: 'AICrawlerAssistantLegacyRedirect',
+        redirect: '/collection/assistant',
+      },
+      {
+        path: '/ai/crawler-template-config',
+        name: 'CrawlerTemplateLegacyRedirect',
+        redirect: '/collection/templates',
+      },
+      {
+        path: '/ai/crawler',
+        name: 'AICrawlerLegacyRedirect',
+        redirect: '/collection/crawlers',
+      },
+      {
+        path: '/ai/crawler-results',
+        name: 'AICrawlerResultsLegacyRedirect',
+        redirect: '/collection/results',
+      },
+      {
+        path: '/system/monitoring',
+        name: 'SystemMonitoringLegacyRedirect',
+        redirect: '/ops/monitoring',
       },
       {
         path: 'dashboard/list',
@@ -269,10 +321,65 @@ const router = createRouter({
   routes,
 })
 
+let sessionBootstrapPromise: Promise<boolean> | null = null
+
+async function ensureSessionReady() {
+  const userStore = useUserStore()
+  const permissionStore = usePermissionStore()
+
+  if (!userStore.token) {
+    return false
+  }
+
+  if (userStore.currentUser && permissionStore.hydrated) {
+    return true
+  }
+
+  if (!sessionBootstrapPromise) {
+    sessionBootstrapPromise = authApi.getCurrentSession()
+      .then((res: any) => {
+        const payload = res?.data ?? res
+        if (!payload?.user) {
+          throw new Error('未获取到当前用户信息')
+        }
+
+        userStore.setUser(normalizeAuthUser(payload.user))
+        return permissionStore.loadPermissions(normalizePermissions(payload.permissions))
+          .then(() => true)
+      })
+      .catch(() => {
+        permissionStore.reset()
+        userStore.logout()
+        return false
+      })
+      .finally(() => {
+        sessionBootstrapPromise = null
+      })
+  }
+
+  return sessionBootstrapPromise
+}
+
 // 路由守卫
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   // 设置页面标题
   document.title = `${to.meta.title || '管理后台'} - Admin`
+
+  const userStore = useUserStore()
+  const permissionStore = usePermissionStore()
+  const isNotFoundRoute = to.name === 'NotFound'
+
+  if (isNotFoundRoute && userStore.token) {
+    const sessionReady = await ensureSessionReady()
+    if (sessionReady) {
+      await ensureModuleRoutesReady(router)
+      const resolved = router.resolve(to.fullPath)
+      if (resolved.name && resolved.name !== 'NotFound') {
+        next({ path: to.fullPath, replace: true })
+        return
+      }
+    }
+  }
 
   // 公开页面直接放行
   if (to.meta.public) {
@@ -280,14 +387,19 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  const userStore = useUserStore()
-  const permissionStore = usePermissionStore()
-
   // 未登录跳转登录页
   if (!userStore.token) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
     return
   }
+
+  const sessionReady = await ensureSessionReady()
+  if (!sessionReady) {
+    next({ name: 'Login', query: { redirect: to.fullPath } })
+    return
+  }
+
+  await ensureModuleRoutesReady(router)
 
   // 检查权限
   const requiredPermission = to.meta.permission as string | undefined

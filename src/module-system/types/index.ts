@@ -38,6 +38,7 @@ export interface ModuleManifest {
 
   // 前端配置
   frontend?: {
+    integration?: 'module' | 'admin-ui';
     entry: string;
     routes?: string;
     components?: Record<string, string>;

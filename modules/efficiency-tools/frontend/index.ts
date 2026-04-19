@@ -2,12 +2,15 @@
  * 效率工具模块前端入口
  */
 
-import type { App } from 'vue';
+import routes from './routes';
 
-export function install(app: App) {
+export { routes };
+
+export function install() {
   console.log('[EfficiencyTools] 前端模块已加载');
 }
 
 export default {
-  install
+  routes,
+  install,
 };

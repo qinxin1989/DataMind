@@ -6,6 +6,7 @@
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs/promises';
 
 const execAsync = promisify(exec);
 
@@ -18,22 +19,26 @@ export async function testModule(moduleName: string, options: TestOptions): Prom
   console.log(`Running tests for module: ${moduleName}`);
 
   const modulePath = path.join(process.cwd(), 'modules', moduleName);
+  const testPath = path.join(process.cwd(), 'tests', 'modules', moduleName);
 
   try {
-    let command = 'npm test';
-    
+    await fs.access(modulePath);
+    await fs.access(testPath);
+
+    let command = `npx vitest run ${testPath}`;
+
     if (options.coverage) {
-      command += ' -- --coverage';
+      command += ' --coverage';
     }
-    
+
     if (options.watch) {
-      command += ' -- --watch';
+      command = `npx vitest ${testPath} --watch${options.coverage ? ' --coverage' : ''}`;
     }
 
     console.log(`Executing: ${command}`);
-    
+
     const { stdout, stderr } = await execAsync(command, {
-      cwd: modulePath,
+      cwd: process.cwd(),
       maxBuffer: 1024 * 1024 * 10 // 10MB buffer
     });
 
@@ -47,6 +52,10 @@ export async function testModule(moduleName: string, options: TestOptions): Prom
 
     console.log(`✅ Tests completed for module ${moduleName}`);
   } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      console.error(`❌ 未找到模块目录或测试目录: ${moduleName}`);
+      process.exit(1);
+    }
     console.error(`❌ Tests failed: ${error.message}`);
     if (error.stdout) {
       console.log(error.stdout);

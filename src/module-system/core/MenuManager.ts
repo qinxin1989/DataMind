@@ -32,16 +32,35 @@ export class MenuManager {
    * 注册模块菜单
    */
   async registerMenus(moduleName: string, menus: MenuConfig[]): Promise<void> {
-    if (!menus || menus.length === 0) {
-      return;
-    }
+    const declaredMenus = menus || [];
 
     try {
       await transaction(async (conn) => {
-        for (const menu of menus) {
+        if (declaredMenus.length === 0) {
+          await query(
+            'DELETE FROM sys_menus WHERE module_name = ?',
+            [moduleName],
+            conn
+          );
+          return;
+        }
+
+        const declaredMenuIds = declaredMenus.map(menu => menu.id);
+        const placeholders = declaredMenuIds.map(() => '?').join(', ');
+
+        // 模块菜单以当前 manifest 为准，先清理已从 module.json 移除的旧菜单
+        await query(
+          `DELETE FROM sys_menus
+           WHERE module_name = ?
+             AND id NOT IN (${placeholders})`,
+          [moduleName, ...declaredMenuIds],
+          conn
+        );
+
+        for (const menu of declaredMenus) {
           // 检查菜单是否已存在
           const existing = await query(
-            'SELECT id FROM sys_menus WHERE id = ?',
+            'SELECT id, module_name FROM sys_menus WHERE id = ?',
             [menu.id],
             conn
           );
@@ -66,12 +85,38 @@ export class MenuManager {
               conn
             );
           } else {
-            // 菜单已存在 — 认领归属：确保 module_name 已设置
-            // 这样模块卸载时 DELETE WHERE module_name=? 才能正确清理
-            // 不覆盖用户在 UI 中修改过的标题、图标、排序等配置
+            const existingMenu = existing[0] as { id: string; module_name?: string | null };
+            const currentModuleName = existingMenu.module_name || null;
+
+            if (currentModuleName && currentModuleName !== moduleName) {
+              console.warn(
+                `菜单 ${menu.id} 已归属模块 ${currentModuleName}，跳过模块 ${moduleName} 的覆盖注册`
+              );
+              continue;
+            }
+
+            // 模块菜单以 module.json 为准，启动时自动纠正历史脏数据
             await query(
-              `UPDATE sys_menus SET module_name = ? WHERE id = ? AND (module_name IS NULL OR module_name = '')`,
-              [moduleName, menu.id],
+              `UPDATE sys_menus
+               SET title = ?,
+                   path = ?,
+                   icon = ?,
+                   parent_id = ?,
+                   sort_order = ?,
+                   permission_code = ?,
+                   module_name = ?,
+                   updated_at = NOW()
+               WHERE id = ?`,
+              [
+                menu.title,
+                menu.path,
+                menu.icon || null,
+                menu.parentId || null,
+                menu.sortOrder,
+                menu.permission || null,
+                moduleName,
+                menu.id
+              ],
               conn
             );
           }

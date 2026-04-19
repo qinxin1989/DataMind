@@ -25,12 +25,8 @@
     }
   },
   "frontend": {
-    "entry": "./frontend/index.ts",
-    "routes": "./frontend/routes.ts",
-    "components": {
-      "SkillsList": "./frontend/views/SkillsList.vue",
-      "SkillExecutor": "./frontend/views/SkillExecutor.vue"
-    }
+    "integration": "admin-ui",
+    "entry": "./frontend/index.ts"
   },
   "menus": [],
   "permissions": [

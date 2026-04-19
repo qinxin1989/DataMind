@@ -45,7 +45,7 @@
         </a-list>
       </a-spin>
       <div class="notification-footer">
-        <router-link to="/notification" @click="visible = false">查看全部</router-link>
+        <router-link to="/system/notification" @click="visible = false">查看全部</router-link>
       </div>
     </template>
     <a-badge :count="unreadCount" :offset="[-2, 2]">

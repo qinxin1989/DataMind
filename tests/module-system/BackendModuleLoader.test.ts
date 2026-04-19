@@ -16,7 +16,7 @@ describe('BackendModuleLoader', () => {
   const testModulesDir = 'test-modules';
 
   beforeEach(() => {
-    loader = new BackendModuleLoader(testModulesDir);
+    loader = new BackendModuleLoader(testModulesDir, false, false);
     vi.clearAllMocks();
   });
 

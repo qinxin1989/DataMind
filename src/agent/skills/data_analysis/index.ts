@@ -9,6 +9,22 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { SkillDefinition } from '../registry';
 
+function pickParam<T = any>(params: Record<string, any>, ...keys: string[]): T | undefined {
+  for (const key of keys) {
+    if (params[key] !== undefined) {
+      return params[key] as T;
+    }
+  }
+  return undefined;
+}
+
+function parseJsonValue<T = any>(value: any): T {
+  if (typeof value === 'string') {
+    return JSON.parse(value) as T;
+  }
+  return value as T;
+}
+
 /**
  * 执行 Python 代码（通过 child_process）
  */
@@ -22,12 +38,12 @@ const executePython: SkillDefinition = {
     { name: 'timeout', type: 'number', description: '超时时间（秒）', required: false },
   ],
   execute: async (params) => {
-    const code = params.code;
+    const code = pickParam<string>(params, 'code');
     if (!code || !code.trim()) {
       return { success: false, message: 'Error: Python 代码不能为空' };
     }
 
-    const timeout = ((params.timeout || 180) * 1000);
+    const timeout = (Number(pickParam(params, 'timeout')) || 180) * 1000;
 
     // 写入临时 .py 文件
     const tmpDir = path.join(process.env.TEMP || '/tmp', 'datamind-python');
@@ -106,8 +122,14 @@ const createVisualization: SkillDefinition = {
     { name: 'yLabel', type: 'string', description: 'Y 轴标签', required: false },
   ],
   execute: async (params) => {
-    const outputPath = path.resolve(params.outputPath);
-    const chartType = params.chartType || 'bar';
+    const outputPath = path.resolve(
+      pickParam<string>(params, 'outputPath', 'output_path') || 'outputs/chart.png'
+    );
+    const chartType = pickParam<string>(params, 'chartType', 'chart_type') || 'bar';
+    const title = pickParam<string>(params, 'title') || '数据图表';
+    const xLabel = pickParam<string>(params, 'xLabel', 'x_label');
+    const yLabel = pickParam<string>(params, 'yLabel', 'y_label');
+    const chartData = JSON.stringify(parseJsonValue(pickParam(params, 'data')));
 
     // 通过 Python matplotlib 生成
     const pyCode = `
@@ -118,7 +140,7 @@ import matplotlib.pyplot as plt
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
-data = json.loads('''${params.data.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}''')
+data = json.loads('''${chartData.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}''')
 fig, ax = plt.subplots(figsize=(10, 6))
 
 chart_type = '${chartType}'
@@ -143,9 +165,9 @@ elif chart_type == 'histogram':
 elif chart_type == 'box':
     ax.boxplot(data)
 
-ax.set_title('${params.title.replace(/'/g, "\\'")}')
-${params.xLabel ? `ax.set_xlabel('${params.xLabel.replace(/'/g, "\\'")}')` : ''}
-${params.yLabel ? `ax.set_ylabel('${params.yLabel.replace(/'/g, "\\'")}')` : ''}
+ax.set_title('${title.replace(/'/g, "\\'")}')
+${xLabel ? `ax.set_xlabel('${xLabel.replace(/'/g, "\\'")}')` : ''}
+${yLabel ? `ax.set_ylabel('${yLabel.replace(/'/g, "\\'")}')` : ''}
 plt.tight_layout()
 os.makedirs(os.path.dirname('${outputPath.replace(/\\/g, '/')}') or '.', exist_ok=True)
 plt.savefig('${outputPath.replace(/\\/g, '/')}', dpi=150, bbox_inches='tight')
@@ -186,7 +208,7 @@ const statisticalAnalysis: SkillDefinition = {
   ],
   execute: async (params) => {
     try {
-      const values: number[] = JSON.parse(params.data);
+      const values = parseJsonValue<number[]>(pickParam(params, 'data'));
       if (!Array.isArray(values) || values.length === 0) {
         return { success: false, message: 'Error: 数据必须是非空数值列表' };
       }
@@ -241,7 +263,7 @@ const pythonEval: SkillDefinition = {
     { name: 'expression', type: 'string', description: 'Python 表达式', required: true },
   ],
   execute: async (params) => {
-    const expr = (params.expression || '').trim();
+    const expr = (pickParam<string>(params, 'expression') || '').trim();
     if (!expr) return { success: false, message: 'Error: 表达式不能为空' };
 
     return new Promise((resolve) => {
@@ -260,9 +282,22 @@ const pythonEval: SkillDefinition = {
   },
 };
 
+const resetExecutionContext: SkillDefinition = {
+  name: 'dataAnalysis.resetExecutionContext',
+  category: 'data_analysis',
+  displayName: '重置执行环境',
+  description: '重置 Python 执行上下文（当前实现为无状态执行，会清理临时脚本和缓存提示）',
+  parameters: [],
+  execute: async () => ({
+    success: true,
+    message: '当前数据分析执行器为无状态模式，临时执行上下文已重置。'
+  }),
+};
+
 export const dataAnalysisSkills: SkillDefinition[] = [
   executePython,
   createVisualization,
   statisticalAnalysis,
   pythonEval,
+  resetExecutionContext,
 ];

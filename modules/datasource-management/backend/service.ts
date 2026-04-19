@@ -249,18 +249,37 @@ export class DataSourceService {
         // 创建新连接
         switch (ds.type) {
             case 'mysql':
-                connection = new MySQLDataSource(ds);
+                connection = new MySQLDataSource({
+                    host: ds.host,
+                    port: ds.port,
+                    username: ds.username,
+                    password: ds.password,
+                    database: ds.database,
+                });
                 break;
             case 'postgres':
-                connection = new PostgresDataSource(ds);
+                connection = new PostgresDataSource({
+                    host: ds.host,
+                    port: ds.port,
+                    username: ds.username,
+                    password: ds.password,
+                    database: ds.database,
+                });
                 break;
             case 'file':
             case 'excel':
             case 'csv':
-                connection = new FileDataSource(ds);
+                connection = new FileDataSource({
+                    path: ds.filePath || '',
+                    fileType: ds.type === 'excel' ? 'xlsx' : ds.type === 'csv' ? 'csv' : 'json',
+                });
                 break;
             case 'api':
-                connection = new ApiDataSource(ds);
+                connection = new ApiDataSource({
+                    url: ds.apiUrl || '',
+                    method: 'GET',
+                    headers: ds.apiKey ? { Authorization: `Bearer ${ds.apiKey}` } : undefined,
+                });
                 break;
             default:
                 throw new Error(`不支持的数据源类型: ${ds.type}`);

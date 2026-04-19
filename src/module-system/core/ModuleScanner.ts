@@ -198,6 +198,15 @@ export class ModuleScanner {
       }
     }
 
+    // 验证前端组件文件
+    if (manifest.frontend?.components) {
+      for (const [componentName, componentPath] of Object.entries(manifest.frontend.components)) {
+        if (!await checkFile(componentPath)) {
+          errors.push(`Frontend component file not found: ${componentName} -> ${componentPath}`);
+        }
+      }
+    }
+
     // 验证迁移目录
     if (manifest.backend?.migrations?.directory) {
       const migrationsPath = path.join(modulePath, manifest.backend.migrations.directory);

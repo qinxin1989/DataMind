@@ -5,7 +5,6 @@
 
 import * as path from 'path';
 import { ModuleScanner } from '../../core/ModuleScanner';
-import { ManifestParser } from '../../core/ManifestParser';
 
 interface ValidateOptions {
   strict?: boolean;
@@ -20,7 +19,8 @@ export async function validateModule(moduleName: string, options: ValidateOption
   try {
     // 扫描模块
     const result = await scanner.scanModule(moduleName, {
-      validateStructure: true
+      validateStructure: true,
+      includeDisabled: true,
     });
 
     // 显示验证结果

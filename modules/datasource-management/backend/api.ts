@@ -43,6 +43,7 @@ export class ApiDataSource extends BaseDataSource {
         nullable: true,
       }));
       this.schema = {
+        name: 'api_data',
         tableName: 'api_data',
         columns,
         sampleData: this.data.slice(0, 3),

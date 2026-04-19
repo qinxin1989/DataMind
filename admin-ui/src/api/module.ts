@@ -14,6 +14,7 @@ export interface ModuleSummary {
   error: string | null
   hasBackend: boolean
   hasFrontend: boolean
+  frontendIntegration: 'module' | 'admin-ui' | null
   menuCount: number
   permissionCount: number
   apiCount: number
@@ -26,7 +27,7 @@ export interface ModuleDetail extends Omit<ModuleSummary, 'hasBackend' | 'hasFro
   permissions: any[]
   api: { endpoints?: any[] } | null
   backend: { entry: string; routesPrefix?: string } | null
-  frontend: { entry: string } | null
+  frontend: { entry: string; routes?: string; integration: 'module' | 'admin-ui' } | null
 }
 
 export const moduleApi = {

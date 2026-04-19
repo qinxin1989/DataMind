@@ -53,3 +53,49 @@
 
 ## Phase 4: 验证
 - [x] 编译验证通过（新修改文件 0 错误）
+
+---
+
+# Plan C — 单助手工作台收口
+
+## Phase 1: 隔离五模式残留
+- [x] 1a: `src/index.ts` 中 `/api/agent/chat` 兼容入口改为单助手提示，不再按五种业务模式分流
+- [x] 1b: `src/assistant/routes.ts` 限制产物文件访问根路径，避免兼容入口继续放大旧逻辑风险
+
+## Phase 2: 工作台补齐参考交互
+- [x] 2a: `admin-ui/src/views/ai/assistant.vue` 改回单助手工作台布局，保留会话侧栏 + 连续对话主区
+- [x] 2b: 补齐消息对复制/删除、图片预览、状态反馈、加载更多、会话重命名/删除
+- [x] 2c: 补齐拖拽/粘贴上传，附件继续走独立工作流
+
+## Phase 3: 验证
+- [x] 3a: 后端 `npm run build` 编译通过
+- [x] 3b: 前端 `npm --prefix admin-ui run build` 编译通过
+- [x] 3c: `npm start` 启动验证通过（服务成功监听 `http://localhost:3000`）
+- [x] 3d: 浏览器级回归：登录后检查 `/ai/assistant` 与 `/ai/chat` 的真实交互链路
+
+## Phase 4: 清理旧五模式兼容层
+- [x] 4a: `modules/ai-qa/backend/service.ts` 改为本模块固定的数据问答画像，不再依赖 `src/assistant/router.ts`
+- [x] 4b: `modules/ai-crawler-assistant/backend/service.ts` 改为本模块固定的采集画像，不再依赖 `src/assistant/router.ts`
+- [x] 4c: 删除 `src/assistant/router.ts` / `src/assistant/profiles.ts` 旧五模式分流实现，避免后续误接
+- [x] 4d: 删除 `tests/core/assistantRouter.test.ts` / `tests/core/assistantProfiles.test.ts` 旧分流测试，避免把已下线能力继续当作基线
+
+## Phase 5: 菜单与模块化前端回归
+- [x] 5a: 运行 `scripts/smoke-menu-routes.ts`，验证当前 34 条菜单路径全部可打开，无 404
+- [x] 5b: 修复 `tests/core/menuRouteCoverage.test.ts`，让路由覆盖校验同时识别静态主路由与动态模块路由
+- [x] 5c: 运行 `tests/core/menuSync.test.ts` 与 `tests/core/menuRouteCoverage.test.ts`，确认菜单同步和路由覆盖测试通过
+
+---
+
+# Plan D — 旧版数据问答接入分析类/报告类技能
+
+## Phase 1: 旧链路技能路由补齐
+- [x] 1a: `src/agent/index.ts` 扩展 `planAction()`，让旧问答可规划 `report.*` 与 `dataAnalysis.*` 技能
+- [x] 1b: 兼容旧技能名 `data_analysis.executePython` 与新注册名 `dataAnalysis.executePython`
+
+## Phase 2: 旧问答执行链打通
+- [x] 2a: `answerWithContext()` 对识别出的 `skill` 直接执行，不再二次重规划丢失意图
+- [x] 2b: 为 `report.summary / ppt / dashboard / excel / insight / compare` 补齐默认参数与结果文案
+- [x] 2c: `answer()` 兼容新的分析/报告技能结果输出，避免直接回落成原始对象
+
+## Phase 3: 验证
+- [x] 3a: 运行 `npm run build`，确认 TypeScript 编译通过

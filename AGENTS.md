@@ -139,3 +139,9 @@ Copy `.env.example` to `.env`. Key variables: `CONFIG_DB_*` (MySQL connection fo
 - Uploaded files are automatically encrypted with `fileEncryption` service.
 - The module system uses topological sorting for dependency-ordered loading.
 - Database migrations for modules live in `modules/<name>/backend/migrations/` and are managed by `MigrationManager`.
+
+## Modular Development Rule（模块化开发规则）
+- 新的业务功能统一放在 `modules/<name>/` 下开发，不再新增到 `src/admin/modules/*`。
+- `src/admin/modules/*` 仅允许保留兼容层或旧接口适配，真实业务逻辑必须落在 `modules/*`。
+- 新建模块优先使用 `npm run module:create -- <name>` 生成骨架，再补充 `module.json`、迁移、菜单、权限和测试。
+- 模块测试优先放在 `tests/modules/<name>/`；兼容层测试放 `tests/compat/`；核心和平台测试分别放 `tests/core/`、`tests/module-system/`、`tests/security/`。

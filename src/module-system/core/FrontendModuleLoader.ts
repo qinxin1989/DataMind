@@ -3,16 +3,25 @@
  * 负责动态加载和卸载前端模块
  */
 
-import type { Component, DefineComponent } from 'vue';
-import type { RouteRecordRaw } from 'vue-router';
+type FrontendComponent = any;
+
+interface FrontendRouteRecord {
+  path: string;
+  name?: string | symbol;
+  component?: FrontendComponent;
+  children?: FrontendRouteRecord[];
+  redirect?: string;
+  meta?: Record<string, any>;
+  [key: string]: any;
+}
 
 /**
  * 加载的前端模块接口
  */
 export interface LoadedFrontendModule {
   name: string;
-  routes?: RouteRecordRaw[];
-  components?: Record<string, Component>;
+  routes?: FrontendRouteRecord[];
+  components?: Record<string, FrontendComponent>;
   stores?: Record<string, any>;
   exports?: any;
 }
@@ -21,8 +30,8 @@ export interface LoadedFrontendModule {
  * 组件加载选项
  */
 export interface ComponentLoadOptions {
-  loading?: Component;
-  error?: Component;
+  loading?: FrontendComponent;
+  error?: FrontendComponent;
   delay?: number;
   timeout?: number;
 }
@@ -32,7 +41,7 @@ export interface ComponentLoadOptions {
  */
 export class FrontendModuleLoader {
   private loadedModules: Map<string, LoadedFrontendModule> = new Map();
-  private componentCache: Map<string, Component> = new Map();
+  private componentCache: Map<string, FrontendComponent> = new Map();
   private modulesBasePath: string;
 
   constructor(modulesBasePath: string = 'modules') {
@@ -141,7 +150,7 @@ export class FrontendModuleLoader {
     moduleName: string,
     componentPath: string,
     options?: ComponentLoadOptions
-  ): Component {
+  ): FrontendComponent {
     const cacheKey = `${moduleName}:${componentPath}`;
 
     // 检查缓存
@@ -156,7 +165,7 @@ export class FrontendModuleLoader {
     };
 
     // 如果提供了选项，使用 defineAsyncComponent
-    let component: Component;
+    let component: FrontendComponent;
     if (options) {
       // 注意：这里需要在实际使用时导入 defineAsyncComponent
       // import { defineAsyncComponent } from 'vue';
@@ -231,8 +240,8 @@ export class FrontendModuleLoader {
   private async loadComponents(
     moduleName: string,
     componentsConfig: Record<string, string>
-  ): Promise<Record<string, Component>> {
-    const components: Record<string, Component> = {};
+  ): Promise<Record<string, FrontendComponent>> {
+    const components: Record<string, FrontendComponent> = {};
 
     for (const [componentName, componentPath] of Object.entries(componentsConfig)) {
       try {

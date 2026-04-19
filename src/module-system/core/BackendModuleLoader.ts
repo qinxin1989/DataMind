@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import * as path from 'path';
+import { existsSync } from 'fs';
 import * as fs from 'fs/promises';
 import { ModuleManifest } from '../types';
 import { ModuleSigner } from '../security/ModuleSigner';
@@ -43,6 +44,7 @@ export class BackendModuleLoader {
   private loadedModules: Map<string, LoadedBackendModule> = new Map();
   private moduleCache: Map<string, any> = new Map();
   private modulesDirectory: string;
+  private runtimeModulesDirectory: string;
   private signer: ModuleSigner;
   private signatureVerificationEnabled: boolean = true;
   private sandboxEnabled: boolean = true;
@@ -53,6 +55,7 @@ export class BackendModuleLoader {
     enableSandbox: boolean = true
   ) {
     this.modulesDirectory = path.resolve(process.cwd(), modulesDirectory);
+    this.runtimeModulesDirectory = this.resolveRuntimeModulesDirectory(this.modulesDirectory, modulesDirectory);
     this.signer = new ModuleSigner();
     this.signatureVerificationEnabled = enableSignatureVerification;
     this.sandboxEnabled = enableSandbox;
@@ -92,7 +95,7 @@ export class BackendModuleLoader {
 
       // 加载后端入口
       if (manifest.backend?.entry) {
-        const entryPath = path.join(modulePath, manifest.backend.entry);
+        const entryPath = await this.resolveModuleFilePath(moduleName, manifest.backend.entry);
         const moduleExports = await this.loadModuleFile(entryPath);
         loadedModule.exports = moduleExports;
 
@@ -107,7 +110,7 @@ export class BackendModuleLoader {
 
       // 加载路由文件
       if (manifest.backend?.routes?.file) {
-        const routesPath = path.join(modulePath, manifest.backend.routes.file);
+        const routesPath = await this.resolveModuleFilePath(moduleName, manifest.backend.routes.file);
         const routesModule = await this.loadModuleFile(routesPath);
         if (routesModule.default || routesModule.router) {
           loadedModule.router = routesModule.default || routesModule.router;
@@ -116,7 +119,7 @@ export class BackendModuleLoader {
 
       // 加载钩子
       if (manifest.hooks) {
-        loadedModule.hooks = await this.loadHooks(modulePath, manifest.hooks);
+        loadedModule.hooks = await this.loadHooks(moduleName, manifest.hooks);
       }
 
       // 缓存加载的模块
@@ -146,6 +149,9 @@ export class BackendModuleLoader {
       // 清理模块缓存
       const modulePath = path.join(this.modulesDirectory, moduleName);
       this.clearModuleCache(modulePath);
+      if (this.runtimeModulesDirectory !== this.modulesDirectory) {
+        this.clearModuleCache(path.join(this.runtimeModulesDirectory, moduleName));
+      }
 
       // 从已加载模块中移除
       this.loadedModules.delete(moduleName);
@@ -213,13 +219,10 @@ export class BackendModuleLoader {
       // 验证文件存在
       await fs.access(filePath);
 
-      // 动态导入模块 - 使用 file:// 协议在 Windows 上
+      // 在当前项目里构建产物是 CommonJS，直接按绝对路径 require
+      // 可同时兼容开发态 tsx 和生产态 dist/*.js。
       const absolutePath = path.resolve(filePath);
-      const fileUrl = process.platform === 'win32'
-        ? `file:///${absolutePath.replace(/\\/g, '/')}`
-        : `file://${absolutePath}`;
-
-      const moduleExports = await import(fileUrl);
+      const moduleExports = require(absolutePath);
 
       // 缓存模块
       this.moduleCache.set(filePath, moduleExports);
@@ -233,13 +236,13 @@ export class BackendModuleLoader {
   /**
    * 加载钩子函数
    */
-  private async loadHooks(modulePath: string, hooksConfig: Record<string, string>): Promise<ModuleHooks> {
+  private async loadHooks(moduleName: string, hooksConfig: Record<string, string>): Promise<ModuleHooks> {
     const hooks: ModuleHooks = {};
 
     for (const [hookName, hookFile] of Object.entries(hooksConfig)) {
       if (hookFile) {
         try {
-          const hookPath = path.join(modulePath, hookFile);
+          const hookPath = await this.resolveModuleFilePath(moduleName, hookFile);
           const hookModule = await this.loadModuleFile(hookPath);
           const hookFunction = hookModule.default || hookModule[hookName];
           
@@ -285,6 +288,44 @@ export class BackendModuleLoader {
   clearAllCache(): void {
     this.moduleCache.clear();
     this.loadedModules.clear();
+  }
+
+  /**
+   * 解析运行时模块目录
+   */
+  private resolveRuntimeModulesDirectory(sourceModulesDirectory: string, modulesDirectory: string): string {
+    const defaultModulesDirectory = path.resolve(process.cwd(), 'modules');
+    if (sourceModulesDirectory !== defaultModulesDirectory) {
+      return sourceModulesDirectory;
+    }
+
+    const distCandidate = path.resolve(process.cwd(), 'dist', modulesDirectory);
+    return existsSync(distCandidate) ? distCandidate : sourceModulesDirectory;
+  }
+
+  /**
+   * 解析模块文件真实路径
+   */
+  private async resolveModuleFilePath(moduleName: string, relativeFilePath: string): Promise<string> {
+    const normalizedRelativePath = relativeFilePath.replace(/^\.?[\\/]/, '');
+    const runtimeRelativePath = this.runtimeModulesDirectory === this.modulesDirectory
+      ? normalizedRelativePath
+      : normalizedRelativePath.replace(/\.(ts|tsx)$/i, '.js');
+
+    const runtimePath = path.join(this.runtimeModulesDirectory, moduleName, runtimeRelativePath);
+    const sourcePath = path.join(this.modulesDirectory, moduleName, normalizedRelativePath);
+    const candidates = runtimePath === sourcePath ? [runtimePath] : [runtimePath, sourcePath];
+
+    for (const candidate of candidates) {
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {
+        // 继续尝试下一个候选路径
+      }
+    }
+
+    return candidates[0];
   }
 
   /**
@@ -337,12 +378,17 @@ export class BackendModuleLoader {
   private initializeSandbox(moduleName: string, manifest: ModuleManifest): void {
     // 确定权限级别
     const permissionLevel = this.determinePermissionLevel(manifest);
+    const sourceModulePath = path.join(this.modulesDirectory, moduleName);
+    const runtimeModulePath = path.join(this.runtimeModulesDirectory, moduleName);
+    const allowedPaths = runtimeModulePath === sourceModulePath
+      ? [sourceModulePath]
+      : [sourceModulePath, runtimeModulePath];
     
     // 设置基础权限
     const permissions: ModulePermissions = {
       level: permissionLevel,
       allowedPaths: [
-        path.join(this.modulesDirectory, moduleName), // 模块自己的目录
+        ...allowedPaths, // 模块自己的目录（源码 / 运行时）
         path.join(process.cwd(), 'uploads'), // 上传目录
         path.join(process.cwd(), 'data') // 数据目录
       ]
@@ -355,8 +401,8 @@ export class BackendModuleLoader {
       }
       if (manifest.permissions.allowedPaths) {
         permissions.allowedPaths = [
-          ...permissions.allowedPaths,
-          ...manifest.permissions.allowedPaths.map(p => path.join(process.cwd(), p))
+          ...(permissions.allowedPaths ?? []),
+          ...(manifest.permissions.allowedPaths ?? []).map(p => path.join(process.cwd(), p))
         ];
       }
     }

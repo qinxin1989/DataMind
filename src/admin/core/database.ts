@@ -5,6 +5,7 @@
 
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
+import { LEGACY_ROOT_MENU_MAPPINGS, ROOT_MENU_DEFINITIONS } from '../../module-system/core/menuRoots';
 
 dotenv.config();
 
@@ -24,6 +25,8 @@ export const pool = mysql.createPool({
 // 导出别名，方便其他模块使用
 export const db = pool;
 export default pool;
+export const getDatabase = () => pool;
+export const getConnection = () => pool.getConnection();
 
 /**
  * 通用查询函数
@@ -258,6 +261,22 @@ export async function initAdminTables(): Promise<void> {
         INDEX idx_datasource (datasource_id),
         INDEX idx_model (model_name),
         INDEX idx_created (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+
+    // 统一助手工作台会话表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS sys_assistant_sessions (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        messages JSON NOT NULL,
+        summary JSON NULL,
+        metadata JSON NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_updated (updated_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
 
@@ -540,13 +559,9 @@ export async function initAdminTables(): Promise<void> {
 }
 
 async function initDefaultData(connection: mysql.PoolConnection): Promise<void> {
-  // 检查是否已有角色数据
-  const [roles] = await connection.execute('SELECT COUNT(*) as count FROM sys_roles');
-  if ((roles as any)[0].count > 0) return;
-
-  // 插入默认角色
+  // 默认角色采用幂等写入，避免初始化并发时出现主键/唯一键冲突
   await connection.execute(`
-    INSERT INTO sys_roles (id, name, code, description, is_system) VALUES
+    INSERT IGNORE INTO sys_roles (id, name, code, description, is_system) VALUES
     ('00000000-0000-0000-0000-000000000001', '超级管理员', 'super_admin', '拥有系统所有权限', TRUE),
     ('00000000-0000-0000-0000-000000000002', '管理员', 'admin', '拥有大部分管理权限', TRUE),
     ('00000000-0000-0000-0000-000000000003', '普通用户', 'user', '普通用户权限', TRUE)
@@ -554,7 +569,7 @@ async function initDefaultData(connection: mysql.PoolConnection): Promise<void> 
 
   // 超级管理员权限
   await connection.execute(`
-    INSERT INTO sys_role_permissions (role_id, permission_code) VALUES
+    INSERT IGNORE INTO sys_role_permissions (role_id, permission_code) VALUES
     ('00000000-0000-0000-0000-000000000001', '*')
   `);
 
@@ -567,7 +582,7 @@ async function initDefaultData(connection: mysql.PoolConnection): Promise<void> 
   ];
   for (const perm of adminPerms) {
     await connection.execute(
-      'INSERT INTO sys_role_permissions (role_id, permission_code) VALUES (?, ?)',
+      'INSERT IGNORE INTO sys_role_permissions (role_id, permission_code) VALUES (?, ?)',
       ['00000000-0000-0000-0000-000000000002', perm]
     );
   }
@@ -626,31 +641,77 @@ export async function syncSystemMenus(connection: mysql.PoolConnection): Promise
   // 这些菜单 ID 被各个模块的 module.json 中的 parentId 引用
   // 所有模块 module.json 中 parentId 引用的一级菜单都必须在此列出
   // 新增一级分类时只需在此数组添加一行，所有部署环境启动时自动同步
-  const topLevelMenus = [
-    { id: 'ai-center', title: 'AI创新中心', path: '/ai', icon: 'RobotOutlined', sortOrder: 100 },
-    { id: 'data-center', title: '数据资源中心', path: '/data', icon: 'DatabaseOutlined', sortOrder: 200 },
-    { id: 'data-collection', title: '数据采集中心', path: '/collection', icon: 'FileSearchOutlined', sortOrder: 300 },
-    { id: 'tools-center', title: '工具箱', path: '/tools', icon: 'ToolOutlined', sortOrder: 500 },
-    { id: 'ops-management', title: '运维管理', path: '/ops', icon: 'DashboardOutlined', sortOrder: 600 },
-    { id: 'system-management', title: '系统基础管理', path: '/system', icon: 'SettingOutlined', sortOrder: 700 },
-  ];
-
-  for (const menu of topLevelMenus) {
+  for (const menu of ROOT_MENU_DEFINITIONS) {
     try {
-      // 使用 INSERT IGNORE 确保幂等性，不会覆盖已存在的数据
       await connection.execute(
-        `INSERT IGNORE INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system, menu_type, created_at, updated_at)
-         VALUES (?, ?, ?, ?, NULL, ?, TRUE, '*', FALSE, 'internal', NOW(), NOW())`,
+        `INSERT INTO sys_menus (id, title, path, icon, parent_id, sort_order, visible, permission_code, is_system, menu_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NULL, ?, TRUE, '*', FALSE, 'internal', NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+           title = VALUES(title),
+           path = VALUES(path),
+           icon = VALUES(icon),
+           parent_id = NULL,
+           sort_order = VALUES(sort_order),
+           visible = TRUE,
+           permission_code = '*',
+           is_system = FALSE,
+           menu_type = 'internal',
+           updated_at = NOW()`,
         [menu.id, menu.title, menu.path, menu.icon, menu.sortOrder]
       );
     } catch (e: any) {
-      // 如果是主键冲突，说明菜单已存在，忽略
-      if (!e.message.includes('Duplicate entry')) {
-        console.log(`初始化菜单 ${menu.id} 失败:`, e.message);
-      }
+      console.log(`初始化菜单 ${menu.id} 失败:`, e.message);
     }
   }
-  console.log('已确保一级菜单存在');
+  console.log('已确保一级菜单存在并同步为标准结构');
+
+  const mergeLegacyRootMenu = async (legacyMenuId: string, targetMenuId: string) => {
+    const [legacyMenus] = await connection.execute(
+      'SELECT id, title FROM sys_menus WHERE id = ?',
+      [legacyMenuId]
+    );
+
+    if (!Array.isArray(legacyMenus) || legacyMenus.length === 0) {
+      return;
+    }
+
+    const legacyMenu = legacyMenus[0] as { id: string; title: string };
+
+    await connection.execute(
+      'UPDATE sys_menus SET parent_id = ?, updated_at = NOW() WHERE parent_id = ?',
+      [targetMenuId, legacyMenuId]
+    );
+
+    await connection.execute(
+      `INSERT IGNORE INTO sys_role_menus (role_id, menu_id)
+       SELECT role_id, ? FROM sys_role_menus WHERE menu_id = ?`,
+      [targetMenuId, legacyMenuId]
+    );
+    await connection.execute('DELETE FROM sys_role_menus WHERE menu_id = ?', [legacyMenuId]);
+    await connection.execute('DELETE FROM sys_menus WHERE id = ?', [legacyMenuId]);
+
+    console.log(`已收编旧菜单容器: ${legacyMenu.title} (${legacyMenu.id}) -> ${targetMenuId}`);
+  };
+
+  for (const [legacyParentId, targetParentId] of Object.entries(LEGACY_ROOT_MENU_MAPPINGS)) {
+    await mergeLegacyRootMenu(legacyParentId, targetParentId);
+  }
+
+  // 收编历史遗留的旧“系统菜单”一级容器。
+  // 这些容器并不再由当前模块体系定义，但会在老环境中反复残留并污染侧边栏。
+  const [legacySystemMenus] = await connection.execute(
+    `SELECT id
+     FROM sys_menus
+     WHERE parent_id IS NULL
+       AND id <> 'system-management'
+       AND title = '系统菜单'`
+  );
+
+  if (Array.isArray(legacySystemMenus)) {
+    for (const legacyMenu of legacySystemMenus as any[]) {
+      await mergeLegacyRootMenu(legacyMenu.id, 'system-management');
+    }
+  }
 
   // 4. 修复孤儿菜单：检查并修复 parent_id 指向不存在菜单的情况
   try {
@@ -665,41 +726,28 @@ export async function syncSystemMenus(connection: mysql.PoolConnection): Promise
     if (Array.isArray(orphanMenus) && orphanMenus.length > 0) {
       console.log(`发现 ${orphanMenus.length} 个孤儿菜单，正在修复...`);
       for (const orphan of orphanMenus as any[]) {
-        // 兼容历史遗留：旧的“知识库”菜单（rag-knowledge）不应存在，避免重启后反复出现
-        if (orphan.id === 'rag-knowledge') {
-          await connection.execute('DELETE FROM sys_menus WHERE id = ?', [orphan.id]);
-          console.log('已删除历史遗留菜单: 知识库 (rag-knowledge)');
+        // 知识库菜单特殊处理：设置为 ai-center 的子菜单
+        if (orphan.id === 'knowledge-base') {
+          await connection.execute(
+            "UPDATE sys_menus SET parent_id = 'ai-center', updated_at = NOW() WHERE id = ?",
+            [orphan.id]
+          );
+          console.log(`已修复知识库菜单: ${orphan.title} (${orphan.id})，设置为 ai-center 的子菜单`);
           continue;
         }
 
-        // 知识库菜单特殊处理：设置为 ai-center 的子菜单
-        if (orphan.id === 'knowledge-base') {
-          // 确保 ai-center 存在
-          const [aiCenter] = await connection.execute(
-            "SELECT id FROM sys_menus WHERE id = 'ai-center'"
-          );
-          if ((aiCenter as any[]).length > 0) {
-            await connection.execute(
-              "UPDATE sys_menus SET parent_id = 'ai-center' WHERE id = ?",
-              [orphan.id]
-            );
-            console.log(`已修复知识库菜单: ${orphan.title} (${orphan.id})，设置为 ai-center 的子菜单`);
-          } else {
-            // ai-center 不存在，暂时设为 NULL 但记录警告
-            await connection.execute(
-              'UPDATE sys_menus SET parent_id = NULL WHERE id = ?',
-              [orphan.id]
-            );
-            console.log(`警告: ${orphan.title} 的父菜单 ai-center 不存在，已设为一级菜单`);
-          }
-        } else {
-          // 其他孤儿菜单：设为一级菜单
+        const mappedParentId = LEGACY_ROOT_MENU_MAPPINGS[orphan.parent_id];
+        if (mappedParentId) {
           await connection.execute(
-            'UPDATE sys_menus SET parent_id = NULL WHERE id = ?',
-            [orphan.id]
+            'UPDATE sys_menus SET parent_id = ?, updated_at = NOW() WHERE id = ?',
+            [mappedParentId, orphan.id]
           );
-          console.log(`已修复孤儿菜单: ${orphan.title} (${orphan.id})，原 parent_id: ${orphan.parent_id}`);
+          console.log(`已修复孤儿菜单: ${orphan.title} (${orphan.id})，parent_id ${orphan.parent_id} -> ${mappedParentId}`);
+          continue;
         }
+
+        // 其他孤儿菜单先保留原始 parent_id，避免被错误提升为一级菜单污染侧边栏
+        console.log(`保留孤儿菜单原状待人工确认: ${orphan.title} (${orphan.id})，无可用 parent_id 映射，当前 parent_id: ${orphan.parent_id}`);
       }
     }
   } catch (e: any) {

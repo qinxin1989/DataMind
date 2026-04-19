@@ -589,8 +589,12 @@ export function createRoutes(service: AIQAService): Router {
   // ==================== RAG 知识库 ====================
 
   router.get('/rag/stats', requirePermission('ai:query'), async (req: Request, res: Response) => {
-    const stats = await service.getRAGStats(getUserId(req));
-    res.json({ success: true, data: stats });
+    try {
+      const stats = await service.getRAGStats(getUserId(req));
+      res.json({ success: true, data: stats });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+    }
   });
 
   router.get('/rag/search', requirePermission('ai:query'), async (req: Request, res: Response) => {
@@ -785,17 +789,25 @@ export function createRoutes(service: AIQAService): Router {
   });
 
   router.get('/rag/graph', requirePermission('ai:query'), async (req: Request, res: Response) => {
-    const graph = await service.getKnowledgeGraph(getUserId(req));
-    res.json({ success: true, data: graph });
+    try {
+      const graph = await service.getKnowledgeGraph(getUserId(req));
+      res.json({ success: true, data: graph });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
+    }
   });
 
   router.post('/rag/graph/query', requirePermission('ai:query'), async (req: Request, res: Response) => {
-    const { keywords, maxEntities = 20 } = req.body;
-    if (!keywords || !Array.isArray(keywords)) {
-      return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供关键词数组' } });
+    try {
+      const { keywords, maxEntities = 20 } = req.body;
+      if (!keywords || !Array.isArray(keywords)) {
+        return res.status(400).json({ success: false, error: { code: 'VALID_ERROR', message: '请提供关键词数组' } });
+      }
+      const result = await service.querySubgraph(keywords, getUserId(req), maxEntities);
+      res.json({ success: true, data: result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { code: 'SYS_ERROR', message: error.message } });
     }
-    const result = await service.querySubgraph(keywords, getUserId(req), maxEntities);
-    res.json({ success: true, data: result });
   });
 
   router.post('/rag/import-schema', requirePermission('ai:query'), async (req: Request, res: Response) => {

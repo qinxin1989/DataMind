@@ -21,8 +21,8 @@
     }
   },
   "frontend": {
-    "entry": "./frontend/index.ts",
-    "routes": "./frontend/routes.ts"
+    "integration": "admin-ui",
+    "entry": "./frontend/index.ts"
   },
   "menus": [
     {

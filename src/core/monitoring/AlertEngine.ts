@@ -80,9 +80,9 @@ export class AlertEngine {
       const db = getDatabase();
 
       // 获取所有启用的告警规则
-      const [rules] = await db.query<AlertRule[]>(
+      const [rules] = await db.query(
         'SELECT * FROM alert_rules WHERE enabled = TRUE'
-      );
+      ) as unknown as [AlertRule[], unknown[]];
 
       for (const rule of rules) {
         await this.checkRule(rule);

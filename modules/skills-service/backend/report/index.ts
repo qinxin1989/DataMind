@@ -46,7 +46,7 @@ const reportPpt: SkillDefinition = {
         slideContents.push({
           type: 'bullets',
           title: '数据概览',
-          bullets: schemas.slice(0, 5).map(s => `${s.tableName}: ${s.columns.length} 个字段`)
+          bullets: schemas.slice(0, 5).map((s: any) => `${s.tableName}: ${s.columns.length} 个字段`)
         });
 
         // 为每个表生成统计页
@@ -59,7 +59,7 @@ const reportPpt: SkillDefinition = {
           slideContents.push({
             type: 'content',
             title: schema.tableName,
-            content: `共 ${total} 条记录，${schema.columns.length} 个字段\n\n主要字段：${schema.columns.slice(0, 5).map(c => c.name).join('、')}`
+            content: `共 ${total} 条记录，${schema.columns.length} 个字段\n\n主要字段：${schema.columns.slice(0, 5).map((c: any) => c.name).join('、')}`
           });
         }
       }

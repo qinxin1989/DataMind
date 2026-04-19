@@ -31,11 +31,11 @@
     }
   },
   "frontend": {
+    "integration": "admin-ui",
     "entry": "./frontend/index.ts",
     "routes": "./frontend/routes.ts",
     "components": {
-      "MenuList": "./frontend/views/MenuList.vue",
-      "MenuForm": "./frontend/components/MenuForm.vue"
+      "MenuList": "./frontend/views/MenuList.vue"
     }
   },
   "menus": [

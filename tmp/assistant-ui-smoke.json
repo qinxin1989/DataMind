@@ -1,0 +1,36 @@
+{
+  "baseUrl": "http://127.0.0.1:3000",
+  "assistant": {
+    "url": "http://127.0.0.1:3000/ai/assistant?session=a32f4fd3-5553-4a92-ae27-2bb10161603e",
+    "createdSessionId": "a32f4fd3-5553-4a92-ae27-2bb10161603e",
+    "beforeCount": 2,
+    "afterCreateCount": 3,
+    "uploadedFileVisible": false,
+    "prompt": "请用三句话总结当前统一助手工作台的作用。",
+    "responseState": "assistant-message",
+    "userMessages": [
+      "请用三句话总结当前统一助手工作台的作用。\n\n【本轮附加文件】\n\nassistant-ui-smoke-upload.txt: D:\\project\\DataMind\\uploads\\assistant\\fbbc7192-1cd1-4c3b-8a43-ef625b54a27e.txt 如果任务依赖附件，请优先读取这些文件并基于文件内容继续。"
+    ],
+    "assistantMessages": [
+      "当前统一助手工作台的核心作用可总结为：\n\n文件与文档处理中枢：直接读写、转换、合并各类文档（Word/PDF/PPTX/Excel），支持 OOXML 级深度编辑、批注和修订追踪。\n\n数据分析与可视化引擎：连接数据源执行查询、统计、趋势分析，并生成图表、PPT 报告和数据大屏等可交付成果。\n\n智能协作工作流平台：提供文档协作起草、网页抓取、图片 OCR、架构图生成等多元化技能，以工具调用方式完成端到端任务。"
+    ],
+    "deletedPair": true,
+    "cleanedUp": true
+  },
+  "chat": {
+    "url": "http://127.0.0.1:3000/ai/chat",
+    "title": "AI智能问答 - Admin",
+    "has404": false,
+    "datasourceCount": 0,
+    "hasDatasourceHint": true,
+    "hasChatInput": true
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "apiErrors": [],
+  "screenshots": {
+    "assistant": "D:\\project\\DataMind\\tmp\\assistant-ui-smoke-assistant.png",
+    "chat": "D:\\project\\DataMind\\tmp\\assistant-ui-smoke-chat.png"
+  },
+  "checkedAt": "2026-04-19T13:29:51.251Z"
+}

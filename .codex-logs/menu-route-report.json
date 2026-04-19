@@ -1,0 +1,316 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "loginUser": "admin",
+  "menuCount": 34,
+  "menuTitles": [
+    "工作台",
+    "AI创新中心",
+    "AI统计",
+    "智能助手",
+    "知识库管理",
+    "对话历史",
+    "AI 模型配置",
+    "OCR 识别",
+    "数据资源中心",
+    "数据源管理",
+    "数据源审核",
+    "数据采集中心",
+    "AI 爬虫助手",
+    "采集模板配置",
+    "爬虫管理",
+    "采集结果库",
+    "工具箱",
+    "文件工具",
+    "效率工具",
+    "公文写作",
+    "运维管理",
+    "系统监控",
+    "系统基础管理",
+    "用户管理",
+    "角色管理",
+    "菜单管理",
+    "模块管理",
+    "模板优化",
+    "系统配置",
+    "系统状态",
+    "审计日志",
+    "备份恢复",
+    "通知中心",
+    "大屏管理"
+  ],
+  "routes": [
+    {
+      "route": "/workbench",
+      "finalUrl": "/workbench",
+      "title": "工作台 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ai",
+      "finalUrl": "/ai/chat",
+      "title": "AI智能问答 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ai/stats",
+      "finalUrl": "/ai/stats",
+      "title": "使用统计 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ai/assistant",
+      "finalUrl": "/ai/assistant",
+      "title": "智能助手工作台 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ai/knowledge",
+      "finalUrl": "/ai/knowledge/manage",
+      "title": "知识管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ai/history",
+      "finalUrl": "/ai/history",
+      "title": "对话历史 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ai/config",
+      "finalUrl": "/ai/config",
+      "title": "AI配置 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ai/ocr",
+      "finalUrl": "/ai/ocr",
+      "title": "OCR识别 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/data",
+      "finalUrl": "/data/sources",
+      "title": "数据源管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/data/sources",
+      "finalUrl": "/data/sources",
+      "title": "数据源管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/data/approval",
+      "finalUrl": "/data/approval",
+      "title": "数据源审核 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/collection",
+      "finalUrl": "/collection/assistant",
+      "title": "AI爬虫助手 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/collection/assistant",
+      "finalUrl": "/collection/assistant",
+      "title": "AI爬虫助手 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/collection/templates",
+      "finalUrl": "/collection/templates",
+      "title": "采集模板配置 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/collection/crawlers",
+      "finalUrl": "/collection/crawlers",
+      "title": "爬虫管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/collection/results",
+      "finalUrl": "/collection/results",
+      "title": "采集结果库 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/tools",
+      "finalUrl": "/tools/file",
+      "title": "文件工具 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/tools/file",
+      "finalUrl": "/tools/file",
+      "title": "文件工具 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/tools/efficiency",
+      "finalUrl": "/tools/efficiency",
+      "title": "效率工具 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/tools/official-doc",
+      "finalUrl": "/tools/official-doc",
+      "title": "公文写作 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ops",
+      "finalUrl": "/ops/monitoring",
+      "title": "系统监控 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/ops/monitoring",
+      "finalUrl": "/ops/monitoring",
+      "title": "系统监控 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system",
+      "finalUrl": "/system/users",
+      "title": "用户管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/users",
+      "finalUrl": "/system/users",
+      "title": "用户管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/roles",
+      "finalUrl": "/system/roles",
+      "title": "角色管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/menus",
+      "finalUrl": "/system/menus",
+      "title": "菜单管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/modules",
+      "finalUrl": "/system/modules",
+      "title": "模块管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/template-optimizer",
+      "finalUrl": "/system/template-optimizer",
+      "title": "模板优化 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/config",
+      "finalUrl": "/system/config",
+      "title": "系统配置 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/status",
+      "finalUrl": "/system/status",
+      "title": "系统状态 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/audit",
+      "finalUrl": "/system/audit",
+      "title": "审计日志 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/backup",
+      "finalUrl": "/system/backup",
+      "title": "备份恢复 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/system/notification",
+      "finalUrl": "/system/notification",
+      "title": "通知中心 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    },
+    {
+      "route": "/dashboard/list",
+      "finalUrl": "/dashboard/list",
+      "title": "大屏管理 - Admin",
+      "is404": false,
+      "apiErrors": [],
+      "pageErrors": []
+    }
+  ],
+  "checkedAt": "2026-04-19T13:34:42.117Z"
+}

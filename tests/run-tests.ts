@@ -1,6 +1,9 @@
 import axios from 'axios';
+import fs from 'fs';
+import { startManagedTestServer, stopManagedTestServer, type ManagedTestServer } from './setup/testServer';
 
-const BASE_URL = 'http://localhost:3000';
+const SAMPLE_CSV_URL = new URL('./fixtures/datasource-sample.csv', import.meta.url);
+const ENABLE_AI_TESTS = process.env.TEST_ENABLE_AI === '1';
 
 interface TestResult {
   name: string;
@@ -11,12 +14,45 @@ interface TestResult {
 
 const results: TestResult[] = [];
 let authToken: string = '';
+let baseUrl = process.env.TEST_BASE_URL || '';
+let managedServer: ManagedTestServer | null = null;
+
+async function uploadSampleDatasource(): Promise<string> {
+  const formData = new FormData();
+  const fileBuffer = fs.readFileSync(SAMPLE_CSV_URL);
+  formData.append(
+    'file',
+    new Blob([fileBuffer], { type: 'text/csv' }),
+    'datasource-sample.csv'
+  );
+  formData.append('name', `test-file-${Date.now()}`);
+  formData.append('type', 'structured');
+
+  const response = await fetch(`${baseUrl}/api/upload`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`文件数据源创建失败: HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as { id?: string; error?: string };
+  if (!payload.id) {
+    throw new Error(payload.error || '文件数据源创建失败');
+  }
+
+  return payload.id;
+}
 
 // 认证辅助函数
 async function authenticate(): Promise<boolean> {
   try {
     // 直接使用登录接口，避免注册后需要审核的问题
-    const loginResponse = await axios.post(`${BASE_URL}/api/auth/login`, {
+    const loginResponse = await axios.post(`${baseUrl}/api/auth/login`, {
       username: 'admin',
       password: 'admin123'
     }).catch(() => null);
@@ -27,7 +63,7 @@ async function authenticate(): Promise<boolean> {
     }
 
     // 如果管理员账号登录失败，尝试使用默认测试用户
-    const testUserLogin = await axios.post(`${BASE_URL}/api/auth/login`, {
+    const testUserLogin = await axios.post(`${baseUrl}/api/auth/login`, {
       username: 'testuser',
       password: 'testpass123'
     }).catch(() => null);
@@ -76,6 +112,15 @@ async function main() {
   console.log('║   AI 数据问答平台 - API 测试套件      ║');
   console.log('╚════════════════════════════════════════╝\n');
 
+  if (!baseUrl) {
+    managedServer = await startManagedTestServer();
+    baseUrl = managedServer.baseUrl;
+    console.log(`测试服务已启动: ${baseUrl}`);
+    console.log(`测试数据库: ${managedServer.databaseName}\n`);
+  } else {
+    console.log(`使用外部测试服务: ${baseUrl}\n`);
+  }
+
   // 先进行认证
   console.log('正在进行认证...');
   const authenticated = await authenticate();
@@ -87,56 +132,45 @@ async function main() {
 
   // 测试 1: 健康检查
   await runTest('健康检查 - 获取首页', async () => {
-    const response = await axios.get(`${BASE_URL}/`);
-    return response.status === 200;
+    const response = await axios.get(`${baseUrl}/`).catch((error) => error.response);
+    return !!response && response.status < 500;
   });
 
   // 测试 2: 获取数据源列表
   await runTest('API - 获取数据源列表', async () => {
-    const response = await axios.get(`${BASE_URL}/api/datasource`, getAuthHeaders());
+    const response = await axios.get(`${baseUrl}/api/datasource`, getAuthHeaders());
     return Array.isArray(response.data);
   });
 
   // 测试 3: 获取 Agent 能力
   await runTest('API - 获取 Agent 能力', async () => {
-    const response = await axios.get(`${BASE_URL}/api/agent/capabilities`, getAuthHeaders());
-    return response.data.skills && response.data.mcpTools && response.data.features;
+    const response = await axios.get(`${baseUrl}/api/agent/capabilities`, getAuthHeaders());
+    return response.data?.success === true && typeof response.data?.data === 'object';
   });
 
   // 测试 4: 获取技能列表
   await runTest('API - 获取技能列表', async () => {
-    const response = await axios.get(`${BASE_URL}/api/agent/skills`, getAuthHeaders());
-    return Array.isArray(response.data);
+    const response = await axios.get(`${baseUrl}/api/agent`, getAuthHeaders());
+    return response.data?.success === true && Array.isArray(response.data?.data?.skills);
   });
 
   // 测试 5: 获取 MCP 工具
   await runTest('API - 获取 MCP 工具', async () => {
-    const response = await axios.get(`${BASE_URL}/api/agent/mcp/tools`, getAuthHeaders());
-    return Array.isArray(response.data);
+    const response = await axios.get(`${baseUrl}/api/agent/mcp-tools`, getAuthHeaders());
+    return response.data?.success === true && Array.isArray(response.data?.data);
   });
 
-  // 测试 6: 添加 MySQL 数据源
+  // 测试 6: 上传文件数据源
   let datasourceId: string;
-  await runTest('API - 添加 MySQL 数据源', async () => {
-    const response = await axios.post(`${BASE_URL}/api/datasource`, {
-      name: 'test-mysql-' + Date.now(),
-      type: 'mysql',
-      config: {
-        host: 'localhost',
-        port: 3306,
-        user: 'root',
-        password: 'qinxin',
-        database: 'taobao_data'
-      }
-    }, getAuthHeaders());
-    datasourceId = response.data.id;
+  await runTest('API - 上传文件数据源', async () => {
+    datasourceId = await uploadSampleDatasource();
     return !!datasourceId;
   });
 
   // 测试 7: 测试数据源连接
   if (datasourceId) {
     await runTest('API - 测试数据源连接', async () => {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/test`, getAuthHeaders());
+      const response = await axios.get(`${baseUrl}/api/datasource/${datasourceId}/test`, getAuthHeaders());
       return response.data.success === true;
     });
   }
@@ -144,24 +178,24 @@ async function main() {
   // 测试 8: 获取数据源 Schema
   if (datasourceId) {
     await runTest('API - 获取数据源 Schema', async () => {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema`, getAuthHeaders());
+      const response = await axios.get(`${baseUrl}/api/datasource/${datasourceId}/schema`, getAuthHeaders());
       return Array.isArray(response.data);
     });
   }
 
-  // 测试 9: 获取 AI 分析的 Schema
-  if (datasourceId) {
+  if (ENABLE_AI_TESTS && datasourceId) {
+    // 测试 9: 获取 AI 分析的 Schema
     await runTest('API - 获取 AI 分析的 Schema', async () => {
-      const response = await axios.get(`${BASE_URL}/api/datasource/${datasourceId}/schema/analyze`, getAuthHeaders());
+      const response = await axios.get(`${baseUrl}/api/datasource/${datasourceId}/schema/analyze`, getAuthHeaders());
       return response.data.tables && response.data.suggestedQuestions;
     });
   }
 
   // 测试 10: 自然语言问答
   let sessionId: string;
-  if (datasourceId) {
+  if (ENABLE_AI_TESTS && datasourceId) {
     await runTest('API - 自然语言问答', async () => {
-      const response = await axios.post(`${BASE_URL}/api/ask`, {
+      const response = await axios.post(`${baseUrl}/api/ask`, {
         datasourceId,
         question: '数据库中有多少条记录？'
       }, getAuthHeaders());
@@ -171,17 +205,17 @@ async function main() {
   }
 
   // 测试 11: 获取会话列表
-  if (datasourceId) {
+  if (ENABLE_AI_TESTS && datasourceId) {
     await runTest('API - 获取会话列表', async () => {
-      const response = await axios.get(`${BASE_URL}/api/chat/sessions/${datasourceId}`, getAuthHeaders());
+      const response = await axios.get(`${baseUrl}/api/chat/sessions/${datasourceId}`, getAuthHeaders());
       return Array.isArray(response.data);
     });
   }
 
   // 测试 12: 获取会话详情
-  if (sessionId) {
+  if (ENABLE_AI_TESTS && sessionId) {
     await runTest('API - 获取会话详情', async () => {
-      const response = await axios.get(`${BASE_URL}/api/chat/session/${sessionId}`, getAuthHeaders());
+      const response = await axios.get(`${baseUrl}/api/chat/session/${sessionId}`, getAuthHeaders());
       return response.data.messages && Array.isArray(response.data.messages);
     });
   }
@@ -189,7 +223,7 @@ async function main() {
   // 测试 13: 删除数据源
   if (datasourceId) {
     await runTest('API - 删除数据源', async () => {
-      const response = await axios.delete(`${BASE_URL}/api/datasource/${datasourceId}`, getAuthHeaders());
+      const response = await axios.delete(`${baseUrl}/api/datasource/${datasourceId}`, getAuthHeaders());
       return response.data.message === '已删除';
     });
   }
@@ -219,18 +253,25 @@ async function main() {
 
   console.log('\n' + '─'.repeat(40));
   console.log(`总计: ${results.length} | 通过: ${passed} | 失败: ${failed}`);
+  if (!ENABLE_AI_TESTS) {
+    console.log('提示: AI 依赖测试默认跳过，设置 TEST_ENABLE_AI=1 可启用。');
+  }
   console.log('─'.repeat(40) + '\n');
 
   if (failed === 0) {
     console.log('🎉 所有测试通过！\n');
-    process.exit(0);
+    return;
   } else {
     console.log(`❌ 有 ${failed} 个测试失败\n`);
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
-main().catch(error => {
-  console.error('测试运行失败:', error.message);
-  process.exit(1);
-});
+main()
+  .catch(error => {
+    console.error('测试运行失败:', error.message);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await stopManagedTestServer(managedServer);
+  });

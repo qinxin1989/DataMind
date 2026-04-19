@@ -74,6 +74,7 @@ export class FileDataSource extends BaseDataSource {
           }));
 
           this.schemas.push({
+            name: fileInfo.tableName,
             tableName: fileInfo.tableName,
             columns,
             sampleData: data.slice(0, 3),

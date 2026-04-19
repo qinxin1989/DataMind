@@ -32,7 +32,7 @@ export interface RouteConflict {
 export class BackendRouteManager {
   private app: Express;
   private routes: Map<string, RouteInfo> = new Map();
-  private routerMap: Map<string, Router> = new Map();
+  private routerMap: Map<string, RequestHandler> = new Map();
 
   constructor(app: Express) {
     this.app = app;
@@ -78,16 +78,34 @@ export class BackendRouteManager {
       );
     }
 
-    // 注册路由到 Express
     const fullPrefix = this.normalizePrefix(prefix);
-    this.app.use(fullPrefix, router);
+    const routeHandler: RequestHandler = (req, res, next) => {
+      const acceptHeader = String(req.headers.accept || '');
+      const secFetchDest = String(req.headers['sec-fetch-dest'] || '');
+      const isDocumentRequest =
+        (req.method === 'GET' || req.method === 'HEAD') &&
+        (
+          secFetchDest === 'document' ||
+          (acceptHeader.includes('text/html') && !acceptHeader.includes('application/json'))
+        );
+
+      // 浏览器直接访问页面时，交给前端 SPA fallback 处理，避免与模块后端路由前缀冲突
+      if (isDocumentRequest) {
+        return next();
+      }
+
+      return router(req, res, next);
+    };
+
+    // 注册路由到 Express
+    this.app.use(fullPrefix, routeHandler);
 
     // 提取路由信息
     const routeInfo = this.extractRouteInfo(moduleName, router, fullPrefix);
 
     // 保存路由信息
     this.routes.set(moduleName, routeInfo);
-    this.routerMap.set(moduleName, router);
+    this.routerMap.set(moduleName, routeHandler);
 
     console.log(`Routes registered for module ${moduleName} at ${fullPrefix}`);
   }
@@ -101,11 +119,11 @@ export class BackendRouteManager {
     }
 
     const routeInfo = this.routes.get(moduleName)!;
-    const router = this.routerMap.get(moduleName)!;
+    const routeHandler = this.routerMap.get(moduleName)!;
 
     // 从 Express 中移除路由
     // 注意：Express 不直接支持移除中间件，需要通过修改 stack
-    this.removeRouterFromApp(routeInfo.prefix, router);
+    this.removeRouterFromApp(routeInfo.prefix, routeHandler);
 
     // 删除路由信息
     this.routes.delete(moduleName);
@@ -194,7 +212,7 @@ export class BackendRouteManager {
   /**
    * 从 Express 应用中移除路由
    */
-  private removeRouterFromApp(prefix: string, router: Router): void {
+  private removeRouterFromApp(prefix: string, routeHandler: RequestHandler): void {
     // Express 的 stack 包含所有中间件和路由
     const stack = (this.app as any)._router?.stack;
     if (!stack) return;
@@ -204,7 +222,7 @@ export class BackendRouteManager {
       const layer = stack[i];
 
       // 检查是否是我们要移除的路由
-      if (layer.handle === router) {
+      if (layer.handle === routeHandler) {
         stack.splice(i, 1);
       }
     }

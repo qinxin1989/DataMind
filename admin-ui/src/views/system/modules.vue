@@ -74,7 +74,9 @@
         <template v-if="column.key === 'features'">
           <a-space :size="4">
             <a-tooltip v-if="record.hasBackend" title="后端服务"><ApiOutlined style="color: #1677ff" /></a-tooltip>
-            <a-tooltip v-if="record.hasFrontend" title="前端页面"><DesktopOutlined style="color: #52c41a" /></a-tooltip>
+            <a-tooltip v-if="record.hasFrontend" :title="getFrontendFeatureTitle(record.frontendIntegration)">
+              <DesktopOutlined :style="{ color: getFrontendFeatureColor(record.frontendIntegration) }" />
+            </a-tooltip>
             <a-tooltip v-if="record.menuCount > 0" :title="`${record.menuCount} 个菜单`"><MenuOutlined style="color: #faad14" /></a-tooltip>
             <a-tooltip v-if="record.permissionCount > 0" :title="`${record.permissionCount} 个权限`"><LockOutlined style="color: #722ed1" /></a-tooltip>
           </a-space>
@@ -83,6 +85,14 @@
         <template v-if="column.key === 'action'">
           <a-space>
             <a-button size="small" type="link" @click="showDetail(record)">详情</a-button>
+            <a-button
+              v-if="record.menuCount > 0"
+              size="small"
+              type="link"
+              @click="goToModuleMenus(record.name)"
+            >
+              菜单
+            </a-button>
             <a-popconfirm
               v-if="record.status === 'enabled'"
               title="确定要禁用此模块吗？"
@@ -145,19 +155,44 @@
           <template v-if="currentDetail.frontend">
             <a-divider orientation="left">前端页面</a-divider>
             <a-descriptions :column="1" bordered size="small">
+              <a-descriptions-item label="接入方式">
+                <a-tag :color="frontendIntegrationColorMap[currentDetail.frontend.integration] || 'default'">
+                  {{ getFrontendIntegrationText(currentDetail.frontend.integration) }}
+                </a-tag>
+              </a-descriptions-item>
               <a-descriptions-item label="入口文件">{{ currentDetail.frontend.entry }}</a-descriptions-item>
+              <a-descriptions-item v-if="currentDetail.frontend.routes" label="路由文件">
+                {{ currentDetail.frontend.routes }}
+              </a-descriptions-item>
             </a-descriptions>
           </template>
 
           <!-- 菜单 -->
           <template v-if="currentDetail.menus?.length">
-            <a-divider orientation="left">菜单 ({{ currentDetail.menus.length }})</a-divider>
+            <div class="section-header">
+              <a-divider orientation="left">菜单 ({{ currentDetail.menus.length }})</a-divider>
+              <a-button type="link" size="small" @click="goToModuleMenus(currentDetail.name)">
+                在菜单管理中查看
+              </a-button>
+            </div>
             <a-list size="small" bordered :data-source="currentDetail.menus">
               <template #renderItem="{ item }">
                 <a-list-item>
                   <a-list-item-meta>
-                    <template #title>{{ item.title || item.id }}</template>
-                    <template #description>{{ item.path || '-' }}</template>
+                    <template #title>
+                      <a-space :size="8">
+                        <span>{{ item.title || item.id }}</span>
+                        <a-tag v-if="item.parentId">{{ item.parentId }}</a-tag>
+                      </a-space>
+                    </template>
+                    <template #description>
+                      <a-space direction="vertical" :size="2">
+                        <span>{{ item.path || '-' }}</span>
+                        <span v-if="item.permission" style="color: rgba(0,0,0,0.45)">
+                          权限：{{ item.permission }}
+                        </span>
+                      </a-space>
+                    </template>
                   </a-list-item-meta>
                 </a-list-item>
               </template>
@@ -211,11 +246,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined, ApiOutlined, DesktopOutlined, MenuOutlined, LockOutlined } from '@ant-design/icons-vue'
 import { moduleApi, type ModuleSummary, type ModuleDetail } from '@/api/module'
+import { reloadModuleRoutes } from '@/router/moduleRoutes'
 
+const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const detailLoading = ref(false)
 const toggling = ref<string | null>(null)
@@ -251,7 +290,7 @@ const columns = [
   { title: '状态', key: 'status', dataIndex: 'status', width: 100 },
   { title: '功能', key: 'features', width: 120 },
   { title: '描述', dataIndex: 'description', ellipsis: true },
-  { title: '操作', key: 'action', width: 140, fixed: 'right' as const },
+  { title: '操作', key: 'action', width: 190, fixed: 'right' as const },
 ]
 
 const typeColorMap: Record<string, string> = { system: 'blue', business: 'green', tool: 'orange' }
@@ -259,9 +298,49 @@ const typeTextMap: Record<string, string> = { system: '系统', business: '业�
 const statusBadgeMap: Record<string, string> = { enabled: 'success', disabled: 'default', installed: 'processing', error: 'error' }
 const statusTextMap: Record<string, string> = { enabled: '已启用', disabled: '已禁用', installed: '已安装', error: '异常' }
 const methodColorMap: Record<string, string> = { GET: 'blue', POST: 'green', PUT: 'orange', DELETE: 'red', PATCH: 'cyan' }
+const frontendIntegrationColorMap: Record<string, string> = { module: 'green', 'admin-ui': 'blue' }
+const frontendIntegrationTextMap: Record<string, string> = {
+  module: '模块内前端',
+  'admin-ui': 'Admin UI 兼容层',
+}
+
+function getFrontendIntegrationText(integration: string | null | undefined) {
+  return frontendIntegrationTextMap[integration || 'module'] || integration || '未声明'
+}
+
+function getFrontendFeatureTitle(integration: string | null | undefined) {
+  return `前端接入：${getFrontendIntegrationText(integration)}`
+}
+
+function getFrontendFeatureColor(integration: string | null | undefined) {
+  return integration === 'admin-ui' ? '#1677ff' : '#52c41a'
+}
 
 onMounted(() => {
   fetchModules()
+})
+
+watch(
+  () => route.query.module,
+  value => {
+    if (typeof value === 'string' && value) {
+      openModuleByName(value, false)
+      return
+    }
+
+    if (!value) {
+      drawerVisible.value = false
+      currentDetail.value = null
+    }
+  }
+)
+
+watch(drawerVisible, open => {
+  if (!open && route.query.module) {
+    const query = { ...route.query }
+    delete query.module
+    router.replace({ query })
+  }
 })
 
 async function fetchModules() {
@@ -270,6 +349,10 @@ async function fetchModules() {
     const res = await moduleApi.getModules()
     if (res.success && res.data) {
       modules.value = res.data
+      const moduleName = typeof route.query.module === 'string' ? route.query.module : ''
+      if (moduleName) {
+        openModuleByName(moduleName, false)
+      }
     }
   } catch (error) {
     message.error('获取模块列表失败')
@@ -278,19 +361,45 @@ async function fetchModules() {
   }
 }
 
-async function showDetail(record: ModuleSummary) {
+async function showDetail(record: ModuleSummary, syncQuery = true) {
   drawerVisible.value = true
   detailLoading.value = true
   try {
     const res = await moduleApi.getModule(record.name)
     if (res.success && res.data) {
       currentDetail.value = res.data
+      if (syncQuery && route.query.module !== record.name) {
+        router.replace({
+          query: {
+            ...route.query,
+            module: record.name,
+          },
+        })
+      }
     }
   } catch (error) {
     message.error('获取模块详情失败')
   } finally {
     detailLoading.value = false
   }
+}
+
+function openModuleByName(moduleName: string, syncQuery = true) {
+  const target = modules.value.find(item => item.name === moduleName)
+  if (!target) {
+    return
+  }
+  if (currentDetail.value?.name === moduleName && drawerVisible.value) {
+    return
+  }
+  showDetail(target, syncQuery)
+}
+
+function goToModuleMenus(moduleName: string) {
+  router.push({
+    name: 'MenuManagement',
+    query: { module: moduleName },
+  })
 }
 
 async function toggleModule(name: string, action: 'enable' | 'disable') {
@@ -300,6 +409,7 @@ async function toggleModule(name: string, action: 'enable' | 'disable') {
       ? await moduleApi.enableModule(name)
       : await moduleApi.disableModule(name)
     if (res.success) {
+      await reloadModuleRoutes(router)
       message.success(action === 'enable' ? '模块已启用' : '模块已禁用')
       await fetchModules()
     } else {
@@ -333,5 +443,15 @@ async function toggleModule(name: string, action: 'enable' | 'disable') {
 
 .stat-row {
   margin-bottom: 16px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-header :deep(.ant-divider) {
+  margin-bottom: 12px;
 }
 </style>

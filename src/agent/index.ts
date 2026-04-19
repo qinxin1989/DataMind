@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { TableSchema, AIResponse } from '../types';
 import { BaseDataSource } from '../datasource';
 import { ChatMessage } from '../store/configStore';
-import { skillsRegistry, SkillContext } from './skills';
+import { skillsRegistry, SkillContext, SkillResult } from './skills';
 import { mcpRegistry } from './mcp';
 import { AutoAnalyst, AnalysisReport } from './analyst';
 import axios from 'axios';
@@ -850,6 +850,12 @@ export class AIAgent {
 - sql: 查询具体数据 (如: "查询用户表", "统计销售额", "画个图", "Top 10")
 - data.advanced_query: 高级数据分析 (如: "同比/环比分析", "增长率计算", "复杂聚合", "多表关联分析")
 - qa.expert: 专家问答/咨询 (如: "如何优化库存", "给出营销建议", "深度分析原因")
+- report.summary: 生成数据摘要报告 (如: "生成摘要报告", "做个数据总结")
+- report.ppt: 生成 PPT 报告 (如: "生成 PPT", "导出演示文稿")
+- report.dashboard: 生成数据大屏/看板 (如: "生成大屏", "做个 dashboard")
+- report.excel: 生成 Excel 报表 (如: "导出 Excel 报表", "做个 Excel 数据包")
+- report.insight: 自动生成智能洞察 (如: "给出洞察", "总结关键发现")
+- report.compare: 生成对比分析报告 (如: "按地区对比销售额", "对比各渠道表现")
 - report.comprehensive: 生成综合报告 (如: "生成销售分析报告", "写一份市场调研文档")
 - crawler.extract: 网页抓取/提取 (如: "抓取这个网站的内容", "提取网页上的价格", "从网址获取信息")
 - data.analyze: 深度分析/总结/洞察 (如: "分析这个数据源", "给出业务总结")
@@ -862,8 +868,19 @@ export class AIAgent {
 - pptx.pptxInventory: 查看PPT内容 (如: "分析这个PPT", "查看幻灯片内容")
 - image_ocr.ocrImage: 图片文字识别 (如: "识别图片中的文字", "OCR这张图")
 - shell.runCommand: 执行系统命令 (如: "运行命令", "执行脚本")
-- data_analysis.executePython: Python数据分析 (如: "用Python分析", "计算统计指标")
+- dataAnalysis.executePython: Python数据分析 (如: "用Python分析", "计算统计指标")
+- dataAnalysis.statisticalAnalysis: 统计分析 (如: "算均值/中位数/标准差", "做描述性统计")
+- dataAnalysis.createVisualization: Python 绘图 (如: "用 Python 画柱状图", "生成折线图")
+- dataAnalysis.pythonEval: Python 表达式计算 (如: "用 Python 计算这个公式")
 - chitchat: 闲聊/问候 (如: "你好", "谢谢")
+
+选择规则:
+- 明确要“导出 Excel / PPT / 大屏 / 报告 / 洞察 / 对比分析”时，优先选择对应的 report.* 工具
+- 选择 report.* 或 dataAnalysis.* 时，必须在 args 中补齐执行所需参数；datasourceId 固定写 "current"
+- 选择 report.excel 时，args.queries 必须至少包含一个 { "name": "...", "sql": "SELECT ..." }
+- 选择 report.compare 时，args.dimensions 和 args.metrics 必须是数组
+- 选择 dataAnalysis.executePython 时，args.code 必须是可直接执行的完整 Python 代码
+- 如果需求本质上只是查数/筛选/排序/聚合，优先选 sql，不要滥用 report.* 或 dataAnalysis.*
 
 可选图表类型:
 - bar: 柱状图 (适合分类对比、排名)
@@ -882,8 +899,11 @@ ${identifierRules}
 
 返回JSON格式: 
 {
-  "tool": "sql" | "data.advanced_query" | "qa.expert" | "report.comprehensive" | "data.analyze" | "chitchat" | "crawler.extract" | "file.readFile" | "file.writeFile" | "web.fetchUrl" | "pdf.readPdf" | "docx.readWord" | "docx.createWordDocument" | "pptx.pptxInventory" | "image_ocr.ocrImage" | "shell.runCommand" | "data_analysis.executePython", 
+  "tool": "sql" | "data.advanced_query" | "qa.expert" | "report.summary" | "report.ppt" | "report.dashboard" | "report.excel" | "report.insight" | "report.compare" | "report.comprehensive" | "data.analyze" | "chitchat" | "crawler.extract" | "file.readFile" | "file.writeFile" | "web.fetchUrl" | "pdf.readPdf" | "docx.readWord" | "docx.createWordDocument" | "pptx.pptxInventory" | "image_ocr.ocrImage" | "shell.runCommand" | "dataAnalysis.executePython" | "dataAnalysis.statisticalAnalysis" | "dataAnalysis.createVisualization" | "dataAnalysis.pythonEval", 
   "reason": "原因",
+  "args": {
+    "toolSpecificParams": "当 tool 是 skill 时填写具体参数"
+  },
   "url": "要抓取的网址（如果是抓取工具则必填）",
   "extractDescription": "提取需求描述（如果是抓取工具则必填）",
   "chartType": "bar" | "line" | "pie" | "area" | "scatter" | "none",
@@ -972,6 +992,17 @@ ${identifierRules}
         case 'pptx.pptxReplaceText':
         case 'image_ocr.ocrImage':
         case 'shell.runCommand':
+        case 'report.summary':
+        case 'report.ppt':
+        case 'report.dashboard':
+        case 'report.excel':
+        case 'report.insight':
+        case 'report.compare':
+        case 'report.comprehensive':
+        case 'dataAnalysis.executePython':
+        case 'dataAnalysis.statisticalAnalysis':
+        case 'dataAnalysis.createVisualization':
+        case 'dataAnalysis.pythonEval':
         case 'data_analysis.executePython':
           return {
             type: 'skill',
@@ -1012,6 +1043,215 @@ ${identifierRules}
         chartType: 'bar'
       };
     }
+  }
+
+  private normalizeSkillName(name: string): string {
+    if (!name) return name;
+    if (name.startsWith('data_analysis.')) {
+      return `dataAnalysis.${name.slice('data_analysis.'.length)}`;
+    }
+    return name;
+  }
+
+  private isNumericColumnType(type?: string): boolean {
+    return /int|decimal|numeric|float|double|real|number|bigint|smallint|tinyint/i.test(type || '');
+  }
+
+  private isDimensionColumnType(type?: string): boolean {
+    return /char|text|enum|date|time|year/i.test(type || '');
+  }
+
+  private pickDimensionField(schemas: TableSchema[]): string | undefined {
+    const preferredPatterns = [
+      /name/i, /名称/, /类型/, /类别/, /分类/, /category/i, /region/i, /地区/, /城市/, /省份/, /部门/,
+      /客户/, /产品/, /渠道/, /date/i, /time/i, /year/i, /month/i
+    ];
+
+    for (const schema of schemas) {
+      for (const column of schema.columns) {
+        if (preferredPatterns.some(pattern => pattern.test(column.name))) {
+          return column.name;
+        }
+      }
+    }
+
+    for (const schema of schemas) {
+      const candidate = schema.columns.find(column => this.isDimensionColumnType(column.type));
+      if (candidate) return candidate.name;
+    }
+
+    return schemas[0]?.columns[0]?.name;
+  }
+
+  private pickMetricField(schemas: TableSchema[]): string | undefined {
+    const preferredPatterns = [
+      /amount/i, /total/i, /count/i, /num/i, /qty/i, /price/i, /sales/i, /revenue/i, /profit/i,
+      /score/i, /rate/i, /value/i, /population/i, /gdp/i, /数量/, /金额/, /销量/, /收入/, /利润/, /得分/, /占比/
+    ];
+
+    for (const schema of schemas) {
+      for (const column of schema.columns) {
+        if (preferredPatterns.some(pattern => pattern.test(column.name))) {
+          return column.name;
+        }
+      }
+    }
+
+    for (const schema of schemas) {
+      const candidate = schema.columns.find(column => this.isNumericColumnType(column.type));
+      if (candidate) return candidate.name;
+    }
+
+    return schemas[0]?.columns[1]?.name;
+  }
+
+  private buildDefaultSkillParams(
+    skillName: string,
+    question: string,
+    schemas: TableSchema[]
+  ): Record<string, any> {
+    const primaryTable = schemas[0]?.tableName;
+    const dimensionField = this.pickDimensionField(schemas);
+    const metricField = this.pickMetricField(schemas);
+
+    switch (skillName) {
+      case 'data.analyze':
+        return {
+          datasourceId: 'current',
+          topic: question,
+          depth: question.includes('深度') || question.includes('深入') ? 'deep' : 'normal',
+        };
+      case 'report.summary':
+      case 'report.ppt':
+      case 'report.dashboard':
+      case 'report.comprehensive':
+        return {
+          datasourceId: 'current',
+          topic: question,
+        };
+      case 'report.insight':
+        return {
+          datasourceId: 'current',
+          focus: question,
+          depth: question.includes('深度') || question.includes('深入') ? 'deep' : 'quick',
+        };
+      case 'report.compare': {
+        const params: Record<string, any> = { datasourceId: 'current', format: 'markdown' };
+        if (dimensionField) params.dimensions = [dimensionField];
+        if (metricField) params.metrics = [metricField];
+        return params;
+      }
+      case 'report.excel':
+        return {
+          datasourceId: 'current',
+          charts: true,
+          queries: primaryTable
+            ? [{ name: '数据概览', sql: `SELECT * FROM ${primaryTable} LIMIT 100` }]
+            : undefined,
+        };
+      default:
+        return {};
+    }
+  }
+
+  private buildSkillContext(
+    dataSource: BaseDataSource,
+    schemas: TableSchema[],
+    dbType: string,
+    workDir = 'public/downloads',
+    userId?: string
+  ): SkillContext {
+    return {
+      dataSource,
+      schemas,
+      dbType,
+      openai: this.openai,
+      model: this.model,
+      workDir,
+      userId,
+    };
+  }
+
+  private buildSkillAnswer(
+    skillName: string,
+    skillResult: SkillResult
+  ): string | undefined {
+    const data = skillResult.data;
+    const outputPath = skillResult.outputPath || (data && typeof data === 'object' ? data.outputPath : undefined);
+
+    if (typeof data === 'string' && data.trim()) {
+      const content = data.trim();
+      if (skillResult.message && !content.startsWith(skillResult.message)) {
+        return `${skillResult.message}\n\n${content}`;
+      }
+      return content;
+    }
+
+    if (!data || typeof data !== 'object') {
+      return skillResult.message;
+    }
+
+    if (skillName === 'report.summary' && typeof data.content === 'string') {
+      return data.content;
+    }
+
+    if (skillName === 'report.ppt') {
+      const sections = Array.isArray(data.sections) ? data.sections.join('、') : '未提供';
+      return [
+        skillResult.message || 'PPT 报告已生成。',
+        outputPath ? `输出位置：${outputPath}` : '',
+        typeof data.slideCount === 'number' ? `页数：${data.slideCount}` : '',
+        `章节：${sections}`,
+      ].filter(Boolean).join('\n');
+    }
+
+    if (skillName === 'report.dashboard') {
+      const chartCount = Array.isArray(data.charts) ? data.charts.length : 0;
+      return [
+        skillResult.message || '数据大屏已生成。',
+        data.previewUrl ? `预览地址：${data.previewUrl}` : '',
+        chartCount ? `图表数量：${chartCount}` : '',
+      ].filter(Boolean).join('\n');
+    }
+
+    if (skillName === 'report.excel') {
+      const sheets = Array.isArray(data.sheets) ? data.sheets.join('、') : '未提供';
+      return [
+        skillResult.message || 'Excel 报表已生成。',
+        outputPath ? `输出位置：${outputPath}` : '',
+        typeof data.rowCount === 'number' ? `数据行数：${data.rowCount}` : '',
+        `工作表：${sheets}`,
+      ].filter(Boolean).join('\n');
+    }
+
+    if (skillName === 'report.insight') {
+      const insights = Array.isArray(data.insights) ? data.insights : [];
+      const recommendations = Array.isArray(data.recommendations) ? data.recommendations : [];
+      return [
+        skillResult.message || '已生成智能洞察。',
+        insights.length ? '关键洞察：' : '',
+        ...insights.slice(0, 5).map((item: any) => `- ${item.description || JSON.stringify(item)}`),
+        recommendations.length ? '建议：' : '',
+        ...recommendations.slice(0, 5).map((item: string) => `- ${item}`),
+      ].filter(Boolean).join('\n');
+    }
+
+    if (skillName === 'report.compare') {
+      const comparisons = Array.isArray(data.comparisons) ? data.comparisons : [];
+      const preview = comparisons.slice(0, 3).map((item: any) => {
+        const values = Array.isArray(item.values)
+          ? item.values.map((value: any) => `${value.label}: ${value.value}`).join('，')
+          : '';
+        return `- ${item.dimension} / ${item.metric}${values ? ` -> ${values}` : ''}`;
+      });
+      return [
+        data.summary || skillResult.message || '对比分析已完成。',
+        outputPath ? `输出位置：${outputPath}` : '',
+        ...preview,
+      ].filter(Boolean).join('\n');
+    }
+
+    return skillResult.message;
   }
 
   // 检测是否为闲聊/非数据查询
@@ -1685,26 +1925,23 @@ ${identifierRules}
       }
 
       if (plan.type === 'skill') {
-        const skill = skillsRegistry.get(plan.name);
-        console.log('Looking for skill:', plan.name, 'found:', !!skill);
+        const resolvedSkillName = this.normalizeSkillName(plan.name);
+        const skill = skillsRegistry.get(resolvedSkillName);
+        console.log('Looking for skill:', resolvedSkillName, 'found:', !!skill);
 
         if (skill) {
-          console.log('Executing skill:', plan.name, 'params:', JSON.stringify(plan.params));
-          const ctx: SkillContext = {
-            dataSource,
-            schemas,
-            dbType,
-            openai: this.openai,
-            model: this.model,
-            workDir: process.cwd(),
-            userId: undefined,  // answer() 不携带 userId，通过 answerWithContext 调用时由上层传入
+          const skillParams = {
+            ...this.buildDefaultSkillParams(resolvedSkillName, question, schemas),
+            ...(plan.params || {}),
           };
+          console.log('Executing skill:', resolvedSkillName, 'params:', JSON.stringify(skillParams));
+          const ctx = this.buildSkillContext(dataSource, schemas, dbType, 'public/downloads');
 
           try {
-            const skillResult = await skill.execute(plan.params, ctx);
+            const skillResult = await skill.execute(skillParams, ctx);
             console.log('Skill result success:', skillResult.success);
             result = skillResult.data;
-            skillUsed = plan.name;
+            skillUsed = resolvedSkillName;
 
             // 如果技能返回了可视化配置，生成图表
             if (skillResult.visualization && !noChart) {
@@ -1724,9 +1961,24 @@ ${identifierRules}
             if (!skillResult.success) {
               return { answer: skillResult.message || '技能执行失败', skillUsed, tokensUsed: this.lastRequestTokens, modelName: this.model };
             }
+
+            const directSkillAnswer = this.buildSkillAnswer(resolvedSkillName, skillResult);
+            if (directSkillAnswer) {
+              const totalTime = Date.now() - startTime;
+              const timeStr = `\n\n> ⏱️ 响应耗时: ${totalTime}ms (规划:${timings['规划']}ms, 执行:${Date.now() - executionStart}ms)`;
+              return {
+                answer: prefixNote + directSkillAnswer + timeStr,
+                data: typeof result === 'string' ? undefined : result,
+                skillUsed,
+                chart,
+                visualization: skillResult.visualization,
+                tokensUsed: this.lastRequestTokens,
+                modelName: this.model
+              };
+            }
           } catch (skillError: any) {
             console.error('Skill execution error:', skillError);
-            return { answer: `技能执行出错: ${skillError.message}`, skillUsed: plan.name, tokensUsed: this.lastRequestTokens, modelName: this.model };
+            return { answer: `技能执行出错: ${skillError.message}`, skillUsed: resolvedSkillName, tokensUsed: this.lastRequestTokens, modelName: this.model };
           }
         } else {
           // 技能不存在，回退到简单SQL
@@ -1942,8 +2194,71 @@ ${identifierRules}
             return { answer: this.handleChitChat(question), tokensUsed: this.lastRequestTokens, modelName: 'none' };
           }
           if (plan.type === 'skill') {
-            // 委托给 answer() 方法处理 skill 执行
-            return this.answer(question, dataSource, dbType, history, context?.noChart);
+            timings['理解'] = Date.now() - understandStart;
+            const executionStart = Date.now();
+            const resolvedSkillName = this.normalizeSkillName(plan.name);
+            const skill = skillsRegistry.get(resolvedSkillName);
+
+            if (!skill) {
+              return {
+                answer: `技能未启用: ${resolvedSkillName}`,
+                skillUsed: resolvedSkillName,
+                tokensUsed: this.lastRequestTokens,
+                modelName: this.model,
+              };
+            }
+
+            const skillParams = {
+              ...this.buildDefaultSkillParams(resolvedSkillName, question, schemas),
+              ...(plan.params || {}),
+            };
+            const skillContext = this.buildSkillContext(dataSource, schemas, dbType, 'public/downloads');
+            const skillResult = await skill.execute(skillParams, skillContext);
+            timings['执行'] = Date.now() - executionStart;
+
+            if (!skillResult.success) {
+              return {
+                answer: skillResult.message || '技能执行失败',
+                skillUsed: resolvedSkillName,
+                tokensUsed: this.lastRequestTokens,
+                modelName: this.model,
+              };
+            }
+
+            let chart: ChartData | undefined;
+            if (skillResult.visualization && !context?.noChart) {
+              const visualization = skillResult.visualization;
+              if (visualization.type === 'bar' || visualization.type === 'line' || visualization.type === 'pie' || visualization.type === 'scatter') {
+                chart = {
+                  type: visualization.type as any,
+                  title: visualization.title || question.slice(0, 30),
+                  data: visualization.data,
+                  config: {
+                    xField: visualization.xField,
+                    yField: visualization.yField,
+                    labelField: visualization.xField,
+                    valueField: visualization.yField,
+                  }
+                };
+              }
+            }
+
+            const answerStart = Date.now();
+            const explanation = this.buildSkillAnswer(resolvedSkillName, skillResult) || '技能执行成功';
+            timings['生成回答'] = Date.now() - answerStart;
+
+            const totalTime = Date.now() - startTime;
+            const timeStr = `\n\n> ⏱️ 响应耗时: ${totalTime}ms (理解:${timings['理解']}ms, 执行:${timings['执行']}ms, 生成回答:${timings['生成回答']}ms)`;
+
+            return {
+              answer: explanation + timeStr,
+              data: typeof skillResult.data === 'string' ? undefined : skillResult.data,
+              skillUsed: resolvedSkillName,
+              visualization: skillResult.visualization,
+              chart,
+              tokensUsed: this.lastRequestTokens,
+              modelName: this.model,
+            };
           }
           if (plan.type === 'mcp') {
             return this.answer(question, dataSource, dbType, history, context?.noChart);
@@ -2696,7 +3011,7 @@ ${effectiveSchema}${additionalContext}`;
   }
 
   // 检测是否需要生成报告（返回报告类型或 null）
-  private detectReportIntent(question: string): 'summary' | 'ppt' | 'dashboard' | 'analysis' | null {
+  private detectReportIntent(question: string): 'summary' | 'ppt' | 'dashboard' | 'excel' | 'insight' | 'compare' | 'analysis' | null {
     const q = question.toLowerCase();
 
     // PPT/演示文稿
@@ -2707,6 +3022,21 @@ ${effectiveSchema}${additionalContext}`;
     // 数据大屏
     if (/(生成|(制|)|(展示|))(大屏|(可视化|)看板|dashboard)/i.test(q)) {
       return 'dashboard';
+    }
+
+    // Excel 报表
+    if (/(生成|导出|制作).*(excel|报表|工作簿)/i.test(q) || /(excel|报表).*(导出|下载|生成)/i.test(q)) {
+      return 'excel';
+    }
+
+    // 智能洞察
+    if (/(洞察|insight|关键发现|核心发现|自动发现)/i.test(q)) {
+      return 'insight';
+    }
+
+    // 对比分析
+    if (/(对比|比较|compare).*(报告|分析)/i.test(q) || /(报告|分析).*(对比|比较|compare)/i.test(q)) {
+      return 'compare';
     }
 
     // 深度分析报告
@@ -2727,7 +3057,7 @@ ${effectiveSchema}${additionalContext}`;
     question: string,
     dataSource: BaseDataSource,
     dbType: string,
-    reportType: 'summary' | 'ppt' | 'dashboard' | 'analysis',
+    reportType: 'summary' | 'ppt' | 'dashboard' | 'excel' | 'insight' | 'compare' | 'analysis',
     context?: any
   ): Promise<AgentResponse> {
     await this.ensureInitialized();
@@ -2741,13 +3071,6 @@ ${effectiveSchema}${additionalContext}`;
       }
 
       // 其他报告类型：调用对应的 Skill
-      const skillContext = {
-        dataSource,
-        dbType,
-        schemas,
-        workDir: 'public/downloads'
-      };
-
       const skillName = `report.${reportType}`;
       const skill = skillsRegistry.get(skillName);
 
@@ -2759,18 +3082,21 @@ ${effectiveSchema}${additionalContext}`;
         };
       }
 
+      const skillContext = this.buildSkillContext(dataSource, schemas, dbType, 'public/downloads');
       const result = await skill.execute(
-        { datasourceId: 'current', topic: question },
-        skillContext as any
+        this.buildDefaultSkillParams(skillName, question, schemas),
+        skillContext
       );
 
       const totalTime = Date.now() - startTime;
 
       if (result.success) {
+        const answer = this.buildSkillAnswer(skillName, result) || result.message || '报告生成成功';
         return {
-          answer: `${result.message}\n\n> ⏱️ 生成耗时: ${totalTime}ms`,
-          data: result.data,
+          answer: `${answer}\n\n> ⏱️ 生成耗时: ${totalTime}ms`,
+          data: typeof result.data === 'string' ? undefined : result.data,
           skillUsed: skillName,
+          visualization: result.visualization,
           tokensUsed: this.lastRequestTokens,
           modelName: this.model
         };

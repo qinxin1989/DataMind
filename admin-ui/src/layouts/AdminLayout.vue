@@ -21,26 +21,12 @@
         @click="handleMenuClick"
         @open-change="onOpenChange"
       >
-        <template v-for="item in menus">
-          <!-- SubMenu -->
-          <a-sub-menu v-if="item.children && item.children.length > 0" :key="'p_' + item.key">
-            <template #title>
-              <span>
-                <component :is="item.icon" />
-                <span>{{ item.label }}</span>
-              </span>
-            </template>
-            <a-menu-item v-for="child in item.children" :key="child.key">
-              {{ child.label }}
-            </a-menu-item>
-          </a-sub-menu>
-
-          <!-- Standard Menu Item -->
-          <a-menu-item v-else :key="item.key">
-            <component :is="item.icon" />
-            <span>{{ item.label }}</span>
-          </a-menu-item>
-        </template>
+        <AppMenuNode
+          v-for="item in menus"
+          :key="item.id"
+          :item="item"
+          :get-icon="getIcon"
+        />
       </a-menu>
     </a-layout-sider>
 
@@ -56,7 +42,7 @@
           <menu-fold-outlined v-else class="trigger" @click="() => (collapsed = !collapsed)" />
           
           <a-breadcrumb>
-            <a-breadcrumb-item href="/dashboard">首页</a-breadcrumb-item>
+            <a-breadcrumb-item href="/workbench">首页</a-breadcrumb-item>
             <a-breadcrumb-item v-for="item in breadcrumbs" :key="item.path">
               {{ item.title }}
             </a-breadcrumb-item>
@@ -65,7 +51,7 @@
         
         <div class="header-right">
           <a-tooltip title="通知中心">
-            <a-badge dot class="action-item">
+            <a-badge dot class="action-item" @click="router.push('/system/notification')">
               <BellOutlined />
             </a-badge>
           </a-tooltip>
@@ -107,10 +93,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, h } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { usePermissionStore } from '@/stores/permission'
+import AppMenuNode from '@/components/layout/AppMenuNode.vue'
+import type { MenuItem } from '@/types'
 import { message } from 'ant-design-vue'
 import { 
   RobotOutlined, 
@@ -135,8 +123,14 @@ import {
   FileTextOutlined,
   EditOutlined,
   QuestionOutlined,
+  QuestionCircleOutlined,
   FileSearchOutlined,
-  CloudDownloadOutlined
+  CloudDownloadOutlined,
+  CloudServerOutlined,
+  AppstoreOutlined,
+  ThunderboltOutlined,
+  TableOutlined,
+  FundOutlined
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -165,8 +159,14 @@ const iconMap: Record<string, any> = {
   FileTextOutlined,
   EditOutlined,
   QuestionOutlined,
+  QuestionCircleOutlined,
   FileSearchOutlined,
-  CloudDownloadOutlined
+  CloudDownloadOutlined,
+  CloudServerOutlined,
+  AppstoreOutlined,
+  ThunderboltOutlined,
+  TableOutlined,
+  FundOutlined
 }
 
 const getIcon = (iconName: string | undefined) => {
@@ -204,20 +204,13 @@ async function fetchMenus() {
 }
 
 const menus = computed(() => {
-  const mapItem = (item: any) => ({
-    key: item.id,
-    label: item.title,
-    icon: h(getIcon(item.icon)), // 使用 h 函数确保图标正确渲染
-    path: item.path,
-    children: item.children ? item.children.map(mapItem) : undefined
-  })
-  return permissionStore.menuTree.map(mapItem)
+  return permissionStore.menuTree
 })
 
 // 顶级子菜单 Key 列表，用于实现手风琴效果
 const rootSubmenuKeys = computed(() => menus.value
   .filter(item => item.children && item.children.length > 0)
-  .map(item => 'p_' + item.key)
+  .map(item => 'p_' + item.id)
 )
 
 const onOpenChange = (keys: string[]) => {
@@ -271,57 +264,44 @@ watch(
 
 function updateMenuSelection() {
   const path = route.path
-  
   let targetKey: string | null = null
-  let targetOpenKey: string | null = null
+  let targetOpenKeys: string[] = []
   let maxLen = -1
 
-  // Helper to check match and update if better
-  const checkMatch = (itemPath: string, key: string, openKey: string | null) => {
-    // 匹配规则: 精确匹配 OR 路径前缀匹配(需以/结尾防止部分字符匹配)
+  const checkMatch = (itemPath: string, key: string, openKeyChain: string[]) => {
     if (path === itemPath || path.startsWith(itemPath + '/')) {
       if (itemPath.length > maxLen) {
         maxLen = itemPath.length
         targetKey = key
-        targetOpenKey = openKey
+        targetOpenKeys = openKeyChain
       }
     }
   }
 
-  // 遍历菜单寻找最佳匹配
-  for (const item of menus.value) {
-    // 1. 检查顶级菜单
-    if (item.path) {
-      checkMatch(item.path, item.key, null)
-    }
+  const walkMenus = (items: MenuItem[], parentOpenKeys: string[] = []) => {
+    for (const item of items) {
+      if (item.path) {
+        checkMatch(item.path, item.id, parentOpenKeys)
+      }
 
-    // 2. 检查子菜单
-    if (item.children) {
-      for (const child of item.children) {
-        if (child.path) {
-          // 子菜单匹配时，需要展开对应的父菜单(key前缀p_)
-          checkMatch(child.path, child.key, 'p_' + item.key)
-        }
+      if (item.children?.length) {
+        walkMenus(item.children, [...parentOpenKeys, `p_${item.id}`])
       }
     }
   }
 
-  // 应用最佳匹配
+  walkMenus(menus.value)
+
   if (targetKey) {
     selectedKeys.value = [targetKey]
-    // 设置展开项 (手风琴效果)
-    if (targetOpenKey) {
-      openKeys.value = [targetOpenKey]
-    } else {
-      openKeys.value = []
-    }
+    openKeys.value = targetOpenKeys
   }
 }
 
 function handleMenuClick({ key }: { key: string }) {
-  const findItem = (items: any[]): any => {
+  const findItem = (items: MenuItem[]): MenuItem | null => {
     for (const item of items) {
-      if (item.key === key) return item
+      if (item.id === key) return item
       if (item.children) {
         const found = findItem(item.children)
         if (found) return found
@@ -331,12 +311,32 @@ function handleMenuClick({ key }: { key: string }) {
   }
   
   const item = findItem(menus.value)
-  if (item && item.path) {
+  if (!item) {
+    return
+  }
+
+  if (item.menuType === 'external' || item.menuType === 'iframe') {
+    const targetUrl = item.externalUrl || item.path
+    if (!targetUrl) {
+      message.warning('该菜单未配置可访问地址')
+      return
+    }
+
+    if (item.openMode === 'blank') {
+      window.open(targetUrl, '_blank', 'noopener')
+    } else {
+      window.open(targetUrl, '_self')
+    }
+    return
+  }
+
+  if (item.path) {
     router.push(item.path)
   }
 }
 
 function handleLogout() {
+  permissionStore.reset()
   userStore.logout()
   message.success('已退出登录')
   router.push('/login')

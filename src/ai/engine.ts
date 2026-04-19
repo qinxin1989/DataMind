@@ -78,7 +78,7 @@ export class AIEngine {
   }
 
   // 构建上下文消息
-  private buildContextMessages(history: ChatMessage[]): { role: 'user' | 'assistant'; content: string }[] {
+  private buildContextMessages(history: ChatMessage[]): { role: 'user' | 'assistant' | 'system'; content: string }[] {
     // 只取最近5轮对话作为上下文
     const recentHistory = history.slice(-10);
     return recentHistory.map(msg => ({

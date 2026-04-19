@@ -4,6 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { menuService } from '../../../modules/menu-management/backend/service';
+import { pool } from '../../../src/admin/core/database';
+import { permissionService } from '../../../src/admin/services/permissionService';
 import type { Menu } from '../../../modules/menu-management/backend/types';
 
 describe('MenuService', () => {
@@ -12,12 +14,14 @@ describe('MenuService', () => {
   beforeEach(async () => {
     // 清理测试数据
     await menuService.clearAll();
+    await permissionService.clearAll();
     testMenuIds = [];
   });
 
   afterEach(async () => {
     // 清理测试数据
     await menuService.clearAll();
+    await permissionService.clearAll();
   });
 
   describe('菜单创建', () => {
@@ -55,6 +59,52 @@ describe('MenuService', () => {
       testMenuIds.push(child.id);
 
       expect(child.parentId).toBe(parent.id);
+    });
+
+    it('应该允许创建三级菜单', async () => {
+      const level1 = await menuService.createMenu({
+        title: '一级菜单',
+        path: '/level-1',
+      });
+      const level2 = await menuService.createMenu({
+        title: '二级菜单',
+        path: '/level-1/level-2',
+        parentId: level1.id,
+      });
+      const level3 = await menuService.createMenu({
+        title: '三级菜单',
+        path: '/level-1/level-2/level-3',
+        parentId: level2.id,
+      });
+      testMenuIds.push(level1.id, level2.id, level3.id);
+
+      expect(level3.parentId).toBe(level2.id);
+    });
+
+    it('应该拒绝创建超过三级的菜单', async () => {
+      const level1 = await menuService.createMenu({
+        title: '一级菜单',
+        path: '/level-1',
+      });
+      const level2 = await menuService.createMenu({
+        title: '二级菜单',
+        path: '/level-1/level-2',
+        parentId: level1.id,
+      });
+      const level3 = await menuService.createMenu({
+        title: '三级菜单',
+        path: '/level-1/level-2/level-3',
+        parentId: level2.id,
+      });
+      testMenuIds.push(level1.id, level2.id, level3.id);
+
+      await expect(
+        menuService.createMenu({
+          title: '四级菜单',
+          path: '/level-1/level-2/level-3/level-4',
+          parentId: level3.id,
+        })
+      ).rejects.toThrow(/层级/);
     });
 
     it('应该创建外部链接菜单', async () => {
@@ -149,6 +199,145 @@ describe('MenuService', () => {
       
       expect(Array.isArray(tree)).toBe(true);
     });
+
+    it('应该按菜单顺序构建树', async () => {
+      const menu1 = await menuService.createMenu({ title: '菜单1', path: '/menu-1', order: 30 });
+      const menu2 = await menuService.createMenu({ title: '菜单2', path: '/menu-2', order: 10 });
+      const menu3 = await menuService.createMenu({ title: '菜单3', path: '/menu-3', order: 20 });
+      testMenuIds.push(menu1.id, menu2.id, menu3.id);
+
+      const tree = await menuService.getMenuTree();
+      const orderedIds = tree
+        .filter(menu => [menu1.id, menu2.id, menu3.id].includes(menu.id))
+        .map(menu => menu.id);
+
+      expect(orderedIds).toEqual([menu2.id, menu3.id, menu1.id]);
+    });
+
+    it('应该稳定排序子菜单', async () => {
+      const parent = await menuService.createMenu({ title: '父菜单', path: '/parent-sort', order: 1 });
+      const childA = await menuService.createMenu({
+        title: 'menu-b',
+        path: '/parent-sort/b',
+        parentId: parent.id,
+        order: 20,
+      });
+      const childB = await menuService.createMenu({
+        title: 'menu-a',
+        path: '/parent-sort/a',
+        parentId: parent.id,
+        order: 10,
+      });
+      const childC = await menuService.createMenu({
+        title: 'menu-c',
+        path: '/parent-sort/c',
+        parentId: parent.id,
+        order: 20,
+      });
+      testMenuIds.push(parent.id, childA.id, childB.id, childC.id);
+
+      const tree = await menuService.getMenuTree();
+      const targetParent = tree.find(menu => menu.id === parent.id);
+
+      expect(targetParent?.children?.map(menu => menu.id)).toEqual([
+        childB.id,
+        childA.id,
+        childC.id,
+      ]);
+    });
+  });
+
+  describe('菜单权限过滤', () => {
+    it('应该按用户菜单权限过滤菜单树', async () => {
+      const publicMenu = await menuService.createMenu({ title: '公共菜单', path: '/public', order: 1 });
+      const adminOnlyMenu = await menuService.createMenu({
+        title: '管理员菜单',
+        path: '/admin-only',
+        permission: 'admin:access',
+        order: 2,
+      });
+      const userOnlyMenu = await menuService.createMenu({
+        title: '用户菜单',
+        path: '/user-only',
+        permission: 'user:access',
+        order: 3,
+      });
+      testMenuIds.push(publicMenu.id, adminOnlyMenu.id, userOnlyMenu.id);
+
+      permissionService.setRoleForTest({
+        id: 'user-role',
+        name: 'User',
+        code: 'user-role',
+        description: '',
+        permissionCodes: ['user:access'],
+        menuIds: [publicMenu.id, userOnlyMenu.id],
+        status: 'active',
+        isSystem: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      permissionService.setUserRolesForTest('user-1', ['user-role']);
+
+      const userMenus = await menuService.getUserMenuTree('user-1');
+      const menuTitles = userMenus.map(menu => menu.title);
+
+      expect(menuTitles).toContain('公共菜单');
+      expect(menuTitles).toContain('用户菜单');
+      expect(menuTitles).not.toContain('管理员菜单');
+    });
+
+    it('应该为超级管理员返回所有可见菜单', async () => {
+      const visibleMenu = await menuService.createMenu({ title: '可见菜单', path: '/visible', visible: true });
+      const hiddenMenu = await menuService.createMenu({ title: '隐藏菜单', path: '/hidden', visible: false });
+      testMenuIds.push(visibleMenu.id, hiddenMenu.id);
+
+      permissionService.setRoleForTest({
+        id: 'super-role',
+        name: 'Super Admin',
+        code: 'super-admin-role',
+        description: '',
+        permissionCodes: ['*'],
+        menuIds: [],
+        status: 'active',
+        isSystem: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      permissionService.setUserRolesForTest('super-admin', ['super-role']);
+
+      const menus = await menuService.getUserMenuTree('super-admin');
+      const menuTitles = menus.map(menu => menu.title);
+
+      expect(menuTitles).toContain('可见菜单');
+      expect(menuTitles).not.toContain('隐藏菜单');
+    });
+
+    it('应该在用户视图隐藏禁用菜单，但在管理视图保留', async () => {
+      const visibleMenu = await menuService.createMenu({ title: '启用菜单', path: '/enabled', visible: true });
+      const hiddenMenu = await menuService.createMenu({ title: '禁用菜单', path: '/disabled', visible: false });
+      testMenuIds.push(visibleMenu.id, hiddenMenu.id);
+
+      permissionService.setRoleForTest({
+        id: 'plain-user-role',
+        name: 'Plain User',
+        code: 'plain-user-role',
+        description: '',
+        permissionCodes: ['menu:view'],
+        menuIds: [visibleMenu.id, hiddenMenu.id],
+        status: 'active',
+        isSystem: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      permissionService.setUserRolesForTest('plain-user', ['plain-user-role']);
+
+      const userTree = await menuService.getUserMenuTree('plain-user');
+      const fullTree = await menuService.getFullMenuTree();
+
+      expect(userTree.map(menu => menu.title)).toContain('启用菜单');
+      expect(userTree.map(menu => menu.title)).not.toContain('禁用菜单');
+      expect(fullTree.map(menu => menu.title)).toContain('禁用菜单');
+    });
   });
 
   describe('菜单更新', () => {
@@ -218,6 +407,30 @@ describe('MenuService', () => {
       await expect(
         menuService.deleteMenu('non-existent-id')
       ).rejects.toThrow('菜单不存在');
+    });
+
+    it('默认清理应保留被提升为系统菜单的测试菜单', async () => {
+      const menu = await menuService.createMenu({ title: '系统保留菜单', path: '/promoted-system-menu-default' });
+
+      try {
+        await pool.execute('UPDATE sys_menus SET is_system = TRUE WHERE id = ?', [menu.id]);
+
+        await menuService.clearAll();
+
+        expect(await menuService.getMenuById(menu.id)).not.toBeNull();
+      } finally {
+        await menuService.clearAll(true);
+      }
+    });
+
+    it('显式全量清理应删除被提升为系统菜单的测试菜单', async () => {
+      const menu = await menuService.createMenu({ title: '系统删除菜单', path: '/promoted-system-menu-full-cleanup' });
+
+      await pool.execute('UPDATE sys_menus SET is_system = TRUE WHERE id = ?', [menu.id]);
+
+      await menuService.clearAll(true);
+
+      expect(await menuService.getMenuById(menu.id)).toBeNull();
     });
 
     it('应该批量删除菜单', async () => {
@@ -353,11 +566,57 @@ describe('MenuService', () => {
       const menu = await menuService.createMenu({
         title: '测试',
         path: '/test',
-        moduleCode: 'test-module',
+        moduleCode: 'manual-extension',
       });
       testMenuIds.push(menu.id);
 
-      expect(menu.moduleCode).toBe('test-module');
+      expect(menu.moduleCode).toBe('manual-extension');
+    });
+
+    it('应该拒绝在页面里创建已注册模块的菜单', async () => {
+      await expect(
+        menuService.createMenu({
+          title: '模块菜单',
+          path: '/module-bound-menu',
+          moduleCode: 'dashboard',
+        })
+      ).rejects.toThrow(/module\.json/);
+    });
+
+    it('应该拒绝修改模块注册菜单', async () => {
+      const menu = await menuService.createMenu({
+        title: '受保护菜单',
+        path: '/protected-menu',
+        moduleCode: 'manual-extension',
+      });
+      testMenuIds.push(menu.id);
+
+      await pool.execute(
+        'UPDATE sys_menus SET module_name = ?, module_code = ? WHERE id = ?',
+        ['dashboard', 'dashboard', menu.id]
+      );
+
+      await expect(
+        menuService.updateMenu(menu.id, { title: '新标题' })
+      ).rejects.toThrow(/module\.json/);
+    });
+
+    it('应该拒绝删除模块注册菜单', async () => {
+      const menu = await menuService.createMenu({
+        title: '待删模块菜单',
+        path: '/protected-delete-menu',
+        moduleCode: 'manual-extension',
+      });
+      testMenuIds.push(menu.id);
+
+      await pool.execute(
+        'UPDATE sys_menus SET module_name = ?, module_code = ? WHERE id = ?',
+        ['dashboard', 'dashboard', menu.id]
+      );
+
+      await expect(
+        menuService.deleteMenu(menu.id)
+      ).rejects.toThrow(/module\.json/);
     });
   });
 });

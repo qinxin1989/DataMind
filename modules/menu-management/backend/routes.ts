@@ -109,7 +109,7 @@ router.post('/', requirePermission('menu:create'), async (req: Request, res: Res
 
     res.status(201).json(success(menu));
   } catch (err: any) {
-    if (err.message.includes('层级')) {
+    if (err.message.includes('层级') || err.message.includes('module.json') || err.message.includes('子菜单')) {
       return res.status(400).json(error('BIZ_OPERATION_FAILED', err.message));
     }
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -142,7 +142,7 @@ router.put('/:id', requirePermission('menu:update'), async (req: Request, res: R
     if (err.message.includes('不存在')) {
       return res.status(404).json(error('RES_NOT_FOUND', '菜单不存在'));
     }
-    if (err.message.includes('系统菜单')) {
+    if (err.message.includes('系统菜单') || err.message.includes('module.json') || err.message.includes('手动菜单')) {
       return res.status(400).json(error('BIZ_OPERATION_FAILED', err.message));
     }
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -157,7 +157,12 @@ router.delete('/:id', requirePermission('menu:delete'), async (req: Request, res
     await menuService.deleteMenu(req.params.id);
     res.json(success({ message: '删除成功' }));
   } catch (err: any) {
-    if (err.message.includes('不存在') || err.message.includes('系统菜单') || err.message.includes('子菜单')) {
+    if (
+      err.message.includes('不存在')
+      || err.message.includes('系统菜单')
+      || err.message.includes('子菜单')
+      || err.message.includes('module.json')
+    ) {
       return res.status(400).json(error('BIZ_OPERATION_FAILED', err.message));
     }
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
@@ -178,6 +183,9 @@ router.post('/batch/delete', requirePermission('menu:delete'), async (req: Reque
     await menuService.batchDeleteMenus(ids);
     res.json(success({ message: `成功删除 ${ids.length} 个菜单` }));
   } catch (err: any) {
+    if (err.message.includes('module.json') || err.message.includes('不存在')) {
+      return res.status(400).json(error('BIZ_OPERATION_FAILED', err.message));
+    }
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });
@@ -192,6 +200,9 @@ router.put('/:id/visibility', requirePermission('menu:update'), async (req: Requ
   } catch (err: any) {
     if (err.message.includes('不存在')) {
       return res.status(404).json(error('RES_NOT_FOUND', '菜单不存在'));
+    }
+    if (err.message.includes('module.json')) {
+      return res.status(400).json(error('BIZ_OPERATION_FAILED', err.message));
     }
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
@@ -211,6 +222,9 @@ router.post('/sort', requirePermission('menu:update'), async (req: Request, res:
     await menuService.updateMenuOrder(items);
     res.json(success({ message: '排序更新成功' }));
   } catch (err: any) {
+    if (err.message.includes('module.json') || err.message.includes('不存在')) {
+      return res.status(400).json(error('BIZ_OPERATION_FAILED', err.message));
+    }
     res.status(500).json(error('SYS_INTERNAL_ERROR', err.message));
   }
 });

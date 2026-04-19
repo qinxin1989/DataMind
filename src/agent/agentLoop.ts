@@ -13,6 +13,8 @@ import {
   executeToolCall,
   buildAgentSystemPrompt,
   ToolExecutionContext,
+  ToolExecutionPolicy,
+  getAllowedSkillDescriptions,
 } from './toolSchema';
 import { isToolError, buildReflexMessage, enhanceErrorResult } from './errorReflection';
 import {
@@ -70,8 +72,24 @@ export interface AgentLoopInput {
   userId?: string;
   /** 上传目录 */
   uploadDir?: string;
+  /** 会话 ID，用于环境观测 */
+  sessionId?: string;
+  /** 会话摘要或长期上下文 */
+  sessionContext?: string;
+  /** 最近产物，用于提示模型继续利用已有文件 */
+  recentArtifacts?: Array<{ type: string; path: string }>;
+  /** 最近工具错误，用于减少重复踩坑 */
+  recentToolErrors?: Array<{ name: string; result: string }>;
   /** SSE 事件回调 */
   onEvent?: (event: AgentSSEEvent) => void | Promise<void>;
+  /** 当前业务助手名称 */
+  assistantName?: string;
+  /** 当前业务助手职责说明 */
+  assistantDescription?: string;
+  /** 当前业务助手附加提示词 */
+  extraSystemPrompt?: string;
+  /** 当前业务助手工具权限 */
+  toolPolicy?: ToolExecutionPolicy;
 }
 
 /** Agent Loop 返回结果 */
@@ -134,6 +152,11 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   const systemPrompt = buildAgentSystemPrompt({
     schemas,
     dbType: input.dbType,
+    assistantName: input.assistantName,
+    assistantDescription: input.assistantDescription,
+    extraInstructions: input.extraSystemPrompt,
+    sessionContext: input.sessionContext,
+    skillDescriptions: getAllowedSkillDescriptions(input.toolPolicy),
   });
 
   // 3. 组装 messages
@@ -155,6 +178,9 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   // 注入环境观测 & 模式提示
   let enrichedMessages = injectEnvironmentObservation(messages, {
     uploadDir: input.uploadDir,
+    sessionId: input.sessionId,
+    recentArtifacts: input.recentArtifacts,
+    recentToolErrors: input.recentToolErrors,
   });
   enrichedMessages = injectModePrompt(enrichedMessages, config.mode);
 
@@ -167,10 +193,11 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     model: input.model,
     workDir: input.workDir,
     userId: input.userId,
+    ...input.toolPolicy,
   };
 
   // 5. 获取工具 schema
-  const tools = getAgentTools();
+  const tools = getAgentTools(input.toolPolicy);
 
   // 6. 多轮循环
   let fullContent = '';

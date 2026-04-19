@@ -1,6 +1,14 @@
 import mysql from 'mysql2/promise';
 import { BaseDataSource } from './base';
-import { DatabaseConfig, TableSchema, ColumnInfo, QueryResult } from '../types';
+import { TableSchema, ColumnInfo, QueryResult } from './types';
+
+type DatabaseConfig = {
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  database?: string;
+};
 
 export class MySQLDataSource extends BaseDataSource {
   private connection: mysql.Connection | null = null;
@@ -25,7 +33,7 @@ export class MySQLDataSource extends BaseDataSource {
     this.connection = await mysql.createConnection({
       host: this.config.host,
       port: this.config.port,
-      user: this.config.user,
+      user: this.config.username,
       password: this.config.password,
       database: this.config.database,
       connectTimeout: 10000,
@@ -44,7 +52,7 @@ export class MySQLDataSource extends BaseDataSource {
       const conn = await mysql.createConnection({
         host: this.config.host,
         port: this.config.port,
-        user: this.config.user,
+        user: this.config.username,
         password: this.config.password,
         database: this.config.database,
         connectTimeout: 5000,

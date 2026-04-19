@@ -16,7 +16,7 @@ export interface User {
   updatedAt: number
 }
 
-export type UserRole = 'admin' | 'user' | 'viewer'
+export type UserRole = 'super_admin' | 'admin' | 'user' | 'viewer' | 'guest'
 export type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending'
 
 // 角色相关类型
@@ -50,10 +50,10 @@ export interface MenuItem {
   externalUrl?: string  // 外部链接地址
   openMode: 'current' | 'blank' | 'iframe'  // current=当前窗口, blank=新窗口, iframe=iframe
   moduleCode?: string  // 模块代码，用于区分不同平台
+  moduleSource?: string // 注册该菜单的模块名
   // 兼容字段
   external: boolean
   target: '_blank' | '_self'
-  moduleSource?: string
   isSystem: boolean
   children?: MenuItem[]
   createdAt: number

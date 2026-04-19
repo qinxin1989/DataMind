@@ -43,6 +43,7 @@ import { reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { UserOutlined, LockOutlined } from '@ant-design/icons-vue'
+import { normalizeAuthUser, normalizePermissions } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 import { usePermissionStore } from '@/stores/permission'
 import { post } from '@/api/request'
@@ -66,27 +67,17 @@ const rules = {
 async function handleLogin() {
   loading.value = true
   try {
-    // 调用登录API - 后台直接返回 { user, token }
-    const res = await post<{ token: string; user: any }>('/auth/login', formState) as any
+    // 调用登录API - 后台直接返回 { user, token, permissions }
+    const res = await post<{ token: string; user: any; permissions?: string[] }>('/auth/login', formState) as any
     
     // 后台直接返回数据，不是包装在 success/data 中
     const token = res.token || res.data?.token
     const user = res.user || res.data?.user
+    const permissions = normalizePermissions(res.permissions || res.data?.permissions)
     
     if (token && user) {
       userStore.setToken(token)
-      userStore.setUser({
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        status: user.status,
-        roleIds: [user.role],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      })
-      
-      // 加载权限 - 根据用户角色加载，管理员才有 '*' 权限
-      const permissions = user.role === 'admin' ? ['*'] : []
+      userStore.setUser(normalizeAuthUser(user))
       await permissionStore.loadPermissions(permissions)
       await permissionStore.loadMenuTree()
       

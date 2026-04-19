@@ -1,6 +1,14 @@
 import { Client, ClientConfig } from 'pg';
 import { BaseDataSource } from './base';
-import { DatabaseConfig, TableSchema, ColumnInfo, QueryResult } from '../types';
+import { TableSchema, ColumnInfo, QueryResult } from './types';
+
+type DatabaseConfig = {
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  database?: string;
+};
 
 /**
  * PostgreSQL 数据源适配器
@@ -22,7 +30,7 @@ export class PostgresDataSource extends BaseDataSource {
     return {
       host: this.config.host,
       port: this.config.port,
-      user: this.config.user,
+      user: this.config.username,
       password: this.config.password,
       database: this.config.database,
       // 连接超时设置
@@ -162,6 +170,7 @@ export class PostgresDataSource extends BaseDataSource {
           }
 
           allSchemas.push({
+            name: schemaName === 'public' ? tableName : `${schemaName}.${tableName}`,
             tableName: schemaName === 'public' ? tableName : `${schemaName}.${tableName}`,
             columns: columnInfos,
             sampleData,

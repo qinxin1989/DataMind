@@ -5,9 +5,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../../../src/admin/core/database';
 import { permissionService } from '../../../src/admin/services/permissionService';
+import { isRegisteredModuleName } from '../../../src/module-system/core/registeredModule';
 import type { Menu, CreateMenuRequest, UpdateMenuRequest } from './types';
 
 export class MenuService {
+  private readonly menuCollator = new Intl.Collator('zh-CN');
+
   /**
    * 获取所有菜单
    */
@@ -92,12 +95,27 @@ export class MenuService {
    * 构建树形结构
    */
   private buildTree(menus: Menu[], parentId: string | null = null): Menu[] {
-    return menus
-      .filter(m => (m.parentId || null) === parentId)
-      .map(m => ({
-        ...m,
-        children: this.buildTree(menus, m.id),
-      }));
+    const siblings = menus.filter(m => (m.parentId || null) === parentId);
+    const sortedSiblings = [...siblings].sort((a, b) => this.compareMenus(a, b));
+
+    return sortedSiblings.map(m => ({
+      ...m,
+      children: this.buildTree(menus, m.id),
+    }));
+  }
+
+  private compareMenus(a: Menu, b: Menu): number {
+    const orderDiff = (a.sortOrder || 0) - (b.sortOrder || 0);
+    if (orderDiff !== 0) {
+      return orderDiff;
+    }
+
+    const titleDiff = this.menuCollator.compare(a.title || '', b.title || '');
+    if (titleDiff !== 0) {
+      return titleDiff;
+    }
+
+    return this.menuCollator.compare(a.path || a.id, b.path || b.id);
   }
 
   /**
@@ -136,6 +154,17 @@ export class MenuService {
    * 创建菜单
    */
   async createMenu(data: CreateMenuRequest): Promise<Menu> {
+    if (isRegisteredModuleName(data.moduleCode)) {
+      throw new Error(`模块注册菜单必须在 modules/${data.moduleCode}/module.json 中维护`);
+    }
+
+    if (data.parentId) {
+      const parentMenu = await this.getMenuById(data.parentId);
+      if (parentMenu && this.isRegisteredModuleMenu(parentMenu)) {
+        throw new Error('不能在模块注册菜单下手动新增子菜单，请在对应模块的 module.json 中维护');
+      }
+    }
+
     // 检查层级限制（最多3层）
     if (data.parentId) {
       const parentDepth = await this.getMenuDepth(data.parentId);
@@ -178,6 +207,19 @@ export class MenuService {
       throw new Error('菜单不存在');
     }
 
+    this.assertManualMutationAllowed(menu);
+
+    if (data.moduleCode !== undefined && isRegisteredModuleName(data.moduleCode)) {
+      throw new Error(`模块注册菜单必须在 modules/${data.moduleCode}/module.json 中维护`);
+    }
+
+    if (data.parentId) {
+      const parentMenu = await this.getMenuById(data.parentId);
+      if (parentMenu && this.isRegisteredModuleMenu(parentMenu)) {
+        throw new Error('不能把手动菜单挂到模块注册菜单下，请在对应模块的 module.json 中维护');
+      }
+    }
+
     const updates: string[] = [];
     const values: any[] = [];
 
@@ -209,6 +251,7 @@ export class MenuService {
     if (!menu) {
       throw new Error('菜单不存在');
     }
+    this.assertManualMutationAllowed(menu);
     if (menu.isSystem) {
       throw new Error('系统菜单不能删除');
     }
@@ -240,6 +283,11 @@ export class MenuService {
    */
   async updateMenuOrder(items: { id: string; order: number }[]): Promise<void> {
     for (const item of items) {
+      const menu = await this.getMenuById(item.id);
+      if (!menu) {
+        throw new Error(`菜单不存在: ${item.id}`);
+      }
+      this.assertManualMutationAllowed(menu);
       await pool.execute('UPDATE sys_menus SET sort_order = ? WHERE id = ?', [item.order, item.id]);
     }
   }
@@ -252,6 +300,7 @@ export class MenuService {
     if (!menu) {
       throw new Error('菜单不存在');
     }
+    this.assertManualMutationAllowed(menu);
 
     await pool.execute('UPDATE sys_menus SET visible = ? WHERE id = ?', [!menu.visible, id]);
     return this.getMenuById(id) as Promise<Menu>;
@@ -265,9 +314,21 @@ export class MenuService {
     if (!menu) {
       throw new Error('菜单不存在');
     }
+    this.assertManualMutationAllowed(menu);
 
     await pool.execute('UPDATE sys_menus SET visible = ? WHERE id = ?', [visible, id]);
     return this.getMenuById(id) as Promise<Menu>;
+  }
+
+  private isRegisteredModuleMenu(menu: Pick<Menu, 'moduleCode' | 'moduleSource'>): boolean {
+    return isRegisteredModuleName(menu.moduleSource || menu.moduleCode);
+  }
+
+  private assertManualMutationAllowed(menu: Menu): void {
+    if (this.isRegisteredModuleMenu(menu)) {
+      const moduleKey = menu.moduleSource || menu.moduleCode;
+      throw new Error(`模块注册菜单必须在 modules/${moduleKey}/module.json 中维护`);
+    }
   }
 
   /**
@@ -292,6 +353,7 @@ export class MenuService {
       externalUrl: row.external_url,
       openMode,
       moduleCode: row.module_code || row.module_name,
+      moduleSource: row.module_name || row.module_code,
       external: menuType !== 'internal',
       target: openMode === 'blank' ? '_blank' : '_self',
       createdAt: new Date(row.created_at).getTime(),
@@ -302,7 +364,19 @@ export class MenuService {
   /**
    * 测试辅助 - 清除所有非系统菜单
    */
-  async clearAll(): Promise<void> {
+  async clearAll(includeSystemMenus = false): Promise<void> {
+    if (includeSystemMenus) {
+      await pool.execute('DELETE FROM sys_role_menus');
+      await pool.execute('DELETE FROM sys_menus');
+      return;
+    }
+
+    await pool.execute(`
+      DELETE rm
+      FROM sys_role_menus rm
+      INNER JOIN sys_menus m ON rm.menu_id = m.id
+      WHERE m.is_system = FALSE
+    `);
     await pool.execute('DELETE FROM sys_menus WHERE is_system = FALSE');
   }
 }

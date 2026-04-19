@@ -16,6 +16,12 @@ interface CSRFToken {
   expires: number;
 }
 
+type SessionRequest = Request & {
+  session?: {
+    id?: string;
+  };
+};
+
 /**
  * CSRF 防护类
  */
@@ -127,7 +133,7 @@ export function createCSRFMiddleware(options: CSRFMiddlewareOptions = {}) {
     whitelist = [],
     whitelistMethods = ['GET', 'HEAD', 'OPTIONS'],
     getToken = (req) => req.headers['x-csrf-token'] as string || req.body?._csrf,
-    getSessionId = (req) => req.session?.id || req.ip
+    getSessionId = (req) => (req as SessionRequest).session?.id || req.ip
   } = options;
   
   return (req: Request, res: Response, next: NextFunction) => {
@@ -175,7 +181,7 @@ export function createCSRFMiddleware(options: CSRFMiddlewareOptions = {}) {
  * 获取 CSRF Token 的路由处理器
  */
 export function getCSRFTokenHandler(req: Request, res: Response) {
-  const sessionId = req.session?.id || req.ip;
+  const sessionId = (req as SessionRequest).session?.id || req.ip || 'anonymous';
   const token = csrfProtection.generateToken(sessionId);
   
   res.json({

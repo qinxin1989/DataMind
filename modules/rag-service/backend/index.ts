@@ -33,7 +33,7 @@ export function initRagModule(options: RagModuleOptions) {
 // 导出所有类型和服务
 export * from './types';
 export * from './service';
-export * from './agenticRetriever';
+export { AgenticRetriever, createAgenticRetriever } from './agenticRetriever';
 export { RAGEngine } from './ragEngine';
 export { KnowledgeBase } from './knowledgeBase';
 export { KnowledgeGraph } from './knowledgeGraph';

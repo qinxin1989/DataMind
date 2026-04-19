@@ -1,4 +1,6 @@
 export * from './request'
+export * from './assistant'
+export * from './auth'
 export * from './user'
 export * from './role'
 export * from './menu'

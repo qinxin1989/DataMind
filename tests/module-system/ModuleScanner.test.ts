@@ -192,6 +192,46 @@ describe('ModuleScanner', () => {
       // 由于我们没有 mock 所有文件，应该会有错误
       expect(result.errors.length).toBeGreaterThan(0);
     });
+
+    it('should report missing frontend component files', async () => {
+      vi.mocked(fs.stat).mockImplementation(async (targetPath: any) => {
+        const normalized = String(targetPath).replace(/\\/g, '/');
+        if (normalized.endsWith('/test-module')) {
+          return { isDirectory: () => true, isFile: () => false } as any;
+        }
+        if (
+          normalized.endsWith('/backend/index.ts') ||
+          normalized.endsWith('/frontend/index.ts')
+        ) {
+          return { isDirectory: () => false, isFile: () => true } as any;
+        }
+        throw new Error('ENOENT');
+      });
+
+      vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+        name: 'test-module',
+        displayName: 'Test Module',
+        version: '1.0.0',
+        backend: {
+          entry: './backend/index.ts'
+        },
+        frontend: {
+          entry: './frontend/index.ts',
+          components: {
+            BrokenView: './frontend/views/BrokenView.vue'
+          }
+        }
+      }));
+
+      const result = await scanner.scanModule('test-module', {
+        validateStructure: true
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain(
+        'Frontend component file not found: BrokenView -> ./frontend/views/BrokenView.vue'
+      );
+    });
   });
 
   describe('getModuleManifest', () => {

@@ -22,6 +22,10 @@ import { menuManager } from './module-system/core/MenuManager';
 import { ModuleScanner } from './module-system/core/ModuleScanner';
 import { createLogger } from './utils/logger';
 import { dataSourceManager } from '../modules/datasource-management/backend/manager';
+import {
+  AssistantWorkbenchService,
+  createAssistantRouter
+} from './assistant';
 
 // 创建主日志器 (全量层级刷新)
 const log = createLogger('Server');
@@ -38,6 +42,19 @@ const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+const assistantUploadDir = path.join(uploadDir, 'assistant');
+if (!fs.existsSync(assistantUploadDir)) {
+  fs.mkdirSync(assistantUploadDir, { recursive: true });
+}
+
+const LEGACY_AGENT_CHAT_PROMPT = [
+  '你是 DataMind 的兼容智能助手接口。',
+  '当前系统已经恢复为单一助手工作流，不再按“通用/数据/采集/知识/文档”五种业务模式拆分回答。',
+  '如果当前请求带有数据源上下文，可以围绕该数据源完成分析；否则不要假装自己能直接查询数据库。',
+  '当用户给出文件、目录、网址或明确任务时，优先直接调用技能执行并产出结果，不要只停留在空泛建议。',
+  '涉及独立的数据源绑定、SQL 问答和图表分析时，可以提示用户使用旧版 AI 智能问答页获得更完整的数据分析体验。',
+].join('\n');
 
 // 配置 multer
 const storage = multer.diskStorage({
@@ -73,6 +90,7 @@ console.log('前端路径:', adminUiPath);
 
 // 配置存储（MySQL持久化）
 const configStore = new ConfigStore();
+const assistantWorkbenchService = new AssistantWorkbenchService(configStore.pool, process.cwd());
 
 // 认证服务
 const authService = new AuthService({
@@ -130,11 +148,8 @@ async function initModuleSystem() {
     for (const result of scanResults) {
       if (result.valid) {
         try {
-          // 检查模块是否已注册
-          const existing = await moduleRegistry.getModule(result.manifest.name);
-          if (!existing) {
-            await moduleRegistry.register(result.manifest);
-          }
+          // 每次启动都用源码 module.json 同步注册表，避免数据库里的旧菜单/旧路径持续污染前端
+          await moduleRegistry.syncManifest(result.manifest);
           validModules.push(result);
         } catch (error) {
           log.error(`注册模块 ${result.manifest.name} 失败:`, error);
@@ -214,6 +229,8 @@ async function initDataSources() {
   await approvalService.init();
   // 初始化 AI Q&A 服务（包括知识库分类表）
   await aiQAService.init();
+  // 初始化统一助手工作台表
+  await assistantWorkbenchService.initTables();
   // 初始化默认管理员账户
   await authService.initDefaultAdmin();
 
@@ -586,16 +603,74 @@ app.use('/api/tools/file', authMiddleware, async (req, res, next) => {
   }
 });
 
+app.use('/api/modules/file-tools', authMiddleware, async (req, res, next) => {
+  try {
+    if (!fileToolsRouter) {
+      const { createFileToolsRoutes } = await import('../modules/file-tools/backend/routes');
+      const { FileToolsService } = await import('../modules/file-tools/backend/service');
+      const fileToolsService = new FileToolsService(configStore.pool);
+      fileToolsRouter = createFileToolsRoutes(fileToolsService);
+    }
+    fileToolsRouter(req, res, next);
+  } catch (error) {
+    console.error('文件工具模块路由加载失败:', error);
+    res.status(500).json({ error: '文件工具服务不可用' });
+  }
+});
+
+let efficiencyToolsRouter: any = null;
+app.use('/api/modules/efficiency-tools', authMiddleware, async (req, res, next) => {
+  try {
+    if (!efficiencyToolsRouter) {
+      const { createEfficiencyToolsRoutes } = await import('../modules/efficiency-tools/backend/routes');
+      const { EfficiencyToolsService } = await import('../modules/efficiency-tools/backend/service');
+      const efficiencyToolsService = new EfficiencyToolsService(configStore.pool);
+      efficiencyToolsRouter = createEfficiencyToolsRoutes(efficiencyToolsService);
+    }
+    efficiencyToolsRouter(req, res, next);
+  } catch (error) {
+    console.error('效率工具模块路由加载失败:', error);
+    res.status(500).json({ error: '效率工具服务不可用' });
+  }
+});
+
+let officialDocRouter: any = null;
+app.use('/api/modules/official-doc', authMiddleware, async (req, res, next) => {
+  try {
+    if (!officialDocRouter) {
+      const { createOfficialDocRoutes } = await import('../modules/official-doc/backend/routes');
+      const { OfficialDocService } = await import('../modules/official-doc/backend/service');
+      const officialDocService = new OfficialDocService(configStore.pool);
+      officialDocRouter = createOfficialDocRoutes(officialDocService);
+    }
+    officialDocRouter(req, res, next);
+  } catch (error) {
+    console.error('公文写作模块路由加载失败:', error);
+    res.status(500).json({ error: '公文写作服务不可用' });
+  }
+});
+
 
 // ========== Agent Chat SSE 端点 ==========
 import { runAgentLoop, AgentSSEEvent } from './agent/agentLoop';
+
+app.use(
+  '/api/assistant',
+  authMiddleware,
+  createAssistantRouter({
+    service: assistantWorkbenchService,
+    aiAgent,
+    assistantUploadDir,
+    workDir: process.cwd(),
+  })
+);
 
 app.post('/api/agent/chat', authMiddleware, async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: '未认证' });
   }
 
-  const { message, datasourceId, mode, sessionId } = req.body;
+  const { message, datasourceId, mode } = req.body;
   if (!message) {
     return res.status(400).json({ error: '请提供 message' });
   }
@@ -638,6 +713,14 @@ app.post('/api/agent/chat', authMiddleware, async (req, res) => {
       workDir: process.cwd(),
       userId: req.user.id,
       uploadDir,
+      assistantName: datasourceId ? '数据智能助手（兼容入口）' : '智能助手（兼容入口）',
+      assistantDescription: datasourceId
+        ? '兼容 SSE 接口，在给定数据源上下文内执行分析与技能调用'
+        : '兼容 SSE 接口，保持单助手工作流并直接执行技能',
+      extraSystemPrompt: LEGACY_AGENT_CHAT_PROMPT,
+      toolPolicy: {
+        allowSql: Boolean(datasourceId),
+      },
       onEvent: sendSSE,
     });
 
@@ -650,7 +733,7 @@ app.post('/api/agent/chat', authMiddleware, async (req, res) => {
   }
 });
 
-const PORT = 3001;
+const PORT = Number(process.env.PORT || 3000);
 
 // 先初始化数据源，再启动服务
 initDataSources().then(() => {

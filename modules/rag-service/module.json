@@ -29,13 +29,8 @@
     }
   },
   "frontend": {
-    "entry": "./frontend/index.ts",
-    "routes": "./frontend/routes.ts",
-    "components": {
-      "KnowledgeManager": "./frontend/views/KnowledgeManager.vue",
-      "DocumentList": "./frontend/views/DocumentList.vue",
-      "QaChat": "./frontend/views/QaChat.vue"
-    }
+    "integration": "admin-ui",
+    "entry": "./frontend/index.ts"
   },
   "menus": [],
   "permissions": [

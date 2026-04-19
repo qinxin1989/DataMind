@@ -8,15 +8,31 @@ export const useNotificationStore = defineStore('notification', () => {
   const unreadCount = ref(0)
   const loading = ref(false)
 
+  function normalizeNotificationList(payload: unknown): Notification[] {
+    if (Array.isArray(payload)) {
+      return payload
+    }
+
+    if (payload && typeof payload === 'object') {
+      const list = (payload as { list?: unknown }).list
+      if (Array.isArray(list)) {
+        return list as Notification[]
+      }
+    }
+
+    return []
+  }
+
   async function fetchNotifications(unreadOnly = false) {
     loading.value = true
     try {
       const res = await notificationApi.getList({ unreadOnly })
-      if (res.success && res.data) {
-        notifications.value = res.data
+      if (res.success) {
+        notifications.value = normalizeNotificationList(res.data)
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error)
+      notifications.value = []
     } finally {
       loading.value = false
     }

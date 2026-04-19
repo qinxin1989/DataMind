@@ -38,8 +38,8 @@
       "title": "AI 模型配置",
       "path": "/ai/config",
       "icon": "SettingOutlined",
-      "parentId": "system-management",
-      "sortOrder": 4,
+      "parentId": "ai-center",
+      "sortOrder": 40,
       "permission": "ai:view"
     }
   ],

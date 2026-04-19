@@ -358,9 +358,9 @@ export class CrawlerManagementService {
       id: row.id,
       userId: row.user_id,
       templateId: row.template_id,
-      template_name: row.template_name,
+      templateName: row.template_name,
       department: row.department,
-      data_type: row.data_type,
+      dataType: row.data_type,
       createdAt: row.created_at
     }));
   }

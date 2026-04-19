@@ -11,8 +11,8 @@ import type { Role } from '../../src/admin/types';
 
 describe('安全测试 - 权限隔离', () => {
   beforeEach(async () => {
-    await permissionService.clearAll();
-    await menuService.clearAll();
+    await permissionService.clearAll(true);
+    await menuService.clearAll(true);
     await userService.clearAll();
   });
 
@@ -389,7 +389,7 @@ describe('安全测试 - 数据安全', () => {
 
 describe('安全测试 - 越权访问', () => {
   beforeEach(async () => {
-    await permissionService.clearAll();
+    await permissionService.clearAll(true);
     await userService.clearAll();
   });
 

@@ -10,7 +10,7 @@
               <a-button type="link" size="small" @click="refreshDatasources">
                 <ReloadOutlined />
               </a-button>
-              <router-link to="/datasource">
+              <router-link to="/data/sources">
                 <a-button type="link" size="small">
                   <SettingOutlined /> 管理
                 </a-button>

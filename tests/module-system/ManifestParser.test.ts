@@ -142,14 +142,32 @@ describe('ManifestParser', () => {
         displayName: 'Test Module',
         version: '1.0.0',
         frontend: {
+          integration: 'admin-ui',
           entry: './frontend/index.ts',
           routes: './frontend/routes.ts'
         }
       });
 
       const manifest = ManifestParser.parseFromString(manifestJson);
+      expect(manifest.frontend?.integration).toBe('admin-ui');
       expect(manifest.frontend?.entry).toBe('./frontend/index.ts');
       expect(manifest.frontend?.routes).toBe('./frontend/routes.ts');
+    });
+
+    it('should throw error for invalid frontend integration', () => {
+      const manifestJson = JSON.stringify({
+        name: 'test-module',
+        displayName: 'Test Module',
+        version: '1.0.0',
+        frontend: {
+          integration: 'legacy-shell',
+          entry: './frontend/index.ts'
+        }
+      });
+
+      expect(() => ManifestParser.parseFromString(manifestJson)).toThrow(
+        'frontend.integration'
+      );
     });
 
     it('should parse manifest with menus', () => {
@@ -173,6 +191,34 @@ describe('ManifestParser', () => {
       expect(manifest.menus?.[0].id).toBe('test-menu');
     });
 
+    it('should parse manifest with nested menus referencing root container', () => {
+      const manifestJson = JSON.stringify({
+        name: 'test-module',
+        displayName: 'Test Module',
+        version: '1.0.0',
+        menus: [
+          {
+            id: 'test-root-child',
+            title: 'Root Child',
+            path: '/test/root-child',
+            parentId: 'ai-center',
+            sortOrder: 10
+          },
+          {
+            id: 'test-leaf',
+            title: 'Leaf',
+            path: '/test/root-child/leaf',
+            parentId: 'test-root-child',
+            sortOrder: 20
+          }
+        ]
+      });
+
+      const manifest = ManifestParser.parseFromString(manifestJson);
+      expect(manifest.menus).toHaveLength(2);
+      expect(manifest.menus?.[1].parentId).toBe('test-root-child');
+    });
+
     it('should throw error for menu without required fields', () => {
       const manifestJson = JSON.stringify({
         name: 'test-module',
@@ -189,6 +235,79 @@ describe('ManifestParser', () => {
 
       expect(() => ManifestParser.parseFromString(manifestJson)).toThrow(
         'Missing required field'
+      );
+    });
+
+    it('should throw error for duplicate menu ids', () => {
+      const manifestJson = JSON.stringify({
+        name: 'test-module',
+        displayName: 'Test Module',
+        version: '1.0.0',
+        menus: [
+          {
+            id: 'dup-menu',
+            title: 'Menu A',
+            path: '/dup-a',
+            sortOrder: 1
+          },
+          {
+            id: 'dup-menu',
+            title: 'Menu B',
+            path: '/dup-b',
+            sortOrder: 2
+          }
+        ]
+      });
+
+      expect(() => ManifestParser.parseFromString(manifestJson)).toThrow(
+        'Duplicate menu id'
+      );
+    });
+
+    it('should throw error for unknown parentId', () => {
+      const manifestJson = JSON.stringify({
+        name: 'test-module',
+        displayName: 'Test Module',
+        version: '1.0.0',
+        menus: [
+          {
+            id: 'orphan-menu',
+            title: 'Orphan Menu',
+            path: '/orphan',
+            parentId: 'missing-parent',
+            sortOrder: 1
+          }
+        ]
+      });
+
+      expect(() => ManifestParser.parseFromString(manifestJson)).toThrow(
+        'must reference a root menu or another declared menu'
+      );
+    });
+
+    it('should throw error for duplicate menu paths', () => {
+      const manifestJson = JSON.stringify({
+        name: 'test-module',
+        displayName: 'Test Module',
+        version: '1.0.0',
+        menus: [
+          {
+            id: 'menu-a',
+            title: 'Menu A',
+            path: '/same-path',
+            sortOrder: 1
+          },
+          {
+            id: 'menu-b',
+            title: 'Menu B',
+            path: '/same-path',
+            sortOrder: 2
+          }
+        ]
+      });
+
+      expect(() => ManifestParser.parseFromString(manifestJson)).toThrow(
+        'Duplicate menu path'
       );
     });
 

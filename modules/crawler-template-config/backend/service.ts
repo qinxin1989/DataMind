@@ -25,6 +25,10 @@ export class CrawlerTemplateConfigService {
     this.tableName = tableName;
   }
 
+  private async parseJsonResponse<T extends Record<string, any>>(response: Response): Promise<T> {
+    return await response.json() as T;
+  }
+
   /**
    * 获取所有采集模板
    */
@@ -192,7 +196,7 @@ export class CrawlerTemplateConfigService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await this.parseJsonResponse<Record<string, any>>(response);
       
       return {
         success: result.success || false,
@@ -232,7 +236,7 @@ export class CrawlerTemplateConfigService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await this.parseJsonResponse<Record<string, any>>(response);
       
       return {
         success: result.success || false,
@@ -270,7 +274,7 @@ export class CrawlerTemplateConfigService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await this.parseJsonResponse<Record<string, any>>(response);
       
       return {
         valid: result.valid || false,
@@ -308,7 +312,7 @@ export class CrawlerTemplateConfigService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await this.parseJsonResponse<Record<string, any>>(response);
       
       return {
         success: result.success || false,
@@ -347,7 +351,7 @@ export class CrawlerTemplateConfigService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await this.parseJsonResponse<Record<string, any>>(response);
       
       return {
         success: result.success || false,

@@ -144,7 +144,7 @@ export class ReportGenerator {
       content += `## 慢查询 Top 10\n\n`;
       content += `| 排名 | 查询时间(ms) | SQL |\n`;
       content += `|------|-------------|-----|\n`;
-      slowQueries.forEach((q, i) => {
+      slowQueries.forEach((q: any, i: number) => {
         const sql = q.metadata ? JSON.parse(q.metadata).sql : 'N/A';
         const shortSql = sql.length > 50 ? sql.substring(0, 50) + '...' : sql;
         content += `| ${i + 1} | ${q.duration.toFixed(2)} | ${shortSql} |\n`;
@@ -163,7 +163,7 @@ export class ReportGenerator {
 
     if (alerts.length > 0) {
       content += `## 性能告警汇总\n\n`;
-      alerts.forEach(a => {
+      alerts.forEach((a: any) => {
         content += `- ${a.severity}: ${a.count}次\n`;
       });
       content += `\n`;
@@ -248,7 +248,7 @@ export class ReportGenerator {
       content += `### 每日趋势\n\n`;
       content += `| 日期 | 平均响应时间(ms) |\n`;
       content += `|------|------------------|\n`;
-      dailyTrend.forEach(d => {
+      dailyTrend.forEach((d: any) => {
         content += `| ${d.date} | ${d.avg_duration.toFixed(2)} |\n`;
       });
       content += `\n`;

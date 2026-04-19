@@ -12,21 +12,17 @@
     },
     "permissions": [
         {
-            "code": "datasource:approve",
-            "name": "数据源审批",
-            "description": "允许审核数据源注册申请",
+            "code": "approval:view",
+            "name": "查看审批记录",
+            "description": "允许查看审批记录和待处理数量",
             "type": "menu"
+        },
+        {
+            "code": "approval:review",
+            "name": "处理审批任务",
+            "description": "允许审批通过或拒绝审批申请",
+            "type": "action"
         }
     ],
-    "menus": [
-        {
-            "id": "approval",
-            "title": "审批管理",
-            "icon": "AuditOutlined",
-            "path": "/datasource/approval",
-            "permission": "datasource:approve",
-            "parentId": "ops-management",
-            "sortOrder": 600
-        }
-    ]
+    "menus": []
 }

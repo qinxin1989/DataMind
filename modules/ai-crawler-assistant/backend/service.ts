@@ -31,6 +31,13 @@ function getRandomUA() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
+const CRAWLER_CONTEXT_SYSTEM_PROMPT = [
+  '你是 DataMind 的智能采集助手。',
+  '当前模块只负责网页结构分析、字段抽取、选择器修正、模板梳理和采集调试。',
+  '这里不再依赖统一助手的“五种业务模式”分流，也不要把问题改写成通用助手或数据分析助手场景。',
+  '如果用户没有提供新网址，你仍然要基于已有上下文帮助修正选择器、解释问题原因，并给出下一步验证建议。'
+].join('\n');
+
 export class CrawlerAssistantService {
   /**
    * 核心对话处理方法
@@ -112,7 +119,9 @@ export class CrawlerAssistantService {
       // 模式 B：无网址，视为反馈或指令，进行上下文对话
       console.log(`[CrawlerAssistant] No URL found, performing contextual refinement...`);
 
-      const systemPrompt = `你是一个精通网页结构和 CSS 选择器的【爬虫专家】。
+      const systemPrompt = `${CRAWLER_CONTEXT_SYSTEM_PROMPT}
+
+你是一个精通网页结构和 CSS 选择器的【爬虫专家】。
 你的任务是协助用户编写、修正爬虫规则。
 
 能力范围：

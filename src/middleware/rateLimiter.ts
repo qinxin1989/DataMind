@@ -32,7 +32,7 @@ export class RateLimiter {
       message: config.message || 'Too many requests',
       skipSuccessfulRequests: config.skipSuccessfulRequests || false,
       skipFailedRequests: config.skipFailedRequests || false,
-      keyGenerator: config.keyGenerator || ((req) => req.user?.id || req.ip)
+      keyGenerator: config.keyGenerator || ((req) => req.user?.id || req.ip || 'anonymous')
     };
     
     // 定期清理过期记录
@@ -120,7 +120,7 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
   const limiter = new RateLimiter(config);
   
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = config.keyGenerator ? config.keyGenerator(req) : (req.user?.id || req.ip);
+    const key = config.keyGenerator ? config.keyGenerator(req) : (req.user?.id || req.ip || 'anonymous');
     const result = limiter.check(key);
     
     // 设置响应头

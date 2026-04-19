@@ -3,8 +3,23 @@
  * 使用 node-cron 实现定时报告生成
  */
 
-import * as cron from 'node-cron';
 import { reportGenerator } from './ReportGenerator';
+
+type CronScheduler = {
+  schedule: (expression: string, task: () => Promise<void> | void) => void;
+};
+
+const cron: CronScheduler = (() => {
+  try {
+    return require('node-cron') as CronScheduler;
+  } catch {
+    return {
+      schedule: (_expression, _task) => {
+        console.warn('node-cron 未安装，性能监控定时任务未启动');
+      },
+    };
+  }
+})();
 
 /**
  * 启动定时任务

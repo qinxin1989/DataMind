@@ -47,8 +47,8 @@ describe('Core Services Performance Tests', () => {
     userService = new UserService();
 
     // 准备测试数据
-    await permissionService.clearAll();
-    await menuService.clearAll();
+    await permissionService.clearAll(true);
+    await menuService.clearAll(true);
     await userService.clearAll();
 
     // 创建测试角色
@@ -88,8 +88,8 @@ describe('Core Services Performance Tests', () => {
 
   afterAll(async () => {
     // 清理测试数据
-    await permissionService.clearAll();
-    await menuService.clearAll();
+    await permissionService.clearAll(true);
+    await menuService.clearAll(true);
     await userService.clearAll();
 
     // 输出性能报告

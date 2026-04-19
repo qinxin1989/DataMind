@@ -39,6 +39,29 @@ interface DataSourceInstance {
   name?: string;
 }
 
+const DATA_QA_AGENT_PROFILE = {
+  title: '数据智能问答',
+  description: '围绕当前数据源执行 SQL、统计分析、图表生成和业务解读。',
+  systemPrompt: [
+    '你是 DataMind 的数据智能问答助手。',
+    '当前入口只负责数据源相关问答、SQL 生成、统计分析、趋势判断、图表与报告说明。',
+    '必须优先结合当前 datasourceId、数据表结构和上下文来回答。',
+    '没有数据源上下文时，要明确提示用户先选择数据源，不能凭空臆造查询结果。',
+    '不要再使用统一助手的“五种业务模式”分流逻辑，也不要把当前问题改写成采集、知识库或文档助手场景。'
+  ].join('\n'),
+  toolPolicy: {
+    allowSql: true,
+    allowedSkillPrefixes: [
+      'data.',
+      'report.',
+      'data_analysis.',
+      'dataAnalysis.',
+      'qa.',
+      'excel.'
+    ]
+  }
+};
+
 export class AIQAService {
   private configStore: ConfigStore;
   private aiAgent: AIAgent | null = null;
@@ -689,7 +712,13 @@ export class AIQAService {
   async reloadRAGEngine(userId?: string): Promise<void> {
     if (userId) {
       ragManager.remove(userId);
-      await this.getRAGEngine(userId);
+      try {
+        await this.getRAGEngine(userId);
+      } catch (error) {
+        if (!this.isMissingRAGConfigError(error)) {
+          throw error;
+        }
+      }
     } else {
       ragManager.clear();
     }
@@ -1149,6 +1178,10 @@ export class AIQAService {
       model,
       workDir: process.cwd(),
       userId,
+      assistantName: DATA_QA_AGENT_PROFILE.title,
+      assistantDescription: DATA_QA_AGENT_PROFILE.description,
+      extraSystemPrompt: DATA_QA_AGENT_PROFILE.systemPrompt,
+      toolPolicy: DATA_QA_AGENT_PROFILE.toolPolicy,
       onEvent,
     });
 
@@ -1580,6 +1613,30 @@ export class AIQAService {
     return engine;
   }
 
+  private isMissingRAGConfigError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes('无法初始化 RAG 引擎：缺少配置');
+  }
+
+  private getEmptyRAGStats(): RAGStats {
+    return {
+      totalDocuments: 0,
+      totalChunks: 0,
+      totalTokens: 0,
+      categories: []
+    };
+  }
+
+  private getEmptyKnowledgeGraph(): KnowledgeGraph {
+    return {
+      entities: [],
+      relations: [],
+      stats: {
+        entityCount: 0,
+        relationCount: 0
+      }
+    };
+  }
+
   async searchKnowledge(query: string, userId: string): Promise<KnowledgeDocument[]> {
     const ragEngine = await this.getRAGEngine(userId);
     const results = await ragEngine.retrieve(query, 5);
@@ -1593,46 +1650,60 @@ export class AIQAService {
   }
 
   async getRAGStats(userId: string): Promise<RAGStats> {
-    const ragEngine = await this.getRAGEngine(userId);
-    const stats = ragEngine.getStats();
-    return {
-      totalDocuments: stats.documents,
-      totalChunks: stats.chunks,
-      totalTokens: 0,
-      categories: []
-    } as any;
+    try {
+      const ragEngine = await this.getRAGEngine(userId);
+      const stats = ragEngine.getStats();
+      return {
+        totalDocuments: stats.documents,
+        totalChunks: stats.chunks,
+        totalTokens: 0,
+        categories: []
+      } as any;
+    } catch (error) {
+      if (this.isMissingRAGConfigError(error)) {
+        return this.getEmptyRAGStats();
+      }
+      throw error;
+    }
   }
 
   async getRAGDocuments(userId: string, page: number = 1, pageSize: number = 10, categoryId?: string, keyword?: string): Promise<{ items: RAGDocument[], total: number }> {
-    const ragEngine = await this.getRAGEngine(userId);
-    let docs = ragEngine.getKnowledgeBase().getAllDocuments();
+    try {
+      const ragEngine = await this.getRAGEngine(userId);
+      let docs = ragEngine.getKnowledgeBase().getAllDocuments();
 
-    if (categoryId && categoryId !== 'all') {
-      docs = docs.filter((d: any) => d.metadata?.categoryId === categoryId);
+      if (categoryId && categoryId !== 'all') {
+        docs = docs.filter((d: any) => d.metadata?.categoryId === categoryId);
+      }
+      if (keyword) {
+        const lowerKeyword = keyword.toLowerCase();
+        docs = docs.filter((d: any) => d.title.toLowerCase().includes(lowerKeyword));
+      }
+
+      docs.sort((a: any, b: any) => (b.metadata?.createdAt || 0) - (a.metadata?.createdAt || 0));
+      const total = docs.length;
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const items = docs.slice(start, end).map((d: any) => ({
+        id: d.id,
+        title: d.title,
+        type: d.type,
+        chunks: d.chunks?.length || 0,
+        createdAt: (d.metadata as any)?.createdAt,
+        updatedAt: (d.metadata as any)?.updatedAt,
+        tags: (d.metadata as any)?.tags,
+        categoryId: (d.metadata as any)?.categoryId,
+        datasourceId: (d.metadata as any)?.datasourceId,
+        datasourceName: (d.metadata as any)?.datasourceId ? dataSourceManager.get((d.metadata as any).datasourceId)?.config.name : undefined
+      }));
+
+      return { items, total };
+    } catch (error) {
+      if (this.isMissingRAGConfigError(error)) {
+        return { items: [], total: 0 };
+      }
+      throw error;
     }
-    if (keyword) {
-      const lowerKeyword = keyword.toLowerCase();
-      docs = docs.filter((d: any) => d.title.toLowerCase().includes(lowerKeyword));
-    }
-
-    docs.sort((a: any, b: any) => (b.metadata?.createdAt || 0) - (a.metadata?.createdAt || 0));
-    const total = docs.length;
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    const items = docs.slice(start, end).map((d: any) => ({
-      id: d.id,
-      title: d.title,
-      type: d.type,
-      chunks: d.chunks?.length || 0,
-      createdAt: (d.metadata as any)?.createdAt,
-      updatedAt: (d.metadata as any)?.updatedAt,
-      tags: (d.metadata as any)?.tags,
-      categoryId: (d.metadata as any)?.categoryId,
-      datasourceId: (d.metadata as any)?.datasourceId,
-      datasourceName: (d.metadata as any)?.datasourceId ? dataSourceManager.get((d.metadata as any).datasourceId)?.config.name : undefined
-    }));
-
-    return { items, total };
   }
 
   async getRAGDocument(userId: string, documentId: string): Promise<KnowledgeDocument> {
@@ -1711,43 +1782,57 @@ export class AIQAService {
   }
 
   async getKnowledgeGraph(userId: string): Promise<KnowledgeGraph> {
-    const ragEngine = await this.getRAGEngine(userId);
-    const graph = await ragEngine.getKnowledgeGraph() as any;
+    try {
+      const ragEngine = await this.getRAGEngine(userId);
+      const graph = await ragEngine.getKnowledgeGraph() as any;
 
-    // 假设 graph.entities 和 graph.relations 是 Map 或 Array
-    const entities = graph.entities instanceof Map ? Array.from(graph.entities.values()) : graph.entities;
-    const relations = graph.relations instanceof Map ? Array.from(graph.relations.values()) : graph.relations;
+      // 假设 graph.entities 和 graph.relations 是 Map 或 Array
+      const entities = graph.entities instanceof Map ? Array.from(graph.entities.values()) : graph.entities;
+      const relations = graph.relations instanceof Map ? Array.from(graph.relations.values()) : graph.relations;
 
-    return {
-      entities: (entities || []).map((e: any) => ({
-        id: e.id,
-        name: e.name,
-        nameCn: e.nameCn,
-        type: e.type,
-        description: e.description
-      })),
-      relations: (relations || []).map((r: any) => ({
-        id: r.id,
-        source: r.sourceId || r.source,
-        target: r.targetId || r.target,
-        type: r.type,
-        weight: r.weight
-      })),
-      stats: {
-        entityCount: entities instanceof Map ? entities.size : (entities?.length || 0),
-        relationCount: relations instanceof Map ? relations.size : (relations?.length || 0)
+      return {
+        entities: (entities || []).map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          nameCn: e.nameCn,
+          type: e.type,
+          description: e.description
+        })),
+        relations: (relations || []).map((r: any) => ({
+          id: r.id,
+          source: r.sourceId || r.source,
+          target: r.targetId || r.target,
+          type: r.type,
+          weight: r.weight
+        })),
+        stats: {
+          entityCount: entities instanceof Map ? entities.size : (entities?.length || 0),
+          relationCount: relations instanceof Map ? relations.size : (relations?.length || 0)
+        }
+      };
+    } catch (error) {
+      if (this.isMissingRAGConfigError(error)) {
+        return this.getEmptyKnowledgeGraph();
       }
-    };
+      throw error;
+    }
   }
 
   async querySubgraph(keywords: string[], userId: string, maxEntities = 20): Promise<{ entities: any[]; relations: any[] }> {
-    const ragEngine = await this.getRAGEngine(userId);
-    const graph = ragEngine.getKnowledgeGraph();
-    const result = graph.querySubgraph(keywords, maxEntities);
-    return {
-      entities: result.entities.map((e: any) => ({ id: e.id, name: e.name, nameCn: e.nameCn, type: e.type })),
-      relations: result.relations.map((r: any) => ({ source: r.sourceId, target: r.targetId, type: r.type })),
-    };
+    try {
+      const ragEngine = await this.getRAGEngine(userId);
+      const graph = ragEngine.getKnowledgeGraph();
+      const result = graph.querySubgraph(keywords, maxEntities);
+      return {
+        entities: result.entities.map((e: any) => ({ id: e.id, name: e.name, nameCn: e.nameCn, type: e.type })),
+        relations: result.relations.map((r: any) => ({ source: r.sourceId, target: r.targetId, type: r.type })),
+      };
+    } catch (error) {
+      if (this.isMissingRAGConfigError(error)) {
+        return { entities: [], relations: [] };
+      }
+      throw error;
+    }
   }
 
   async searchKnowledgeBase(query: string, userId: string, limit: number = 20) {

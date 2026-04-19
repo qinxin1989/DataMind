@@ -24,17 +24,17 @@
     }
   },
   "frontend": {
-    "entry": "./frontend/index.ts",
-    "routes": "./frontend/routes.ts"
+    "integration": "admin-ui",
+    "entry": "./frontend/index.ts"
   },
   "menus": [
     {
       "id": "ai-qa-main",
-      "title": "AI智能问答",
-      "path": "/ai/chat",
-      "icon": "QuestionCircleOutlined",
+      "title": "智能助手",
+      "path": "/ai/assistant",
+      "icon": "RobotOutlined",
       "parentId": "ai-center",
-      "sortOrder": 30,
+      "sortOrder": 20,
       "permission": "ai-qa:view"
     },
     {

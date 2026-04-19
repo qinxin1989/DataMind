@@ -32,4 +32,4 @@ export { BaseDataSource } from './base';
 export { MySQLDataSource } from './mysql';
 export { PostgresDataSource } from './postgres';
 export { FileDataSource } from './file';
-export { APIDataSource } from './api';
+export { ApiDataSource } from './api';

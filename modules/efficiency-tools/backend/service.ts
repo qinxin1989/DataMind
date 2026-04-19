@@ -67,10 +67,9 @@ export class EfficiencyToolsService {
 
       const formatted = formatSql(sql, {
         language: language || this.config.defaultSqlLanguage,
-        indent: indent || this.config.defaultIndent,
         uppercase: uppercase !== undefined ? uppercase : false,
         linesBetweenQueries: linesBetweenQueries || 1
-      });
+      } as any);
 
       return {
         success: true,

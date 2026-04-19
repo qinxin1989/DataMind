@@ -68,3 +68,54 @@
 - `src/agent/index.ts` — Phase 1 (超时修复) + Phase 2 (planAction 扩展)
 - `modules/ai-qa/backend/service.ts` — Phase 3 (askStream)
 - `modules/ai-qa/backend/routes.ts` — Phase 3 (SSE 路由)
+
+---
+
+## Plan C：单助手工作台收口（进行中）
+
+### 背景
+上一轮把多个问答入口硬合并成了“五种业务模式卡片”，导致参考项目的单助手工作台没有完整复刻，同时旧版数据问答入口也被感知为被覆盖。当前目标是把 `/ai/assistant` 收回到单一助手工作流，把 `/ai/chat` 继续保留为独立的数据问答页。
+
+### 已完成
+- [x] `/api/assistant/*` 维持独立会话、附件、流式输出和摘要链路，不再侵入旧 `/api/chat`
+- [x] `/api/agent/chat` 兼容入口改为单助手提示，不再依赖五模式路由决策
+- [x] `admin-ui/src/views/ai/assistant.vue` 重做为单助手工作台，补齐会话管理、消息对删除、图片预览、拖拽/粘贴上传、状态反馈
+- [x] 前后端编译通过，`npm start` 启动验证通过
+- [x] 浏览器级回归通过：登录后验证 `/ai/assistant` 会话、上传、发送、删除消息对，以及 `/ai/chat` 页面加载
+- [x] `ai-qa` / `ai-crawler-assistant` 改为模块内固定画像，移除对 `src/assistant/router.ts` 的依赖
+- [x] 删除 `src/assistant/router.ts` 和 `src/assistant/profiles.ts`，彻底撤掉旧“五模式”分流入口
+- [x] 删除 `tests/core/assistantRouter.test.ts` 和 `tests/core/assistantProfiles.test.ts`，避免旧分流测试继续绑住当前架构
+- [x] 菜单烟测通过：`scripts/smoke-menu-routes.ts` 验证当前 34 条菜单路径全部可打开，无 404
+- [x] `tests/core/menuRouteCoverage.test.ts` 已补齐动态模块路由识别，和当前模块化前端一致
+- [x] `tests/core/menuSync.test.ts` 与 `tests/core/menuRouteCoverage.test.ts` 回归通过
+
+---
+
+## Plan D：旧版数据问答接入分析类 / 报告类技能（已完成）
+
+### 背景
+统一助手中的分析类与报告类技能已经注册完成，但旧版数据问答的生产链路仍以 `service.ask() -> aiAgent.answerWithContext()` 为主。此前旧链路存在两个断点：
+
+1. `planAction()` 只暴露了少量旧工具，无法稳定选择新的 `report.*` / `dataAnalysis.*`
+2. `answerWithContext()` 识别到 `skill` 后会再次委托 `answer()` 重规划，导致已经识别出的技能意图被冲掉，特别是 `data_analysis.executePython` 与 `dataAnalysis.executePython` 命名不一致时会直接掉回 SQL
+
+### 实施内容
+- 扩展 `src/agent/index.ts` 的 `planAction()` 工具列表与 JSON 输出约束，允许旧问答规划：
+  - `report.summary`
+  - `report.ppt`
+  - `report.dashboard`
+  - `report.excel`
+  - `report.insight`
+  - `report.compare`
+  - `report.comprehensive`
+  - `dataAnalysis.executePython`
+  - `dataAnalysis.statisticalAnalysis`
+  - `dataAnalysis.createVisualization`
+  - `dataAnalysis.pythonEval`
+- 增加技能名兼容，将旧别名 `data_analysis.*` 统一映射到当前注册名 `dataAnalysis.*`
+- 修改 `answerWithContext()`：当 `planAction()` 已经返回 `skill` 时，直接执行该 skill，不再重新走一遍旧规划链
+- 为报告类技能补齐默认参数与结果文案，避免旧问答只返回“执行成功”或原始对象
+- 同步增强 `answer()` 的 skill 分支，让非 `answerWithContext()` 调用方也能识别新技能名并输出更自然的结果
+
+### 验证
+- `npm run build` 编译通过

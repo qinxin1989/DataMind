@@ -365,13 +365,17 @@ export class PermissionService {
     this.testUserRoles.set(userId, roleIds);
   }
 
-  async clearAll(): Promise<void> {
+  async clearAll(includeSystemRoles = false): Promise<void> {
     this.testRoles.clear();
     this.testUserRoles.clear();
-    await pool.execute('DELETE FROM sys_roles WHERE is_system = FALSE');
+    await pool.execute('DELETE FROM sys_user_roles');
     await pool.execute('DELETE FROM sys_role_permissions');
     await pool.execute('DELETE FROM sys_role_menus');
-    await pool.execute('DELETE FROM sys_user_roles');
+    if (includeSystemRoles) {
+      await pool.execute('DELETE FROM sys_roles');
+      return;
+    }
+    await pool.execute('DELETE FROM sys_roles WHERE is_system = FALSE');
   }
 }
 

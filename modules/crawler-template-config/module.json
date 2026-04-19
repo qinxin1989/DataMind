@@ -26,7 +26,7 @@
     {
       "id": "crawler-template-config",
       "title": "采集模板配置",
-      "path": "/ai/crawler-template-config",
+      "path": "/collection/templates",
       "icon": "SettingOutlined",
       "parentId": "data-collection",
       "sortOrder": 2,

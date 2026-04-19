@@ -20,9 +20,14 @@
     "routes": {
       "prefix": "/file-tools",
       "file": "./backend/routes.ts"
+    },
+    "migrations": {
+      "directory": "./backend/migrations",
+      "tableName": "module_migrations"
     }
   },
   "frontend": {
+    "integration": "module",
     "entry": "./frontend/index.ts",
     "routes": "./frontend/routes.ts"
   },

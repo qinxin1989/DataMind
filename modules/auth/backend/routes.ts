@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { AuthService } from '../../../src/services/authService';
 import { createAuthMiddleware, requireAdmin } from '../../../src/middleware/auth';
 import { pool } from '../../../src/admin/core/database';
+import { permissionService } from '../../../src/admin/services/permissionService';
 
 import { auditService } from '../../audit-log/backend/service';
 
@@ -20,6 +21,19 @@ const authService = new AuthService({
 
 // 认证中间件
 const authMiddleware = createAuthMiddleware(authService);
+
+async function buildAuthPayload(user: any) {
+  const permissions = await permissionService.getUserPermissions(user.id);
+
+  if (user.role === 'admin' && !permissions.includes('*')) {
+    permissions.unshift('*');
+  }
+
+  return {
+    user,
+    permissions: Array.from(new Set(permissions)),
+  };
+}
 
 /**
  * POST /auth/register - 用户注册（待审核）
@@ -41,6 +55,7 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     const { user, token } = await authService.login(username, password);
+    const authPayload = await buildAuthPayload(user);
 
     // 记录审计日志
     auditService.logLogin(
@@ -50,7 +65,7 @@ router.post('/login', async (req, res) => {
       req.headers['user-agent'] || 'unknown'
     ).catch(e => console.error('Audit log failed:', e));
 
-    res.json({ user, token });
+    res.json({ ...authPayload, token });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -59,8 +74,13 @@ router.post('/login', async (req, res) => {
 /**
  * GET /auth/me - 获取当前用户信息
  */
-router.get('/me', authMiddleware, (req, res) => {
-  res.json({ user: req.user });
+router.get('/me', authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: '未认证' });
+  }
+
+  const authPayload = await buildAuthPayload(req.user);
+  res.json(authPayload);
 });
 
 /**

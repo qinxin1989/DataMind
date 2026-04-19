@@ -3,12 +3,20 @@
  * 负责管理模块的前端路由注册和注销
  */
 
-import type { RouteRecordRaw, Router } from 'vue-router';
+interface RouterLike {
+  addRoute(route: FrontendRouteConfig): void;
+  removeRoute(name: string): void;
+}
 
 /**
  * 前端路由配置
  */
-export interface FrontendRouteConfig extends RouteRecordRaw {
+export interface FrontendRouteConfig {
+  path: string;
+  name?: string | symbol;
+  component?: any;
+  redirect?: string;
+  children?: FrontendRouteConfig[];
   meta?: {
     title?: string;
     permission?: string;
@@ -16,6 +24,7 @@ export interface FrontendRouteConfig extends RouteRecordRaw {
     hidden?: boolean;
     [key: string]: any;
   };
+  [key: string]: any;
 }
 
 /**
@@ -31,14 +40,14 @@ export interface ModuleRouteInfo {
  * 前端路由管理器
  */
 export class FrontendRouteManager {
-  private router: Router | null = null;
+  private router: RouterLike | null = null;
   private moduleRoutes: Map<string, ModuleRouteInfo> = new Map();
   private routeNames: Map<string, string> = new Map(); // routeName -> moduleName
 
   /**
    * 设置 Vue Router 实例
    */
-  setRouter(router: Router): void {
+  setRouter(router: RouterLike): void {
     this.router = router;
   }
 
@@ -142,7 +151,7 @@ export class FrontendRouteManager {
   /**
    * 添加路由到 Vue Router
    */
-  addToRouter(router: Router): void {
+  addToRouter(router: RouterLike): void {
     this.router = router;
 
     // 添加所有已注册的路由

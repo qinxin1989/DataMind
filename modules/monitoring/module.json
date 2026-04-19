@@ -23,7 +23,7 @@
             "id": "monitoring",
             "title": "系统监控",
             "icon": "DashboardOutlined",
-            "path": "/system/status",
+            "path": "/ops/monitoring",
             "permission": "system:status:view",
             "parentId": "ops-management",
             "sortOrder": 650

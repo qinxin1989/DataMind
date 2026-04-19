@@ -24,7 +24,7 @@
     {
       "id": "datasource-management-menu",
       "title": "数据源管理",
-      "path": "/datasource",
+      "path": "/data/sources",
       "icon": "DatabaseOutlined",
       "parentId": "data-center",
       "sortOrder": 1,
@@ -33,7 +33,7 @@
     {
       "id": "datasource-approval-menu",
       "title": "数据源审核",
-      "path": "/datasource/approval",
+      "path": "/data/approval",
       "icon": "AuditOutlined",
       "parentId": "data-center",
       "sortOrder": 2,
