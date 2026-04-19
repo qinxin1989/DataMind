@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { createHash } from 'crypto';
-import { TableSchema, AIResponse } from '../types';
+import { TableSchema, ColumnInfo, AIResponse } from '../types';
 import { BaseDataSource } from '../datasource';
 import { ChatMessage } from '../store/configStore';
 import { skillsRegistry, SkillContext, SkillResult } from './skills';
@@ -4259,6 +4259,15 @@ ${schemaContext}${additionalContext}`
     const finalizedTables: any[] = [];
     const totalColumnCount = schemas.reduce((sum, t) => sum + t.columns.length, 0);
     const isSmallSchema = totalColumnCount <= 50 && schemas.length <= 5;
+    const shouldUseHeuristicAnalysis = schemas.length > 8 || totalColumnCount > 120;
+
+    if (shouldUseHeuristicAnalysis) {
+      const heuristicTables = schemas.slice(0, 100).map((tableSchema) => this.buildHeuristicTableAnalysis(tableSchema));
+      return {
+        tables: heuristicTables,
+        suggestedQuestions: this.generateChineseQuestions(schemas, heuristicTables),
+      };
+    }
 
     if (isSmallSchema) {
       // === 快速路径：小表合并为1次LLM调用（字段分析+问题生成一起） ===
@@ -4281,8 +4290,8 @@ ${schemaContext}${additionalContext}`
           },
           { role: 'user', content: JSON.stringify(schemaForAI) }
         ],
-        temperature: 0.2,
-        max_tokens: 4000,
+        temperature: 0.1,
+        max_tokens: 1600,
         response_format: { type: 'json_object' }
       })) as any;
 
@@ -4342,7 +4351,7 @@ ${schemaContext}${additionalContext}`
         console.log(`📊 分段分析 ${tableSchema.tableName}: ${totalColumns}字段, ${columnChunks.length}组`);
 
         const tableResults = await Promise.all(columnChunks.map(async (chunk, index) => {
-          const sampleCount = Math.min(tableSchema.sampleData?.length || 0, 5);
+          const sampleCount = Math.min(tableSchema.sampleData?.length || 0, 1);
           const schemaForAI = {
             tableName: tableSchema.tableName,
             columns: chunk.map(c => ({ name: c.name, type: c.type })),
@@ -4354,13 +4363,18 @@ ${schemaContext}${additionalContext}`
             messages: [
               {
                 role: 'system',
-                content: `分析数据表结构(第${index + 1}部分)，返回JSON:{"tableNameCn":"中文表名","columns":[{"name":"原字段名","nameCn":"中文名","description":"业务描述"}]}
-规则:name原样返回;nameCn简洁中文;description基于sampleData推断`
+                content: `分析数据表结构(第${index + 1}部分)，只返回精简JSON:
+{"tableNameCn":"中文表名","columns":[{"name":"原字段名","nameCn":"中文名","description":"简短说明"}]}
+规则:
+1. name 必须原样返回
+2. nameCn 使用简洁中文，不超过6个字
+3. description 仅给业务含义短语，不超过12个字
+4. 不要解释字段类型，不要输出额外文字`
               },
               { role: 'user', content: JSON.stringify(schemaForAI) }
             ],
             temperature: 0.1,
-            max_tokens: 4000,
+            max_tokens: 900,
             response_format: { type: 'json_object' }
           })) as any;
 
@@ -4398,10 +4412,13 @@ ${schemaContext}${additionalContext}`
 
     // 独立的全局问题生成（仅标准路径需要）
     let smartQuestions: string[] = [];
-    try {
-      smartQuestions = await this.generateSmartQuestions(schemas, finalizedTables);
-    } catch (e) {
-      console.error('AI 问题生成失败，使用回退逻辑:', e);
+    const shouldGenerateAiQuestions = schemas.length <= 6 && totalColumnCount <= 100;
+    if (shouldGenerateAiQuestions) {
+      try {
+        smartQuestions = await this.generateSmartQuestions(schemas, finalizedTables);
+      } catch (e) {
+        console.error('AI 问题生成失败，使用回退逻辑:', e);
+      }
     }
 
     return {
@@ -4410,6 +4427,66 @@ ${schemaContext}${additionalContext}`
         ? smartQuestions
         : this.generateChineseQuestions(schemas, finalizedTables)
     };
+  }
+
+  private buildHeuristicTableAnalysis(tableSchema: TableSchema) {
+    return {
+      tableName: tableSchema.tableName,
+      tableNameCn: this.guessTableNameCn(tableSchema.tableName),
+      columns: tableSchema.columns.map((column) => ({
+        name: column.name,
+        type: column.type,
+        nameCn: this.guessFieldNameCn(column, [tableSchema]),
+        description: this.guessFieldDescription(column, [tableSchema]),
+      })),
+    };
+  }
+
+  private guessFieldNameCn(column: ColumnInfo, schemas?: TableSchema[]): string {
+    if (!column?.name) return '字段';
+
+    const fieldName = column.name;
+    if (/[\u4e00-\u9fa5]/.test(fieldName)) {
+      return fieldName;
+    }
+
+    const mapped = this.getChineseFieldName(fieldName, schemas);
+    if (mapped && mapped !== fieldName) {
+      return mapped;
+    }
+
+    const pureName = fieldName.toLowerCase().includes('.') ? fieldName.toLowerCase().split('.').pop()! : fieldName.toLowerCase();
+    const parts = pureName.split(/[_\s]+/).filter(Boolean);
+    const translated = parts.map((part) => FIELD_NAME_MAP[part] || part.toUpperCase());
+    return translated.join('') || fieldName;
+  }
+
+  private guessFieldDescription(column: ColumnInfo, schemas?: TableSchema[]): string {
+    const comment = (column.comment || '').replace(/\(.*?\)|（.*?）/g, '').trim();
+    if (comment) {
+      return comment.slice(0, 24);
+    }
+
+    const nameCn = this.guessFieldNameCn(column, schemas);
+    const lowerName = column.name.toLowerCase();
+    const lowerType = column.type.toLowerCase();
+
+    if (column.isPrimaryKey || (lowerName.endsWith('id') && !lowerName.includes('身份'))) {
+      return `${nameCn}唯一标识`;
+    }
+    if (/(date|time|year|month|day|日期|时间)/i.test(lowerName) || /(date|time)/i.test(lowerType)) {
+      return `${nameCn}时间信息`;
+    }
+    if (/(status|type|category|region|province|city|状态|类型|分类|地区)/i.test(lowerName)) {
+      return `${nameCn}分类信息`;
+    }
+    if (/(int|decimal|float|double|number|bigint)/i.test(lowerType)) {
+      return `${nameCn}数值指标`;
+    }
+    if (/(char|text|json|blob)/i.test(lowerType)) {
+      return `${nameCn}文本信息`;
+    }
+    return `${nameCn}字段`;
   }
 
   // 提取关键字段信息
@@ -4539,8 +4616,8 @@ ${hasMultipleTables ? '- \ud83d\udd17 \u5173\u8054\u5206\u6790\uff1a\u8de8\u8868
           content: `\u6570\u636e\u6e90\u7ed3\u6784\u5982\u4e0b\uff1a\n\n${tableSummaries}`
         }
       ],
-      temperature: 0.6,
-      max_tokens: 2500,
+      temperature: 0.5,
+      max_tokens: 1000,
       response_format: { type: 'json_object' }
     }));
 

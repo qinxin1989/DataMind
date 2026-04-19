@@ -1,4 +1,4 @@
-import request, { del, get, post, put } from '../../../../admin-ui/src/api/request';
+import request, { aiPost, del, get, post, put } from '../../../../admin-ui/src/api/request';
 
 const BASE_URL = '/modules/universal-table';
 
@@ -110,7 +110,7 @@ export async function importStandardTableDrafts(files: File[], mode: 'rule' | 'a
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
   formData.append('mode', mode);
-  return request.post(`${BASE_URL}/standard-tables/import`, formData, {
+  return aiPost(`${BASE_URL}/standard-tables/import`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 }
@@ -144,11 +144,11 @@ export async function uploadProjectFiles(projectId: string, files: File[]) {
 }
 
 export async function classifyProjectFiles(projectId: string, mode: 'rule' | 'ai') {
-  return post<ProjectFileRecord[]>(`${BASE_URL}/projects/${projectId}/classify`, { mode });
+  return aiPost<ProjectFileRecord[]>(`${BASE_URL}/projects/${projectId}/classify`, { mode });
 }
 
 export async function prepareGroupSamples(projectId: string) {
-  return post(`${BASE_URL}/projects/${projectId}/group-samples`);
+  return aiPost(`${BASE_URL}/projects/${projectId}/group-samples`);
 }
 
 export async function assignProjectFile(fileId: string, standardTableId: string | null) {
@@ -156,11 +156,11 @@ export async function assignProjectFile(fileId: string, standardTableId: string 
 }
 
 export async function maskFile(fileId: string, mode: 'rule' | 'ai') {
-  return post<ProjectFileRecord>(`${BASE_URL}/files/${fileId}/mask`, { mode });
+  return aiPost<ProjectFileRecord>(`${BASE_URL}/files/${fileId}/mask`, { mode });
 }
 
 export async function generateTestData(fileId: string, mode: 'rule' | 'ai', count?: number) {
-  return post<ProjectFileRecord>(`${BASE_URL}/files/${fileId}/test-data`, { mode, count });
+  return aiPost<ProjectFileRecord>(`${BASE_URL}/files/${fileId}/test-data`, { mode, count });
 }
 
 export function getArtifactDownloadUrl(fileId: string, kind: 'masked' | 'test') {
@@ -189,11 +189,11 @@ export async function generateScript(payload: {
   useAi?: boolean;
   name?: string;
 }) {
-  return post<CollectionScriptRecord>(`${BASE_URL}/scripts/generate`, payload);
+  return aiPost<CollectionScriptRecord>(`${BASE_URL}/scripts/generate`, payload);
 }
 
 export async function runScript(scriptId: string, fileIds?: string[]) {
-  return post<CollectionResultRecord[]>(`${BASE_URL}/scripts/${scriptId}/run`, { fileIds });
+  return aiPost<CollectionResultRecord[]>(`${BASE_URL}/scripts/${scriptId}/run`, { fileIds });
 }
 
 export async function getResults(projectId: string) {

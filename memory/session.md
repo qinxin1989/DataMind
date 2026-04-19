@@ -46,3 +46,4 @@
 - Python 运行时依赖 `openpyxl` / `python-docx` / `pdfplumber` / `reportlab`，已写入 `modules/universal-table/backend/python/requirements.txt`
 - 已定位 AI 脱敏/测试时前端“网络错误”的主要原因：开发模式 `tsx watch --include modules` 监听了 `modules/`，而 Python 脚本运行时在 `modules/universal-table/backend/python/` 生成 `__pycache__`，触发后端热重启，导致请求中断
 - 已在 `modules/universal-table/backend/service.ts` 中为 Python 子进程增加 `-B` 和 `PYTHONDONTWRITEBYTECODE=1`，避免再因字节码文件写入触发模块整轮刷新
+- 已定位 AI 批量识别表头弹“请求超时，请稍后重试”的原因：`modules/universal-table/frontend/api/index.ts` 仍走 30 秒普通请求实例；现已切换批量识别、分类、样本生成、脱敏、测试数据、脚本生成和执行到 `aiPost` 长超时请求
