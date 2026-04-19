@@ -6,6 +6,7 @@ export class MySQLDataSource extends BaseDataSource {
   private pool: mysql.Pool | null = null;
   private connection: mysql.Connection | null = null;
   private config: DatabaseConfig;
+  private readonly allowedTables: string[];
 
   private readonly queryTimeoutMs: number;
   private readonly slowQueryThresholdMs: number;
@@ -15,6 +16,7 @@ export class MySQLDataSource extends BaseDataSource {
   constructor(config: DatabaseConfig) {
     super();
     this.config = config;
+    this.allowedTables = Array.isArray(config.allowedTables) ? config.allowedTables.filter(Boolean) : [];
 
     // 默认：查询超时 120s，慢查询阈值 2000ms，日志默认开启
     const timeoutSec = Number(process.env.DATAMIND_MYSQL_QUERY_TIMEOUT_SECONDS ?? '120');
@@ -28,6 +30,47 @@ export class MySQLDataSource extends BaseDataSource {
 
     const explainEnv = (process.env.DATAMIND_MYSQL_EXPLAIN_SLOW ?? '0').toLowerCase();
     this.explainOnSlowQuery = !(explainEnv === '0' || explainEnv === 'false' || explainEnv === 'off');
+  }
+
+  private getVisibleTablesQuery() {
+    if (this.allowedTables.length > 0) {
+      return {
+        sql: `SELECT TABLE_NAME FROM information_schema.TABLES 
+              WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (?)`,
+        params: [this.config.database, this.allowedTables],
+      };
+    }
+
+    return {
+      sql: `SELECT TABLE_NAME FROM information_schema.TABLES 
+            WHERE TABLE_SCHEMA = ? 
+            AND TABLE_NAME NOT IN ('datasource_config', 'chat_history')`,
+      params: [this.config.database],
+    };
+  }
+
+  private extractReferencedTables(sql: string): string[] {
+    const tables = new Set<string>();
+    const regex = /\b(?:from|join)\s+`?([a-zA-Z0-9_]+)`?/gi;
+    let match: RegExpExecArray | null = null;
+    while ((match = regex.exec(sql)) !== null) {
+      if (match[1]) {
+        tables.add(match[1]);
+      }
+    }
+    return Array.from(tables);
+  }
+
+  private validateAllowedTables(sql: string): void {
+    if (this.allowedTables.length === 0) {
+      return;
+    }
+
+    const referencedTables = this.extractReferencedTables(sql);
+    const blockedTables = referencedTables.filter((table) => !this.allowedTables.includes(table));
+    if (blockedTables.length > 0) {
+      throw new Error(`查询包含未授权表: ${blockedTables.join(', ')}`);
+    }
   }
 
   async connect(): Promise<void> {
@@ -100,12 +143,8 @@ export class MySQLDataSource extends BaseDataSource {
     if (!this.connection) await this.connect();
 
     // 1. 查询所有表名 (1 次查询)
-    const [tables] = await this.connection!.query(
-      `SELECT TABLE_NAME FROM information_schema.TABLES 
-       WHERE TABLE_SCHEMA = ? 
-       AND TABLE_NAME NOT IN ('datasource_config', 'chat_history')`,
-      [this.config.database]
-    );
+    const visibleTablesQuery = this.getVisibleTablesQuery();
+    const [tables] = await this.connection!.query(visibleTablesQuery.sql, visibleTablesQuery.params);
 
     const tableNames = (tables as any[]).map(t => t.TABLE_NAME);
     if (tableNames.length === 0) return [];
@@ -158,6 +197,7 @@ export class MySQLDataSource extends BaseDataSource {
   async executeQuery(sql: string, signal?: AbortSignal): Promise<QueryResult> {
     try {
       if (!this.pool) await this.connect();
+      this.validateAllowedTables(sql);
       
       const start = Date.now();
 
@@ -251,6 +291,7 @@ export class MySQLDataSource extends BaseDataSource {
         try {
           console.warn(`[MySQLDataSource] 连接已关闭，重试一次: ${msg}`);
           if (!this.pool) await this.connect();
+          this.validateAllowedTables(sql);
           const retryConn = await this.pool!.getConnection();
           try {
             const [rows] = await retryConn.query({ sql, timeout: this.queryTimeoutMs });

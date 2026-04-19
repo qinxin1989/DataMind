@@ -74,6 +74,7 @@ export interface DatabaseConfig {
   user: string;
   password: string;
   database: string;
+  allowedTables?: string[];
 }
 
 export interface FileConfig {

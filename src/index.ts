@@ -650,6 +650,23 @@ app.use('/api/modules/official-doc', authMiddleware, async (req, res, next) => {
   }
 });
 
+let universalTableRouter: any = null;
+app.use('/api/modules/universal-table', authMiddleware, async (req, res, next) => {
+  try {
+    if (!universalTableRouter) {
+      const { createUniversalTableRoutes } = await import('../modules/universal-table/backend/routes');
+      const { UniversalTableService } = await import('../modules/universal-table/backend/service');
+      const universalTableService = new UniversalTableService(configStore.pool as any);
+      await universalTableService.initTables();
+      universalTableRouter = createUniversalTableRoutes(universalTableService);
+    }
+    universalTableRouter(req, res, next);
+  } catch (error) {
+    console.error('万表归一模块路由加载失败:', error);
+    res.status(500).json({ error: '万表归一服务不可用' });
+  }
+});
+
 
 // ========== Agent Chat SSE 端点 ==========
 import { runAgentLoop, AgentSSEEvent } from './agent/agentLoop';

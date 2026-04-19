@@ -1,0 +1,60 @@
+{
+  "name": "universal-table",
+  "displayName": "万表归一",
+  "version": "1.0.0",
+  "description": "项目化文件采集、标准表映射、脱敏与采集脚本生成模块",
+  "author": "System",
+  "license": "MIT",
+  "type": "business",
+  "category": "data-collection",
+  "tags": [
+    "collection",
+    "standard-table",
+    "desensitize",
+    "python",
+    "mapping"
+  ],
+  "dependencies": {},
+  "backend": {
+    "entry": "./backend/index.ts",
+    "migrations": {
+      "directory": "./backend/migrations",
+      "tableName": "module_migrations"
+    }
+  },
+  "frontend": {
+    "integration": "module",
+    "entry": "./frontend/index.ts",
+    "routes": "./frontend/routes.ts"
+  },
+  "menus": [
+    {
+      "id": "universal-table-main",
+      "title": "万表归一",
+      "path": "/collection/universal-table",
+      "icon": "PartitionOutlined",
+      "parentId": "data-collection",
+      "sortOrder": 5,
+      "permission": "universal-table:view"
+    }
+  ],
+  "permissions": [
+    {
+      "code": "universal-table:view",
+      "name": "查看万表归一",
+      "description": "查看项目化采集与标准表映射工作台"
+    },
+    {
+      "code": "universal-table:manage",
+      "name": "管理万表归一",
+      "description": "管理标准表、项目文件和采集脚本"
+    },
+    {
+      "code": "universal-table:execute",
+      "name": "执行采集脚本",
+      "description": "执行脱敏、测试数据和 Python 采集脚本"
+    }
+  ],
+  "enabled": true,
+  "installed": true
+}

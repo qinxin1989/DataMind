@@ -364,7 +364,12 @@ export class ConfigStore {
     if (row.host || row.file_path) {
       // 使用新的拆分列构建 config
       if (row.type === 'mysql' || row.type === 'postgres') {
+        let jsonConfig: any = {};
+        try {
+          jsonConfig = typeof row.config === 'string' ? JSON.parse(row.config) : (row.config || {});
+        } catch (e) { }
         config = {
+          ...jsonConfig,
           host: row.host,
           port: row.port,
           user: row.db_user,

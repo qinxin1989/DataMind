@@ -12,6 +12,7 @@ const moduleRouteLoaders: Record<string, ModuleRouteLoader> = {
   'efficiency-tools': () => import('../../../modules/efficiency-tools/frontend/routes.ts'),
   'file-tools': () => import('../../../modules/file-tools/frontend/routes.ts'),
   'official-doc': () => import('../../../modules/official-doc/frontend/routes.ts'),
+  'universal-table': () => import('../../../modules/universal-table/frontend/routes.ts'),
 }
 
 const installedModuleRoutes = new Map<string, string[]>()
