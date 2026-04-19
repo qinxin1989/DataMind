@@ -4249,54 +4249,56 @@ ${schemaContext}${additionalContext}`
     return chunks;
   }
 
-  // Schema分析 - 优化版：小表(总字段≤50)合并为1次LLM调用
+  // Schema分析 - 优化版：小中型 schema 尽量合并为一次 AI 调用，超时则快速回退到规则识别
   async analyzeSchema(schemas: TableSchema[]): Promise<{
     tables: { tableName: string; tableNameCn: string; columns: { name: string; type: string; nameCn: string; description: string }[] }[];
     suggestedQuestions: string[];
   }> {
     await this.ensureInitialized();
 
-    const finalizedTables: any[] = [];
-    const totalColumnCount = schemas.reduce((sum, t) => sum + t.columns.length, 0);
-    const isSmallSchema = totalColumnCount <= 50 && schemas.length <= 5;
-    const shouldUseHeuristicAnalysis = schemas.length > 8 || totalColumnCount > 120;
-
-    if (shouldUseHeuristicAnalysis) {
-      const heuristicTables = schemas.slice(0, 100).map((tableSchema) => this.buildHeuristicTableAnalysis(tableSchema));
-      return {
-        tables: heuristicTables,
-        suggestedQuestions: this.generateChineseQuestions(schemas, heuristicTables),
-      };
+    if (schemas.length === 0) {
+      return { tables: [], suggestedQuestions: [] };
     }
 
-    if (isSmallSchema) {
-      // === 快速路径：小表合并为1次LLM调用（字段分析+问题生成一起） ===
+    const finalizedTables: any[] = [];
+    const totalColumnCount = schemas.reduce((sum, t) => sum + t.columns.length, 0);
+    const canUseSingleAiBatch = totalColumnCount <= 80 && schemas.length <= 10;
+    const shouldUseHeuristicAnalysis = schemas.length > 12 || totalColumnCount > 160;
+
+    if (shouldUseHeuristicAnalysis) {
+      return this.buildHeuristicAnalysisResult(schemas);
+    }
+
+    if (canUseSingleAiBatch) {
+      // === 快速路径：小中型 schema 合并为1次 AI 调用（字段分析+问题生成一起） ===
       console.log(`📊 快速分析模式: ${schemas.length}表, ${totalColumnCount}字段, 合并为1次AI调用`);
 
-      const schemaForAI = schemas.slice(0, 5).map(t => ({
+      const schemaForAI = schemas.slice(0, 10).map(t => ({
         tableName: t.tableName,
         columns: t.columns.map(c => ({ name: c.name, type: c.type })),
-        sampleData: t.sampleData?.slice(0, 3) || []
+        sampleData: t.sampleData?.slice(0, 1) || []
       }));
 
-      const response = await this.callWithRetry(() => this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          {
-            role: 'system',
-            content: `分析数据表结构，返回JSON:
-{"tables":[{"tableName":"原表名","tableNameCn":"中文名","columns":[{"name":"原字段名","nameCn":"中文名","description":"业务描述"}]}],"questions":["12-15个自然语言业务分析问题"]}
-规则:name原样返回;nameCn简洁中文;questions要有分析价值,口语化,≤25字;覆盖排名/分布/趋势/对比等维度`
-          },
-          { role: 'user', content: JSON.stringify(schemaForAI) }
-        ],
-        temperature: 0.1,
-        max_tokens: 1600,
-        response_format: { type: 'json_object' }
-      })) as any;
-
-      const content = response.choices[0].message.content || '{}';
       try {
+        const response = await this.callSchemaAnalysisRequest({
+          messages: [
+            {
+              role: 'system',
+              content: `分析数据表结构，返回JSON:
+{"tables":[{"tableName":"原表名","tableNameCn":"中文名","columns":[{"name":"原字段名","nameCn":"中文名","description":"业务描述"}]}],"questions":["8-10个自然语言业务分析问题"]}
+规则:
+1. name 必须原样返回
+2. nameCn 使用简洁中文，不超过6个字
+3. description 仅给业务含义短语，不超过12个字
+4. questions 只生成 8-10 个，口语化且不超过18个字
+5. 不要解释字段类型，不要输出额外文字`
+            },
+            { role: 'user', content: JSON.stringify(schemaForAI) }
+          ],
+          maxTokens: 1800,
+        }) as any;
+
+        const content = response.choices[0].message.content || '{}';
         const parsed = JSON.parse(content);
         const aiTables = parsed.tables || [];
 
@@ -4331,9 +4333,9 @@ ${schemaContext}${additionalContext}`
             ? smartQuestions.slice(0, 15)
             : this.generateChineseQuestions(schemas, finalizedTables)
         };
-      } catch (e) {
-        console.error('快速分析解析失败，回退到标准模式:', e);
-        // 回退到下面的标准模式
+      } catch (e: any) {
+        console.error(`快速分析失败，回退到规则模式: ${e?.message || e}`);
+        return this.buildHeuristicAnalysisResult(schemas);
       }
     }
 
@@ -4358,32 +4360,32 @@ ${schemaContext}${additionalContext}`
             sampleData: tableSchema.sampleData?.slice(0, sampleCount) || []
           };
 
-          const response = await this.callWithRetry(() => this.openai.chat.completions.create({
-            model: this.model,
-            messages: [
-              {
-                role: 'system',
-                content: `分析数据表结构(第${index + 1}部分)，只返回精简JSON:
+          try {
+            const response = await this.callSchemaAnalysisRequest({
+              messages: [
+                {
+                  role: 'system',
+                  content: `分析数据表结构(第${index + 1}部分)，只返回精简JSON:
 {"tableNameCn":"中文表名","columns":[{"name":"原字段名","nameCn":"中文名","description":"简短说明"}]}
 规则:
 1. name 必须原样返回
 2. nameCn 使用简洁中文，不超过6个字
 3. description 仅给业务含义短语，不超过12个字
 4. 不要解释字段类型，不要输出额外文字`
-              },
-              { role: 'user', content: JSON.stringify(schemaForAI) }
-            ],
-            temperature: 0.1,
-            max_tokens: 900,
-            response_format: { type: 'json_object' }
-          })) as any;
+                },
+                { role: 'user', content: JSON.stringify(schemaForAI) }
+              ],
+              maxTokens: 900,
+            }) as any;
 
-          const content = response.choices[0].message.content || '{}';
-          try {
+            const content = response.choices[0].message.content || '{}';
             return JSON.parse(content);
-          } catch (e) {
-            console.error(`Failed to parse chunk ${index} for table ${tableSchema.tableName}`);
-            return { columns: [] };
+          } catch (error: any) {
+            console.warn(`⚠️ 表 ${tableSchema.tableName} 第 ${index + 1} 段 AI 分析失败，回退规则识别: ${error?.message || error}`);
+            return {
+              tableNameCn: this.guessTableNameCn(tableSchema.tableName),
+              columns: chunk.map((column) => this.buildHeuristicColumnAnalysis(column, tableSchema)),
+            };
           }
         }));
 
@@ -4412,7 +4414,7 @@ ${schemaContext}${additionalContext}`
 
     // 独立的全局问题生成（仅标准路径需要）
     let smartQuestions: string[] = [];
-    const shouldGenerateAiQuestions = schemas.length <= 6 && totalColumnCount <= 100;
+    const shouldGenerateAiQuestions = schemas.length <= 5 && totalColumnCount <= 60;
     if (shouldGenerateAiQuestions) {
       try {
         smartQuestions = await this.generateSmartQuestions(schemas, finalizedTables);
@@ -4429,16 +4431,70 @@ ${schemaContext}${additionalContext}`
     };
   }
 
+  private buildHeuristicAnalysisResult(schemas: TableSchema[]) {
+    const heuristicTables = schemas.slice(0, 100).map((tableSchema) => this.buildHeuristicTableAnalysis(tableSchema));
+    return {
+      tables: heuristicTables,
+      suggestedQuestions: this.generateChineseQuestions(schemas, heuristicTables),
+    };
+  }
+
+  private getSchemaAnalysisTimeoutMs(): number {
+    const sec = Number(process.env.DATAMIND_SCHEMA_ANALYSIS_TIMEOUT_SECONDS ?? '20');
+    const ms = Number.isFinite(sec) && sec > 0 ? sec * 1000 : 20_000;
+    return Math.min(Math.max(ms, 5_000), 60_000);
+  }
+
+  private async callSchemaAnalysisRequest(payload: {
+    messages: { role: 'system' | 'user' | 'assistant'; content: string }[];
+    maxTokens: number;
+    temperature?: number;
+  }) {
+    const timeoutMs = this.getSchemaAnalysisTimeoutMs();
+    const controller = new AbortController();
+    let timeoutTriggered = false;
+    const timeoutId = setTimeout(() => {
+      timeoutTriggered = true;
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      return await this.callWithRetryWithSignal(
+        (signal) => (this.openai.chat.completions as any).create({
+          model: this.model,
+          messages: payload.messages,
+          temperature: payload.temperature ?? 0.1,
+          max_tokens: payload.maxTokens,
+          response_format: { type: 'json_object' }
+        }, { signal }),
+        1,
+        controller.signal
+      );
+    } catch (error: any) {
+      const errorMsg = error?.message || String(error);
+      if (timeoutTriggered || controller.signal.aborted || errorMsg.includes('aborted') || errorMsg.includes('cancelled')) {
+        throw new Error(`schema analysis timeout ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private buildHeuristicColumnAnalysis(column: ColumnInfo, tableSchema: TableSchema) {
+    return {
+      name: column.name,
+      type: column.type,
+      nameCn: this.guessFieldNameCn(column, [tableSchema]),
+      description: this.guessFieldDescription(column, [tableSchema]),
+    };
+  }
+
   private buildHeuristicTableAnalysis(tableSchema: TableSchema) {
     return {
       tableName: tableSchema.tableName,
       tableNameCn: this.guessTableNameCn(tableSchema.tableName),
-      columns: tableSchema.columns.map((column) => ({
-        name: column.name,
-        type: column.type,
-        nameCn: this.guessFieldNameCn(column, [tableSchema]),
-        description: this.guessFieldDescription(column, [tableSchema]),
-      })),
+      columns: tableSchema.columns.map((column) => this.buildHeuristicColumnAnalysis(column, tableSchema)),
     };
   }
 
@@ -4575,12 +4631,11 @@ ${schemaContext}${additionalContext}`
 
     const hasMultipleTables = schemas.length > 1;
 
-    const response = await this.callWithRetry(() => this.openai.chat.completions.create({
-      model: this.model,
+    const response = await this.callSchemaAnalysisRequest({
       messages: [
         {
           role: 'system',
-          content: `\u4f60\u662f\u4e00\u4f4d\u8d44\u6df1\u6570\u636e\u5206\u6790\u5e08\u3002\u7528\u6237\u521a\u8fde\u63a5\u4e86\u4e00\u4e2a\u6570\u636e\u6e90\uff0c\u4f60\u9700\u8981\u5e2e\u4ed6\u60f3\u51fa 12~15 \u4e2a\u4ed6\u53ef\u80fd\u611f\u5174\u8da3\u7684\u5206\u6790\u95ee\u9898\u3002
+          content: `\u4f60\u662f\u4e00\u4f4d\u8d44\u6df1\u6570\u636e\u5206\u6790\u5e08\u3002\u7528\u6237\u521a\u8fde\u63a5\u4e86\u4e00\u4e2a\u6570\u636e\u6e90\uff0c\u4f60\u9700\u8981\u5e2e\u4ed6\u60f3\u51fa 8~10 \u4e2a\u4ed6\u53ef\u80fd\u611f\u5174\u8da3\u7684\u5206\u6790\u95ee\u9898\u3002
 
 **\u8981\u6c42\uff1a**
 1. \u95ee\u9898\u8981\u50cf\u6b63\u5e38\u4eba\u804a\u5929\u4e00\u6837\u81ea\u7136\u53e3\u8bed\u5316\uff0c\u4e0d\u8981\u50cf SQL \u7ec3\u4e60\u9898
@@ -4617,9 +4672,8 @@ ${hasMultipleTables ? '- \ud83d\udd17 \u5173\u8054\u5206\u6790\uff1a\u8de8\u8868
         }
       ],
       temperature: 0.5,
-      max_tokens: 1000,
-      response_format: { type: 'json_object' }
-    }));
+      maxTokens: 800,
+    }) as any;
 
     const content = response.choices[0].message.content || '{}';
     console.log('AI 问题生成原始返回:', content.slice(0, 300));
