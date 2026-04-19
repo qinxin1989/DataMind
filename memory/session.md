@@ -44,3 +44,5 @@
 - 数据采集中心已具备“建标准表 → 建项目 → 上传分类 → 按类生成脱敏/测试样本 → 生成/运行 Python 采集脚本 → 人工确认映射”的基本工作台
 - 采集结果现在会自动入库，并按项目+标准表形成单独分析数据源，可直接供后续 Agent 加载业务技能使用
 - Python 运行时依赖 `openpyxl` / `python-docx` / `pdfplumber` / `reportlab`，已写入 `modules/universal-table/backend/python/requirements.txt`
+- 已定位 AI 脱敏/测试时前端“网络错误”的主要原因：开发模式 `tsx watch --include modules` 监听了 `modules/`，而 Python 脚本运行时在 `modules/universal-table/backend/python/` 生成 `__pycache__`，触发后端热重启，导致请求中断
+- 已在 `modules/universal-table/backend/service.ts` 中为 Python 子进程增加 `-B` 和 `PYTHONDONTWRITEBYTECODE=1`，避免再因字节码文件写入触发模块整轮刷新

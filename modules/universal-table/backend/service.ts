@@ -632,12 +632,24 @@ export class UniversalTableService {
     return candidates[0];
   }
 
-  private async runPythonScript(args: string[]): Promise<any> {
-    const python = this.resolvePythonExecutable();
-    const { stdout, stderr } = await execFileAsync(python, [this.pythonScriptPath, ...args], {
+  private buildPythonExecOptions() {
+    return {
       cwd: process.cwd(),
       maxBuffer: 20 * 1024 * 1024,
-    });
+      env: {
+        ...process.env,
+        PYTHONDONTWRITEBYTECODE: '1',
+      },
+    };
+  }
+
+  private async runPythonScript(args: string[]): Promise<any> {
+    const python = this.resolvePythonExecutable();
+    const { stdout, stderr } = await execFileAsync(
+      python,
+      ['-B', this.pythonScriptPath, ...args],
+      this.buildPythonExecOptions(),
+    );
 
     const output = stdout?.trim() || stderr?.trim();
     if (!output) {
@@ -1453,10 +1465,11 @@ export class UniversalTableService {
 
       try {
         const python = this.resolvePythonExecutable();
-        await execFileAsync(python, [scriptPath, '--input', tempInput, '--output', outputPath], {
-          cwd: process.cwd(),
-          maxBuffer: 20 * 1024 * 1024,
-        });
+        await execFileAsync(
+          python,
+          ['-B', scriptPath, '--input', tempInput, '--output', outputPath],
+          this.buildPythonExecOptions(),
+        );
 
         const payload = safeJsonParse<any>(fs.readFileSync(outputPath, 'utf8'), {});
         const outputHeaders = Array.isArray(payload.headers)
